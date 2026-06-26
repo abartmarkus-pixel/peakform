@@ -173,7 +173,12 @@ export default function Profile() {
   }
 
   function updateSportConfig(key: string, patch: Partial<SportConfig>) {
-    setSportConfigs(prev => prev.map(s => s.type === key ? { ...s, ...patch } : s))
+    if (patch.days !== undefined && patch.days <= 0) {
+      setSportConfigs(prev => prev.filter(s => s.type !== key))
+      setFocusedSport(null)
+    } else {
+      setSportConfigs(prev => prev.map(s => s.type === key ? { ...s, ...patch } : s))
+    }
   }
 
   function toggleGoal(goal: string) {
@@ -288,7 +293,7 @@ export default function Profile() {
                           value={config.days}
                           onDec={() => updateSportConfig(focusedSport!, { days: config.days - 1 })}
                           onInc={() => updateSportConfig(focusedSport!, { days: config.days + 1 })}
-                          disableDec={config.days <= 1}
+                          disableDec={false}
                           disableInc={trainingDaysNum > 0 && totalDays >= trainingDaysNum}
                         />
                         <span className="text-xs text-slate-500">
