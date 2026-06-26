@@ -1,0 +1,145 @@
+import type { Athlete } from './supabase'
+import { supabase } from './supabase'
+
+const CLIENT_ID = import.meta.env.VITE_STRAVA_CLIENT_ID as string
+const REDIRECT_URI = import.meta.env.VITE_STRAVA_REDIRECT_URI as string
+
+export const STRAVA_AUTH_URL =
+  `https://www.strava.com/oauth/authorize` +
+  `?client_id=${CLIENT_ID}` +
+  `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+  `&response_type=code` +
+  `&scope=read,activity:read_all`
+
+export type StravaActivity = {
+  id: number
+  name: string
+  type: string
+  start_date: string
+  distance: number
+  moving_time: number
+  average_heartrate?: number
+  max_heartrate?: number
+  weighted_average_watts?: number
+}
+
+export type StravaTokenResponse = {
+  access_token: string
+  refresh_token: string
+  expires_at: number
+  athlete: { id: number }
+}
+
+export async function exchangeCodeForToken(code: string): Promise<StravaTokenResponse> {
+  const res = await fetch('https://www.strava.com/oauth/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_id: import.meta.env.VITE_STRAVA_CLIENT_ID,
+      client_secret: import.meta.env.VITE_STRAVA_CLIENT_SECRET,
+      code,
+      grant_type: 'authorization_code',
+    }),
+  })
+  if (!res.ok) throw new Error('Token exchange failed')
+  return res.json()
+}
+
+export async function fetchRecentActivities(accessToken: string): Promise<StravaActivity[]> {
+  const res = await fetch(
+    'https://www.strava.com/api/v3/athlete/activities?per_page=10',
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  )
+  if (!res.ok) throw new Error('Failed to fetch activities')
+  return res.json()
+}
+
+export type StravaLap = {
+  lap_index: number
+  name: string
+  elapsed_time: number
+  distance: number
+  average_speed: number
+  average_heartrate?: number
+  max_heartrate?: number
+  average_watts?: number
+  average_cadence?: number
+}
+
+export async function fetchActivityLaps(
+  accessToken: string,
+  activityId: number,
+): Promise<StravaLap[]> {
+  const res = await fetch(
+    `https://www.strava.com/api/v3/activities/${activityId}/laps`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  )
+  if (!res.ok) throw new Error('Failed to fetch laps')
+  return res.json()
+}
+
+export async function fetchActivityDetail(
+  accessToken: string,
+  activityId: number,
+): Promise<{ description?: string }> {
+  const res = await fetch(
+    `https://www.strava.com/api/v3/activities/${activityId}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  )
+  if (!res.ok) throw new Error('Failed to fetch activity detail')
+  return res.json()
+}
+
+export async function fetchActivityStreams(
+  accessToken: string,
+  activityId: number,
+): Promise<Record<string, unknown>> {
+  const keys = 'time,heartrate,altitude,velocity_smooth,watts,cadence'
+  const res = await fetch(
+    `https://www.strava.com/api/v3/activities/${activityId}/streams?keys=${keys}&key_by_type=true`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  )
+  if (!res.ok) throw new Error('Failed to fetch streams')
+  return res.json()
+}
+
+type RefreshResult = {
+  access_token: string
+  refresh_token: string
+  expires_at: number
+}
+
+async function refreshAccessToken(refreshToken: string): Promise<RefreshResult> {
+  const res = await fetch('https://www.strava.com/oauth/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_id: import.meta.env.VITE_STRAVA_CLIENT_ID,
+      client_secret: import.meta.env.VITE_STRAVA_CLIENT_SECRET,
+      refresh_token: refreshToken,
+      grant_type: 'refresh_token',
+    }),
+  })
+  if (!res.ok) throw new Error('Token refresh failed')
+  return res.json()
+}
+
+// Returns a valid access token, refreshing automatically if expired (with 60s buffer).
+export async function getValidAccessToken(athlete: Athlete): Promise<string> {
+  const expiresAt = athlete.expires_at ? new Date(athlete.expires_at).getTime() : 0
+  const isExpired = Date.now() >= expiresAt - 60_000
+
+  if (!isExpired) return athlete.strava_access_token
+
+  const refreshed = await refreshAccessToken(athlete.strava_refresh_token)
+  await supabase
+    .from('athletes')
+    .update({
+      strava_access_token: refreshed.access_token,
+      strava_refresh_token: refreshed.refresh_token,
+      expires_at: new Date(refreshed.expires_at * 1000).toISOString(),
+    })
+    .eq('strava_athlete_id', athlete.strava_athlete_id)
+
+  return refreshed.access_token
+}
