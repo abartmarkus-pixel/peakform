@@ -84,7 +84,7 @@ export default defineConfig(({ mode }) => {
               req.on('data', (chunk: Buffer) => { body += chunk.toString() })
               req.on('end', async () => {
                 try {
-                  const { prompt, max_tokens } = JSON.parse(body) as { prompt: string; max_tokens?: number }
+                  const { prompt, max_tokens, system } = JSON.parse(body) as { prompt: string; max_tokens?: number; system?: string }
                   if (!prompt || prompt.length > MAX_PROMPT_CHARS) {
                     res.statusCode = 400
                     res.end(JSON.stringify({ error: 'Invalid prompt' })); return
@@ -100,6 +100,7 @@ export default defineConfig(({ mode }) => {
                     body: JSON.stringify({
                       model: 'claude-sonnet-4-6',
                       max_tokens: Math.min(max_tokens ?? 1024, MAX_TOKENS_CAP),
+                      ...(system && { system }),
                       messages: [{ role: 'user', content: prompt }],
                     }),
                   })

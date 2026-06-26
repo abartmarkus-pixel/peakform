@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase, type Athlete, type WeeklyPlan, type Activity, type SportConfig } from '../lib/supabase'
 import { buildCoachContext } from '../lib/coachContext'
+import { COACH_SYSTEM_PROMPT } from '../lib/coachPrompt'
 
 // ── types ──────────────────────────────────────────────────────────────────
 
@@ -313,7 +314,7 @@ export default function WeeklyPlan() {
 
 ---
 
-Du bist ein erfahrener Ausdauer- und Krafttrainer. Erstelle den Wochenplan für die Woche vom ${monday8} bis ${sunday8}.
+Erstelle den Wochenplan für die Woche vom ${monday8} bis ${sunday8}.
 
 HARTE REGELN (nicht verhandelbar):
 1. Gesamttage: Der Plan enthält exakt ${trainingDays} Trainingstage und ${restDays} Ruhetage.
@@ -350,7 +351,7 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, 
       const res = await fetch('/api/analyse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, max_tokens: 2048 }),
+        body: JSON.stringify({ prompt, max_tokens: 2048, system: COACH_SYSTEM_PROMPT }),
       })
       if (!res.ok) throw new Error('API Fehler')
       const { text } = await res.json() as { text: string }
@@ -435,7 +436,7 @@ Antworte AUSSCHLIESSLICH mit diesem JSON (kein Text davor/danach, kein Markdown)
       const res = await fetch('/api/analyse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, max_tokens: 3000 }),
+        body: JSON.stringify({ prompt, max_tokens: 3000, system: COACH_SYSTEM_PROMPT }),
       })
       if (!res.ok) throw new Error('API Fehler')
       const { text } = await res.json() as { text: string }

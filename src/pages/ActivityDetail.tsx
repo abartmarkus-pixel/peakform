@@ -10,6 +10,7 @@ import {
   CartesianGrid,
 } from 'recharts'
 import { fetchActivityStreams, fetchActivityLaps, fetchActivityDetail, getValidAccessToken, type StravaLap } from '../lib/strava'
+import { COACH_SYSTEM_PROMPT } from '../lib/coachPrompt'
 import { supabase, type Activity, type Athlete } from '../lib/supabase'
 
 // ── types ────────────────────────────────────────────────────────────────────
@@ -394,7 +395,7 @@ export default function ActivityDetail() {
     if (!activity) return
     setAnalysing(true)
     try {
-      const prompt = `Du bist ein professioneller Ausdauertrainer. Analysiere diese Trainingsaktivität${athleteName ? ` von ${athleteName}` : ''}:
+      const prompt = `Analysiere diese Trainingsaktivität${athleteName ? ` von ${athleteName}` : ''}:
 
 Name: ${activity.name}
 Typ: ${activity.type}
@@ -442,7 +443,7 @@ ${exercises.length > 0
       const res = await fetch('/api/analyse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({ prompt, system: COACH_SYSTEM_PROMPT }),
       })
       if (!res.ok) throw new Error('Claude API Fehler')
       const json = await res.json() as { text: string }

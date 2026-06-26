@@ -6,7 +6,7 @@ const MAX_TOKENS_CAP   = 4_096
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
-  const { prompt, max_tokens } = req.body as { prompt: string; max_tokens?: number }
+  const { prompt, max_tokens, system } = req.body as { prompt: string; max_tokens?: number; system?: string }
   if (!prompt) return res.status(400).json({ error: 'Missing prompt' })
   if (prompt.length > MAX_PROMPT_CHARS) return res.status(400).json({ error: 'Prompt too large' })
 
@@ -23,6 +23,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
       max_tokens: Math.min(max_tokens ?? 1024, MAX_TOKENS_CAP),
+      ...(system && { system }),
       messages: [{ role: 'user', content: prompt }],
     }),
   })

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase, type Athlete, type ChatMessage } from '../lib/supabase'
 import { buildCoachContext } from '../lib/coachContext'
+import { COACH_SYSTEM_PROMPT } from '../lib/coachPrompt'
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -140,13 +141,13 @@ export default function Chat() {
 
 ---
 
-Du bist der persönliche Trainingscoach dieses Athleten. Antworte auf seine letzte Nachricht — direkt, konkret und auf Deutsch. Beziehe dich auf seine spezifischen Daten aus dem obigen Kontext. Keine allgemeinen Ratschläge.`
+Antworte auf die letzte Nachricht des Athleten. Beziehe dich auf seine spezifischen Daten aus dem obigen Kontext. Keine allgemeinen Ratschläge.`
 
       // 4. Call Claude
       const res = await fetch('/api/analyse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, max_tokens: 1024 }),
+        body: JSON.stringify({ prompt, max_tokens: 1024, system: COACH_SYSTEM_PROMPT }),
       })
       if (!res.ok) throw new Error('Claude API Fehler')
       const { text } = await res.json() as { text: string }
