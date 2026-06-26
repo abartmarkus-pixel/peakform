@@ -31,15 +31,10 @@ export type StravaTokenResponse = {
 }
 
 export async function exchangeCodeForToken(code: string): Promise<StravaTokenResponse> {
-  const res = await fetch('https://www.strava.com/oauth/token', {
+  const res = await fetch('/api/strava-token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      client_id: import.meta.env.VITE_STRAVA_CLIENT_ID,
-      client_secret: import.meta.env.VITE_STRAVA_CLIENT_SECRET,
-      code,
-      grant_type: 'authorization_code',
-    }),
+    body: JSON.stringify({ grant_type: 'authorization_code', code }),
   })
   if (!res.ok) throw new Error('Token exchange failed')
   return res.json()
@@ -110,15 +105,10 @@ type RefreshResult = {
 }
 
 async function refreshAccessToken(refreshToken: string): Promise<RefreshResult> {
-  const res = await fetch('https://www.strava.com/oauth/token', {
+  const res = await fetch('/api/strava-token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      client_id: import.meta.env.VITE_STRAVA_CLIENT_ID,
-      client_secret: import.meta.env.VITE_STRAVA_CLIENT_SECRET,
-      refresh_token: refreshToken,
-      grant_type: 'refresh_token',
-    }),
+    body: JSON.stringify({ grant_type: 'refresh_token', refresh_token: refreshToken }),
   })
   if (!res.ok) throw new Error('Token refresh failed')
   return res.json()

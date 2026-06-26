@@ -118,6 +118,12 @@ function parsePlanJson(text: string): PlanJson {
   return JSON.parse(raw.trim()) as PlanJson
 }
 
+function parseReviewJson(text: string): ReviewJson {
+  const match = text.match(/```(?:json)?\s*([\s\S]*?)```/)
+  const raw = match ? match[1] : text
+  return JSON.parse(raw.trim()) as ReviewJson
+}
+
 function typeIcon(type: string): string {
   return TYPE_ICON[type] ?? '🏅'
 }
@@ -288,7 +294,11 @@ export default function WeeklyPlan() {
         .toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' })
 
       const sportConfigs = (athlete.sport_types as SportConfig[] | null) ?? []
-      const trainingDays = athlete.training_days_per_week ?? 7
+      const trainingDays = athlete.training_days_per_week ?? 0
+      if (trainingDays === 0) {
+        setError('Bitte zuerst Trainingstage im Profil konfigurieren.')
+        return
+      }
       const restDays = Math.max(0, trainingDays - sportConfigs.reduce((s, c) => s + c.days, 0))
 
       const sportConstraintLines = sportConfigs.map(s =>
@@ -430,7 +440,12 @@ Antworte AUSSCHLIESSLICH mit diesem JSON (kein Text davor/danach, kein Markdown)
       if (!res.ok) throw new Error('API Fehler')
       const { text } = await res.json() as { text: string }
 
-      const parsed = JSON.parse(text.trim()) as ReviewJson
+      const parsed = parseReviewJson(text)
+      const sportConfigs = (athlete.sport_types as SportConfig[] | null) ?? []
+      const trainingDaysRequired = athlete.training_days_per_week ?? 0
+      const reviewViolations = trainingDaysRequired > 0
+        ? validateConstraints(parsed.next_week_plan, sportConfigs, trainingDaysRequired)
+        : []
 
       // Insert next week's plan (INSERT only — never UPDATE)
       const nextWeekStr = toDateStr(nextMonday)
@@ -446,12 +461,13 @@ Antworte AUSSCHLIESSLICH mit diesem JSON (kein Text davor/danach, kein Markdown)
       const { data: newPlan } = await supabase
         .from('weekly_plans')
         .insert({
-          athlete_id:    athlete.id,
-          week_start:    nextWeekStr,
-          version:       nextVersion,
-          plan_json:     parsed.next_week_plan,
-          review_notes:  parsed.review,
-          change_reason: `Review KW ${weekStr}: ${parsed.coach_decision_reason}`,
+          athlete_id:              athlete.id,
+          week_start:              nextWeekStr,
+          version:                 nextVersion,
+          plan_json:               parsed.next_week_plan,
+          review_notes:            parsed.review,
+          change_reason:           `Review KW ${weekStr}: ${parsed.coach_decision_reason}`,
+          ...(reviewViolations.length > 0 && { plan_constraint_violation: true }),
         })
         .select()
         .single()

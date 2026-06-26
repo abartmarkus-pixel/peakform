@@ -345,6 +345,7 @@ export default function ActivityDetail() {
           .select('*')
           .eq('strava_athlete_id', Number(stravaId))
           .single()
+        if (!athleteData) throw new Error('Athlete not found')
         const athlete = athleteData as Athlete
         setAthleteName(athlete.name ?? null)
 
@@ -353,6 +354,7 @@ export default function ActivityDetail() {
           .select('*')
           .eq('strava_id', Number(id))
           .single()
+        if (!actData) throw new Error('Activity not found')
         const act = actData as Activity
         setActivity(act)
         setAnalysis(act.claude_analysis)
