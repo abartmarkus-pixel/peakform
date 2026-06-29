@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 29. Juni 2026 (Bugfixes Sportarten-Stepper-Logik)
+> Letzte Aktualisierung: 29. Juni 2026 (Sportarten-Stepper: FIX 1 Pill-Zustand, FIX 2 clampSportDays entfernt)
 
 ---
 
@@ -371,12 +371,16 @@ Strava OAuth Token Exchange & Refresh — STRAVA_CLIENT_SECRET bleibt server-sei
 - Leistungsdaten: FTP (W), Max HF (bpm), Gewicht (kg)
 - Trainingstage pro Woche: Button-Grid 1–7
 - Sportarten: Pills (Radfahren / Laufen / Krafttraining) mit Akkordeon-Stepper
-  - Pill-Klick: Öffnet Stepper für die gewählte Sportart; fügt Sportart mit 1 Tag hinzu wenn noch nicht vorhanden — aber nur wenn `totalDays < trainingDaysNum` (Overflow-Schutz in `toggleSport`)
-  - Stepper − bei 1 Tag: Sportart wird direkt und explizit aus `sport_types` entfernt, `focusedSport` → null, Stepper schließt
+  - Pill zeigt aktiv (brand-Farben) wenn Sportart in `sport_types` — unabhängig davon welcher Stepper gerade geöffnet ist
+  - Pill-Klick: Öffnet/schließt den Stepper; fügt Sportart mit 1 Tag hinzu wenn noch nicht vorhanden — aber nur wenn `totalDays < trainingDaysNum` (Overflow-Schutz in `toggleSport`)
+  - Stepper − bei 1 Tag: Sportart wird direkt aus `sport_types` entfernt, `focusedSport` → null, Stepper schließt, Pill wird inaktiv
+  - Stepper − niemals disabled solange Sportart aktiv ist
   - Stepper + deaktiviert wenn `totalDays >= trainingDaysNum`; Tooltip: "Maximale Trainingstage erreicht"
-  - Trainingstage reduzieren → `clampSportDays()` reduziert automatisch Sporttage proportional (Sportart mit den meisten Tagen zuerst); Einträge mit 0 Tagen werden entfernt
-  - Invariante: `Σ sport_types[].days ≤ training_days_per_week` ist technisch erzwungen (kein Overflow möglich)
-  - Amber-Warnung `totalDays > trainingDaysNum` bleibt als letzter Sicherheitsgurt, ist aber durch die Invariante nicht mehr erreichbar
+  - Trainingstage reduzieren → kein Auto-Clamp; wenn `totalDays > trainingDaysNum` entsteht:
+    - Amber-Warnung: "⚠ Deine Sporttage (X) übersteigen die Trainingstage (Y) — bitte anpassen"
+    - Kein Auto-Save solange Verletzung aktiv
+    - [+] Buttons bleiben disabled; [-] Buttons bleiben aktiv
+    - User entscheidet selbst welche Sportart reduziert oder entfernt wird
 - Ziele (Mehrfachauswahl): Event / Muskelaufbau / Gewicht reduzieren / Nackt gut ausschauen
 - Coach-Stil (Einfachauswahl): Motivierend / Analytisch / Direkt / Empathisch
 - Coach-Fokus: Freitext-Textarea
@@ -684,7 +688,7 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 **Profil:**
 - Name, FTP, Max HF, Gewicht
 - Trainingstage-Auswahl (1–7)
-- Sportarten-Akkordeon mit Stepper (− bei 1 = entfernt Sportart)
+- Sportarten-Akkordeon mit Stepper (Pill aktiv = in sport_types; − bei 1 = entfernt Sportart; Trainingstage-Konflikt = Amber-Warnung + Save blockiert)
 - Körperziele (Mehrfachauswahl)
 - Coach-Stil + Coach-Fokus-Freitext
 - **Equipment-Sektion:** Checkboxen für Kurzhanteln / Bänder / Körpergewicht / Klimmzugstange / Gym

@@ -268,6 +268,11 @@ export default function Profile() {
     if (!initialized.current || !athlete) return
     if (debounce.current) clearTimeout(debounce.current)
 
+    if (hasSportViolation) {
+      setSaveState('idle')
+      return
+    }
+
     setSaveState('saving')
     debounce.current = setTimeout(async () => {
       await supabase
@@ -299,6 +304,7 @@ export default function Profile() {
 
   const trainingDaysNum = trainingDays ? parseInt(trainingDays) : 0
   const totalDays = sportConfigs.reduce((sum, s) => sum + s.days, 0)
+  const hasSportViolation = trainingDaysNum > 0 && totalDays > trainingDaysNum
 
   function toggleSport(key: string) {
     setFocusedSport(prev => prev === key ? null : key)
@@ -317,23 +323,6 @@ export default function Profile() {
     } else {
       setSportConfigs(prev => prev.map(s => s.type === key ? { ...s, ...patch } : s))
     }
-  }
-
-  function clampSportDays(newTrainingDays: number) {
-    setTrainingDays(String(newTrainingDays))
-    setSportConfigs(prev => {
-      const sum = prev.reduce((s, c) => s + c.days, 0)
-      if (sum <= newTrainingDays) return prev
-      // Reduce from the sport with the most days first, until sum fits
-      let configs = prev.map(c => ({ ...c }))
-      let remaining = sum - newTrainingDays
-      while (remaining > 0) {
-        configs.sort((a, b) => b.days - a.days)
-        configs[0].days -= 1
-        remaining--
-      }
-      return configs.filter(c => c.days > 0)
-    })
   }
 
   function toggleGoal(goal: string) {
@@ -438,7 +427,7 @@ export default function Profile() {
               {[1,2,3,4,5,6,7].map(n => (
                 <button
                   key={n}
-                  onClick={() => trainingDays === String(n) ? setTrainingDays('') : clampSportDays(n)}
+                  onClick={() => setTrainingDays(trainingDays === String(n) ? '' : String(n))}
                   className={`w-9 h-9 rounded-xl text-sm font-semibold transition-colors ${
                     trainingDays === String(n)
                       ? 'bg-brand-500 text-white'
@@ -460,7 +449,7 @@ export default function Profile() {
                   key={key}
                   onClick={() => toggleSport(key)}
                   className={`px-3 py-1.5 rounded-xl text-sm font-medium transition-colors ${
-                    focusedSport === key
+                    sportConfigs.some(s => s.type === key)
                       ? 'bg-brand-500/20 text-brand-400 ring-1 ring-brand-500'
                       : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
                   }`}
@@ -503,7 +492,7 @@ export default function Profile() {
                           {config.days === 1 ? 'Tag' : 'Tage'}
                         </span>
                       </div>
-                      <span className={`text-xs ${trainingDaysNum > 0 && totalDays > trainingDaysNum ? 'text-amber-400' : 'text-slate-500'}`}>
+                      <span className="text-xs text-slate-500">
                         {totalDays} / {trainingDaysNum || '—'} Tage
                       </span>
                     </div>
@@ -511,6 +500,12 @@ export default function Profile() {
                 </div>
               )
             })()}
+
+            {hasSportViolation && (
+              <p className="mt-2 text-xs text-amber-400">
+                ⚠ Deine Sporttage ({totalDays}) übersteigen die Trainingstage ({trainingDaysNum}) — bitte anpassen
+              </p>
+            )}
           </div>
         </SectionCard>
 
