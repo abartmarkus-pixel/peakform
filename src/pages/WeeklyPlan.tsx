@@ -704,9 +704,6 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
           {isCurrentWeek && <p className="text-xs text-brand-400">Aktuelle Woche</p>}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {plan && (
-            <span className="text-xs text-slate-500">v{plan.version}</span>
-          )}
           <button
             onClick={() => setMonday(m => addWeeks(m, 1))}
             className="w-9 h-9 flex items-center justify-center bg-slate-800 hover:bg-slate-700 rounded-xl text-slate-300 transition-colors"

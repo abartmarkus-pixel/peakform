@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 29. Juni 2026 (AppHeader rightAction-Slot, Splash-Screen, Logout/+/Neu-Buttons im Header, WeeklyPlan Versionsnummer)
+> Letzte Aktualisierung: 29. Juni 2026 (AppHeader rightAction-Slot, Splash-Screen, Logout/+/Neu-Buttons im Header; 4 Mobile-Fixes: Header-Abstand 72px, keine Versionsnummer im Wochenplan, Sportarten-Pills flex-wrap, Ziel-Modal Datum/Sportart untereinander)
 
 ---
 
@@ -81,9 +81,9 @@ peakform/
 │   │   ├── Profile.tsx        # Athleten-Profil mit 800ms Auto-Save
 │   │   ├── Goals.tsx          # Saison-Ziele A/B/C + Countdown + Add/Edit-Modal; AppHeader mit "+" rechts
 │   │   ├── WeeklyPlan.tsx     # Wochenplan-Generator + Constraint-Validierung + Review
-│   │   │                      # Wochen-Navigation: Prev | Datum (center) | v{version} + Next (right)
+│   │   │                      # Wochen-Navigation: Prev | Datum (center) | Next (right) — keine Versionsnummer
 │   │   └── Chat.tsx           # Globaler Coach-Chat mit Supabase-Persistenz
-│   │                          # AppHeader mit "Neu"-Button rechts; Container: mt-14, h=calc(100vh-120px)
+│   │                          # AppHeader mit "Neu"-Button rechts; Container: mt-[72px], h=calc(100vh-136px)
 │   └── lib/
 │       ├── supabase.ts        # Supabase Client + TypeScript-Types
 │       ├── strava.ts          # OAuth URL, Token Exchange/Refresh via /api/strava-token, Activities, Streams, Laps
@@ -765,7 +765,7 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 - AppHeader (Logo links, h-14, frosted-glass) — `rightAction?: React.ReactNode` Slot rechts; jede Page rendert ihn selbst
 - FA6 Icon-System (react-icons/fa6): alle Lucide/Emoji-Icons ersetzt
 - SPORT_DISPLAY Konstante in icons.ts (cycling/running/strength/rest → Farbe + Label)
-- page-content CSS-Klasse (padding-top: 56px + padding-bottom: 80px) auf allen Hauptseiten außer Chat
+- page-content CSS-Klasse (padding-top: 72px + padding-bottom: 80px) auf allen Hauptseiten außer Chat
 
 **Branding / Assets:**
 - Favicon-Set in public/: favicon-16.png, favicon-32.png, apple-touch-icon.png (180×180), icon-192.png, icon-512.png

@@ -212,7 +212,7 @@ Antworte auf die letzte Nachricht des Athleten. Beziehe dich auf seine spezifisc
         </button>
       }
     />
-    <div className="flex flex-col max-w-2xl mx-auto mt-14" style={{ height: 'calc(100vh - 120px)' }}>
+    <div className="flex flex-col max-w-2xl mx-auto mt-[72px]" style={{ height: 'calc(100vh - 136px)' }}>
 
       {/* ── Messages ──────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3 min-h-0">

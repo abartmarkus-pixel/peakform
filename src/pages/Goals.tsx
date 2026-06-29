@@ -269,7 +269,7 @@ export default function Goals() {
               <Input value={form.event_name} onChange={v => setForm(f => ({ ...f, event_name: v }))} placeholder="z.B. Ötztaler Radmarathon" />
             </Field>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-4">
               <Field label="Datum *">
                 <Input type="date" value={form.event_date} onChange={v => setForm(f => ({ ...f, event_date: v }))} />
               </Field>

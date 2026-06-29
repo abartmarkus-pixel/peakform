@@ -627,7 +627,7 @@ export default function Profile() {
 
           <div>
             <label className="text-xs text-slate-400 mb-2 block">Sportarten</label>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               {SPORT_OPTIONS.map(({ key, Icon, color, label }) => {
                 const isActive = sportConfigs.some(s => s.type === key)
                 return (
