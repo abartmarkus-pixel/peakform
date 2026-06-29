@@ -12,19 +12,8 @@ export default function Home() {
   }, [navigate])
 
   return (
-    <div
-      className="relative min-h-screen flex flex-col items-center justify-between py-12"
-      style={{
-        backgroundImage: 'url(/splash-bg.jpg)',
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-      }}
-    >
-      {/* Dark overlay */}
-      <div className="absolute inset-0 bg-black/50" />
-
-      {/* Logo zentriert */}
-      <div className="relative z-10 flex-1 flex items-center justify-center">
+    <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-between py-12">
+      <div className="flex-1 flex items-center justify-center">
         <img
           src="/peakform-logo.png"
           alt="PeakForm"
@@ -33,8 +22,7 @@ export default function Home() {
         />
       </div>
 
-      {/* Strava Connect Button + Beschreibung */}
-      <div className="relative z-10 w-full max-w-sm px-4 flex flex-col items-center gap-4">
+      <div className="w-full max-w-sm px-4 flex flex-col items-center gap-4">
         <a
           href={STRAVA_AUTH_URL}
           className="flex items-center gap-3 bg-[#FC4C02] hover:bg-[#e04400] text-white font-semibold px-6 py-3 rounded-xl transition-colors"

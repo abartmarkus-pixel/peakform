@@ -19,14 +19,17 @@ function Layout() {
   const navigate = useNavigate()
   const showNav = !NO_NAV_PATHS.includes(pathname)
 
-  // Splash is always shown on protected routes at initial load
-  const [splashVisible, setSplashVisible] = useState(() => !PUBLIC_PATHS.includes(window.location.pathname))
+  const isLoggedIn =
+    !!localStorage.getItem('athlete_strava_id') ||
+    !!sessionStorage.getItem('athlete_strava_id')
+
+  const [showSplash, setShowSplash] = useState(
+    isLoggedIn && !PUBLIC_PATHS.includes(window.location.pathname)
+  )
   const [fadingOut, setFadingOut] = useState(false)
 
   useEffect(() => {
     if (PUBLIC_PATHS.includes(window.location.pathname)) return
-
-    const minDelay = new Promise<void>(resolve => setTimeout(resolve, 1500))
 
     const sessionCheck = (async () => {
       const stravaId =
@@ -44,9 +47,12 @@ function Layout() {
       if (!restored) navigate('/', { replace: true })
     })()
 
+    if (!isLoggedIn) return
+
+    const minDelay = new Promise<void>(resolve => setTimeout(resolve, 2000))
     Promise.all([minDelay, sessionCheck]).then(() => {
       setFadingOut(true)
-      setTimeout(() => setSplashVisible(false), 300)
+      setTimeout(() => setShowSplash(false), 400)
     })
   }, [navigate])
 
@@ -64,29 +70,21 @@ function Layout() {
       </Routes>
       {showNav && <BottomNav />}
 
-      {splashVisible && (
+      {showSplash && (
         <div
-          className={`fixed inset-0 z-50 flex flex-col items-center justify-center transition-opacity duration-300 ${fadingOut ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
-          style={{
-            backgroundImage: 'url(/splash-bg.jpg)',
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-          }}
+          className={`fixed inset-0 z-50 flex items-center justify-center bg-slate-900 transition-opacity duration-[400ms] ${fadingOut ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
         >
-          <div className="absolute inset-0 bg-black/50" />
-          <div className="relative z-10 flex flex-col items-center gap-8">
-            <img
-              src="/peakform-logo.png"
-              alt="PeakForm"
-              className="h-12 w-auto"
-              srcSet="/peakform-logo.png 1x, /peakform-logo@2x.png 2x"
-            />
-            <div className="flex gap-1.5">
-              <div className="w-1.5 h-1.5 rounded-full bg-white/60 animate-bounce [animation-delay:0ms]" />
-              <div className="w-1.5 h-1.5 rounded-full bg-white/60 animate-bounce [animation-delay:150ms]" />
-              <div className="w-1.5 h-1.5 rounded-full bg-white/60 animate-bounce [animation-delay:300ms]" />
-            </div>
-          </div>
+          <img
+            src="/splash.png"
+            alt=""
+            className="absolute inset-0 w-full h-full object-contain"
+          />
+          <img
+            src="/peakform-logo.png"
+            alt="PeakForm"
+            className="relative z-10 h-14 w-auto animate-pulse"
+            srcSet="/peakform-logo.png 1x, /peakform-logo@2x.png 2x"
+          />
         </div>
       )}
     </>
