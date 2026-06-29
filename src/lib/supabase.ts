@@ -43,6 +43,9 @@ export type Athlete = {
   // Phase 3 coach system fields
   equipment: EquipmentConfig | null
   aesthetic_goals: AestheticGoals | null
+  // Phase 4 dynamic prompt fields
+  season_phase_override: 'readaptation' | 'base' | 'race' | 'taper' | null
+  best_5k_seconds: number | null
 }
 
 export type SeasonGoal = {

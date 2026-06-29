@@ -11,7 +11,7 @@ import {
 } from 'recharts'
 import { fetchActivityStreams, fetchActivityLaps, fetchActivityDetail, getValidAccessToken, type StravaLap } from '../lib/strava'
 import {
-  COACH_SYSTEM_PROMPT,
+  buildCoachSystemPrompt,
   LAUF_COACH_PROMPT,
   RAD_COACH_PROMPT,
   KRAFT_COACH_PROMPT,
@@ -421,15 +421,18 @@ export default function ActivityDetail() {
   }, [id])
 
   function triggerRecoveryExtraction(analysisText: string, aId: string, actId: string) {
-    fetch('/api/analyse', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        prompt: `Extrahiere aus dieser Trainingsanalyse eine konkrete Erholungsempfehlung als JSON:\n{"has_restriction": boolean, "restriction_until": "YYYY-MM-DD or null", "description": "string"}\nNur JSON, kein Text davor oder danach.\n\nAnalyse:\n${analysisText}`,
-        system: COACH_SYSTEM_PROMPT,
-        max_tokens: 150,
-      }),
-    })
+    buildCoachSystemPrompt(aId)
+      .then(systemPrompt =>
+        fetch('/api/analyse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: `Extrahiere aus dieser Trainingsanalyse eine konkrete Erholungsempfehlung als JSON:\n{"has_restriction": boolean, "restriction_until": "YYYY-MM-DD or null", "description": "string"}\nNur JSON, kein Text davor oder danach.\n\nAnalyse:\n${analysisText}`,
+            system: systemPrompt,
+            max_tokens: 150,
+          }),
+        })
+      )
       .then(r => r.json())
       .then(async (json: { text: string }) => {
         const match = json.text.match(/\{[\s\S]*\}/)
@@ -452,29 +455,32 @@ export default function ActivityDetail() {
       .catch(() => { /* silent — recovery extraction is best-effort */ })
   }
 
-  function getCoachPrompts(type: string): {
-    system: string
+  function getSpecialistPrompt(type: string): {
+    specialist: string | null
     sport: 'running' | 'cycling' | 'strength' | null
   } {
     if (['Run', 'VirtualRun', 'TrailRun'].includes(type))
-      return { system: COACH_SYSTEM_PROMPT + '\n\n' + LAUF_COACH_PROMPT, sport: 'running' }
+      return { specialist: LAUF_COACH_PROMPT, sport: 'running' }
     if (['Ride', 'VirtualRide', 'MountainBikeRide', 'GravelRide'].includes(type))
-      return { system: COACH_SYSTEM_PROMPT + '\n\n' + RAD_COACH_PROMPT, sport: 'cycling' }
+      return { specialist: RAD_COACH_PROMPT, sport: 'cycling' }
     if (['WeightTraining', 'Workout'].includes(type))
-      return { system: COACH_SYSTEM_PROMPT + '\n\n' + KRAFT_COACH_PROMPT, sport: 'strength' }
-    return { system: COACH_SYSTEM_PROMPT, sport: null }
+      return { specialist: KRAFT_COACH_PROMPT, sport: 'strength' }
+    return { specialist: null, sport: null }
   }
 
   async function runAnalysis() {
     if (!activity || !athleteId) return
     setAnalysing(true)
     try {
-      const { system, sport } = getCoachPrompts(activity.type)
+      const { specialist, sport } = getSpecialistPrompt(activity.type)
 
-      const [generalContext, specialistContext] = await Promise.all([
+      const [basePrompt, generalContext, specialistContext] = await Promise.all([
+        buildCoachSystemPrompt(athleteId),
         buildCoachContext(athleteId),
         sport ? buildSpecialistContext(athleteId, sport) : Promise.resolve(null),
       ])
+
+      const system = specialist ? basePrompt + '\n\n' + specialist : basePrompt
 
       const contextBlock = [generalContext, specialistContext].filter(Boolean).join('\n\n')
 

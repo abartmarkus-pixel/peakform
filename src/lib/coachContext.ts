@@ -25,6 +25,72 @@ function avg(arr: number[]): number {
   return arr.reduce((a, b) => a + b, 0) / arr.length
 }
 
+// ── exported coach-prompt helpers ─────────────────────────────────────────
+
+type PhaseResult = { phase: string; label: string; description: string }
+
+const PHASE_LABELS: Record<string, PhaseResult> = {
+  readaptation: {
+    phase: 'readaptation',
+    label: 'Phase 1 — Readaptation',
+    description: 'Sehnen, Gelenke und Laufmuskulatur readaptieren',
+  },
+  base: {
+    phase: 'base',
+    label: 'Phase 2 — Grundlagenaufbau',
+    description: 'Kilometerzahl aufbauen, aerobe Effizienz verbessern',
+  },
+  race: {
+    phase: 'race',
+    label: 'Phase 3 — Wettkampfvorbereitung',
+    description: 'Wettkampfspezifisches Training, Zieltempo',
+  },
+  taper: {
+    phase: 'taper',
+    label: 'Phase 4 — Taper',
+    description: 'Frische aufbauen, Wettkampfbereitschaft maximieren',
+  },
+}
+
+/** Bestimmt die aktuelle Saison-Phase aus Wochen bis A-Event oder manuellem Override. */
+export function calculateSeasonPhase(
+  weeksUntilEvent: number,
+  override: string | null,
+): PhaseResult {
+  if (override && PHASE_LABELS[override]) return PHASE_LABELS[override]
+  if (weeksUntilEvent >= 10) return PHASE_LABELS.readaptation
+  if (weeksUntilEvent >= 6)  return PHASE_LABELS.base
+  if (weeksUntilEvent >= 2)  return PHASE_LABELS.race
+  return PHASE_LABELS.taper
+}
+
+/** Berechnet HF-Zonen-Text aus Max HF. */
+export function calculateHRZones(maxHR: number): string {
+  return [
+    `Z1 Regeneration:    < ${Math.round(maxHR * 0.70)} bpm`,
+    `Z2 Grundlage:       ${Math.round(maxHR * 0.70)}–${Math.round(maxHR * 0.81)} bpm`,
+    `Z3 Tempo:           ${Math.round(maxHR * 0.81)}–${Math.round(maxHR * 0.90)} bpm`,
+    `Z4 Schwelle:        ${Math.round(maxHR * 0.90)}–${Math.round(maxHR * 0.96)} bpm`,
+    `Z5 VO2max:          > ${Math.round(maxHR * 0.96)} bpm`,
+  ].join('\n')
+}
+
+/** Berechnet Pace-Referenz aus 5k-Bestzeit (Sekunden) und Event-Distanz (km). */
+export function calculatePaceReference(
+  best5kSeconds: number | null,
+  targetEventKm: number,
+): string {
+  if (!best5kSeconds) return 'Noch keine 5k Bestzeit hinterlegt.'
+  const pacePerKm = best5kSeconds / 5
+  const formatPace = (s: number) =>
+    `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`
+  return [
+    `Zielpace ${targetEventKm}k:    ${formatPace(Math.round(pacePerKm * 0.98))}–${formatPace(Math.round(pacePerKm * 1.05))} min/km`,
+    `Z2 Trainingspace:   ${formatPace(Math.round(pacePerKm * 1.15))}–${formatPace(Math.round(pacePerKm * 1.30))} min/km (deutlich langsamer als gefühlt nötig)`,
+    `Schwellenpace:      ${formatPace(Math.round(pacePerKm * 0.92))}–${formatPace(Math.round(pacePerKm * 0.97))} min/km`,
+  ].join('\n')
+}
+
 // ── main ───────────────────────────────────────────────────────────────────
 
 /**

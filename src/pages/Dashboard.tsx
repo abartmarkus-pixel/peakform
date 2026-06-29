@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom'
 
 import { fetchRecentActivities, getValidAccessToken, type StravaActivity } from '../lib/strava'
 import { supabase, type Athlete } from '../lib/supabase'
-import { COACH_SYSTEM_PROMPT } from '../lib/coachPrompt'
+import { buildCoachSystemPrompt } from '../lib/coachPrompt'
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -48,6 +48,8 @@ export default function Dashboard() {
   const [loading,          setLoading]          = useState(true)
   const [error,            setError]            = useState<string | null>(null)
 
+  const [athleteId,        setAthleteId]        = useState<string | null>(null)
+
   // alert state
   const [alert,            setAlert]            = useState<{ message: string } | null>(null)
   const [alertDismissed,   setAlertDismissed]   = useState(false)
@@ -66,6 +68,7 @@ export default function Dashboard() {
       .then(async ({ data, error: dbError }) => {
         if (dbError || !data) { navigate('/'); return }
         const athlete = data as Athlete
+        setAthleteId(athlete.id)
 
         try {
           const token = await getValidAccessToken(athlete)
@@ -95,7 +98,7 @@ export default function Dashboard() {
           if (!sessionStorage.getItem(alertKey)) {
             sessionStorage.setItem(alertKey, 'checked') // mark before async to prevent double-fire
 
-            const [{ data: planRows }, { data: recentActs }] = await Promise.all([
+            const [{ data: planRows }, { data: recentActs }, systemPrompt] = await Promise.all([
               supabase
                 .from('weekly_plans')
                 .select('plan_json')
@@ -110,6 +113,7 @@ export default function Dashboard() {
                 .gte('date', thisWeek)
                 .order('date', { ascending: false })
                 .limit(1),
+              buildCoachSystemPrompt(athlete.id),
             ])
 
             const plan = planRows?.[0]
@@ -141,7 +145,7 @@ oder
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   prompt: checkPrompt,
-                  system: COACH_SYSTEM_PROMPT,
+                  system: systemPrompt,
                   max_tokens: 150,
                 }),
               })
@@ -172,15 +176,16 @@ oder
   }, [navigate])
 
   async function handlePlanAnpassen() {
-    if (!currentPlanJson || !alert) return
+    if (!currentPlanJson || !alert || !athleteId) return
     setPlanModal({ loading: true, content: null })
     try {
+      const systemPrompt = await buildCoachSystemPrompt(athleteId)
       const res = await fetch('/api/analyse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           prompt: `Problem: ${alert.message}\n\nAktueller Wochenplan:\n${JSON.stringify(currentPlanJson, null, 2)}\n\nSchlage konkrete Anpassungen für die verbleibenden Tage dieser Woche vor. Kurz und umsetzbar, max 150 Wörter.`,
-          system: COACH_SYSTEM_PROMPT,
+          system: systemPrompt,
           max_tokens: 600,
         }),
       })

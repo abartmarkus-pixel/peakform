@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase, type Athlete, type ChatMessage } from '../lib/supabase'
 import { buildCoachContext } from '../lib/coachContext'
-import { COACH_SYSTEM_PROMPT } from '../lib/coachPrompt'
+import { buildCoachSystemPrompt } from '../lib/coachPrompt'
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -134,8 +134,11 @@ export default function Chat() {
       // 2. Reload so UI reflects DB state
       await reloadMessages()
 
-      // 3. Build full context (now includes the new user message in section 7)
-      const context = await buildCoachContext(athlete.id, threadId)
+      // 3. Build full context + dynamic system prompt in parallel
+      const [context, systemPrompt] = await Promise.all([
+        buildCoachContext(athlete.id, threadId),
+        buildCoachSystemPrompt(athlete.id),
+      ])
 
       const prompt = `${context}
 
@@ -147,7 +150,7 @@ Antworte auf die letzte Nachricht des Athleten. Beziehe dich auf seine spezifisc
       const res = await fetch('/api/analyse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, max_tokens: 1024, system: COACH_SYSTEM_PROMPT }),
+        body: JSON.stringify({ prompt, max_tokens: 1024, system: systemPrompt }),
       })
       if (!res.ok) throw new Error('Claude API Fehler')
       const { text } = await res.json() as { text: string }

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase, type Athlete, type WeeklyPlan, type Activity, type SportConfig } from '../lib/supabase'
 import { buildCoachContext } from '../lib/coachContext'
-import { COACH_SYSTEM_PROMPT } from '../lib/coachPrompt'
+import { buildCoachSystemPrompt } from '../lib/coachPrompt'
 
 // ── types ──────────────────────────────────────────────────────────────────
 
@@ -305,8 +305,9 @@ export default function WeeklyPlan() {
     try {
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
 
-      const [context, { data: recoveryRows }] = await Promise.all([
+      const [context, systemPrompt, { data: recoveryRows }] = await Promise.all([
         buildCoachContext(athlete.id),
+        buildCoachSystemPrompt(athlete.id),
         supabase
           .from('coach_decisions')
           .select('decision_summary, reasoning, created_at')
@@ -394,7 +395,7 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, 
       const res = await fetch('/api/analyse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, max_tokens: 2048, system: COACH_SYSTEM_PROMPT }),
+        body: JSON.stringify({ prompt, max_tokens: 2048, system: systemPrompt }),
       })
       if (!res.ok) throw new Error('API Fehler')
       const { text } = await res.json() as { text: string }
@@ -479,8 +480,9 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, 
     try {
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
 
-      const [context, { data: recoveryRows }] = await Promise.all([
+      const [context, systemPrompt, { data: recoveryRows }] = await Promise.all([
         buildCoachContext(athlete.id),
+        buildCoachSystemPrompt(athlete.id),
         supabase
           .from('coach_decisions')
           .select('decision_summary, reasoning, created_at')
@@ -570,7 +572,7 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
       const res = await fetch('/api/analyse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, max_tokens: 3000, system: COACH_SYSTEM_PROMPT }),
+        body: JSON.stringify({ prompt, max_tokens: 3000, system: systemPrompt }),
       })
       if (!res.ok) throw new Error('API Fehler')
       const { text } = await res.json() as { text: string }
