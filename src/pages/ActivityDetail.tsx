@@ -19,6 +19,7 @@ import {
 } from '../lib/coachPrompt'
 import { buildCoachContext, buildSpecialistContext } from '../lib/coachContext'
 import { supabase, type Activity, type Athlete } from '../lib/supabase'
+import { AppHeader } from '../components/AppHeader'
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -572,7 +573,9 @@ ${exercises.length > 0
   const hasWatts = chartData.some(d => d.watts !== undefined)
 
   return (
-    <div className="min-h-screen p-4 max-w-2xl mx-auto page-content">
+    <>
+      <AppHeader />
+      <div className="min-h-screen p-4 max-w-2xl mx-auto page-content">
       <Link to="/dashboard" className="inline-flex items-center gap-1 text-brand-500 hover:text-brand-400 text-sm mb-4">
         <IconChevronLeft size={14} /> Zurück
       </Link>
@@ -818,5 +821,6 @@ ${exercises.length > 0
         </div>
       )}
     </div>
+    </>
   )
 }

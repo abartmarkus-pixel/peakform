@@ -4,6 +4,7 @@ import { supabase, type Athlete, type ChatMessage } from '../lib/supabase'
 import { buildCoachContext } from '../lib/coachContext'
 import { buildCoachSystemPrompt } from '../lib/coachPrompt'
 import { IconChat, IconSend, IconRefresh } from '../lib/icons'
+import { AppHeader } from '../components/AppHeader'
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -198,19 +199,20 @@ Antworte auf die letzte Nachricht des Athleten. Beziehe dich auf seine spezifisc
   }
 
   return (
-    <div className="flex flex-col max-w-2xl mx-auto" style={{ height: 'calc(100vh - 64px)' }}>
-
-      {/* ── Header ────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 shrink-0">
+    <>
+    <AppHeader
+      rightAction={
         <button
           onClick={startNewThread}
-          className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-400 hover:text-white border border-slate-700 rounded-full transition-colors"
           title="Neues Gespräch"
         >
-          <IconRefresh size={13} />
-          Neues Gespräch
+          <IconRefresh size={12} />
+          <span>Neu</span>
         </button>
-      </div>
+      }
+    />
+    <div className="flex flex-col max-w-2xl mx-auto mt-14" style={{ height: 'calc(100vh - 120px)' }}>
 
       {/* ── Messages ──────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3 min-h-0">
@@ -277,5 +279,6 @@ Antworte auf die letzte Nachricht des Athleten. Beziehe dich auf seine spezifisc
       </div>
 
     </div>
+    </>
   )
 }

@@ -30,6 +30,7 @@ import {
   type AestheticGoals,
 } from '../lib/supabase'
 import { calculateSeasonPhase } from '../lib/coachContext'
+import { AppHeader } from '../components/AppHeader'
 
 // ── constants ──────────────────────────────────────────────────────────────
 
@@ -564,7 +565,9 @@ export default function Profile() {
   // ── render ──────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen p-4 max-w-2xl mx-auto page-content">
+    <>
+      <AppHeader />
+      <div className="min-h-screen p-4 max-w-2xl mx-auto page-content">
 
       {/* Fixed save status */}
       <div className={`fixed top-4 right-4 z-50 text-xs transition-opacity duration-300 pointer-events-none ${
@@ -944,5 +947,6 @@ export default function Profile() {
 
       </div>
     </div>
+    </>
   )
 }

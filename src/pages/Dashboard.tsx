@@ -8,6 +8,7 @@ import {
   IconLogout, IconRunning, IconCycling, IconStrength, IconWarning,
 } from '../lib/icons'
 import { SPORT_DISPLAY } from '../lib/icons'
+import { AppHeader } from '../components/AppHeader'
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -199,17 +200,24 @@ oder
     ['Run',           <IconRunning  size={16} />],
   ]
 
+  function handleLogout() {
+    localStorage.clear(); sessionStorage.clear(); navigate('/')
+  }
+
   return (
-    <div className="min-h-screen p-4 max-w-2xl mx-auto page-content">
-      <div className="flex items-center justify-between mb-4">
-        <button
-          onClick={() => { localStorage.clear(); sessionStorage.clear(); navigate('/') }}
-          className="text-slate-500 hover:text-slate-300 transition-colors"
-          title="Abmelden"
-        >
-          <IconLogout size={22} />
-        </button>
-      </div>
+    <>
+      <AppHeader
+        rightAction={
+          <button
+            onClick={handleLogout}
+            className="p-2 text-slate-400 hover:text-white transition-colors"
+            title="Abmelden"
+          >
+            <IconLogout size={18} />
+          </button>
+        }
+      />
+      <div className="min-h-screen p-4 max-w-2xl mx-auto page-content">
 
       {/* ── Echtzeit-Alert Banner ──────────────────────────────── */}
       {alert && !alertDismissed && (
@@ -305,5 +313,6 @@ oder
         </div>
       )}
     </div>
+    </>
   )
 }

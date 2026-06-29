@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, type SeasonGoal } from '../lib/supabase'
 import { IconAdd, IconEdit, IconMissed, IconGoals } from '../lib/icons'
+import { AppHeader } from '../components/AppHeader'
 
 // ── types & constants ──────────────────────────────────────────────────────
 
@@ -174,17 +175,19 @@ export default function Goals() {
   )
 
   return (
-    <div className="min-h-screen p-4 max-w-2xl mx-auto page-content">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <button
-          onClick={openAdd}
-          className="flex items-center gap-1.5 bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold px-3 py-2 rounded-xl transition-colors"
-        >
-          <IconAdd size={14} />
-          Hinzufügen
-        </button>
-      </div>
+    <>
+      <AppHeader
+        rightAction={
+          <button
+            onClick={openAdd}
+            className="p-2 text-slate-400 hover:text-white transition-colors"
+            title="Ziel hinzufügen"
+          >
+            <IconAdd size={18} />
+          </button>
+        }
+      />
+      <div className="min-h-screen p-4 max-w-2xl mx-auto page-content">
 
       {/* A-Event Countdown */}
       {nextA && (
@@ -339,5 +342,6 @@ export default function Goals() {
         </div>
       )}
     </div>
+    </>
   )
 }

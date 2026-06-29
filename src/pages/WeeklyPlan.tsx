@@ -10,6 +10,7 @@ import {
   IconCheck, IconMissed, IconWarning, IconPlan,
   SPORT_DISPLAY,
 } from '../lib/icons'
+import { AppHeader } from '../components/AppHeader'
 
 // ── types ──────────────────────────────────────────────────────────────────
 
@@ -686,32 +687,33 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
   const displayPlanJson = pendingPlanJson ?? planJson
 
   return (
-    <div className="min-h-screen p-4 max-w-2xl mx-auto page-content">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        {plan && (
-          <span className="text-xs text-slate-500">Version {plan.version}</span>
-        )}
-      </div>
+    <>
+      <AppHeader />
+      <div className="min-h-screen p-4 max-w-2xl mx-auto page-content">
 
       {/* Week navigation */}
-      <div className="flex items-center gap-3 mb-6">
+      <div className="flex items-center justify-between mb-6">
         <button
           onClick={() => setMonday(m => addWeeks(m, -1))}
-          className="w-9 h-9 flex items-center justify-center bg-slate-800 hover:bg-slate-700 rounded-xl text-slate-300 transition-colors"
+          className="w-9 h-9 flex items-center justify-center bg-slate-800 hover:bg-slate-700 rounded-xl text-slate-300 transition-colors shrink-0"
         >
           <IconChevronLeft size={16} />
         </button>
-        <div className="flex-1 text-center">
+        <div className="flex-1 text-center px-2">
           <p className="text-sm font-semibold text-slate-200">{weekLabel(monday)}</p>
           {isCurrentWeek && <p className="text-xs text-brand-400">Aktuelle Woche</p>}
         </div>
-        <button
-          onClick={() => setMonday(m => addWeeks(m, 1))}
-          className="w-9 h-9 flex items-center justify-center bg-slate-800 hover:bg-slate-700 rounded-xl text-slate-300 transition-colors"
-        >
-          <IconChevronRight size={16} />
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          {plan && (
+            <span className="text-xs text-slate-500">v{plan.version}</span>
+          )}
+          <button
+            onClick={() => setMonday(m => addWeeks(m, 1))}
+            className="w-9 h-9 flex items-center justify-center bg-slate-800 hover:bg-slate-700 rounded-xl text-slate-300 transition-colors"
+          >
+            <IconChevronRight size={16} />
+          </button>
+        </div>
       </div>
 
       {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
@@ -889,5 +891,6 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
         </div>
       )}
     </div>
+    </>
   )
 }
