@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 29. Juni 2026 (Leistungsdaten: sportartabhängige Sichtbarkeit, MM:SS 5k-Eingabe, _updated_at Timestamps)
+> Letzte Aktualisierung: 29. Juni 2026 (Equipment + Körperziele: strength-conditional + einklappbares Akkordeon)
 
 ---
 
@@ -401,6 +401,17 @@ Strava OAuth Token Exchange & Refresh — STRAVA_CLIENT_SECRET bleibt server-sei
 - Ziele (Mehrfachauswahl): Event / Muskelaufbau / Gewicht reduzieren / Nackt gut ausschauen
 - Coach-Stil (Einfachauswahl): Motivierend / Analytisch / Direkt / Empathisch
 - Coach-Fokus: Freitext-Textarea
+- **Equipment** *(nur wenn `sportConfigs.some(s => s.type === 'strength')`)*:
+  - Einklappbares Akkordeon via `AccordionCard`-Komponente
+  - Standard: eingeklappt; Subtitle: "4 Geräte aktiv" / "1 Gerät aktiv" / "Kein Equipment gewählt" / "Gym (alles verfügbar)"
+  - Header klickbar mit Chevron (▲/▼); `maxHeight`-Transition 300ms
+  - Wenn Krafttraining neu aktiviert wird: automatisch aufklappen (`prevHasStrength` Ref verhindert Auto-Open bei initialem Laden)
+  - Inhalt: Kurzhanteln / Widerstandsbänder / Körpergewicht / Klimmzugstange + Gym (Mutex-Sonderrow)
+- **Körperziele (Priorität)** *(nur wenn `hasStrength && showAesthetic`)*:
+  - Einklappbares Akkordeon via `AccordionCard`-Komponente
+  - Standard: eingeklappt; Subtitle: erste 3 Prioritäten als Preview ("Schultern, Brust, Arme…")
+  - Gleiche Auto-Open-Logik wie Equipment (beim Aktivieren von Krafttraining)
+  - Inhalt: Drag & Drop Muskelgruppen-Ranking + Freitext-Notizen
 
 **Auto-Save:** 800ms Debounce nach jeder Änderung. Kein manueller Save-Button. Status-Indikator (Speichert… / ✓ Gespeichert).
 - `hasSportViolation`, `totalDays`, `trainingDaysNum` werden **vor** dem Auto-Save-`useEffect` deklariert, damit die Closure beim Timer-Check den korrekten Wert liest

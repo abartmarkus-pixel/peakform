@@ -161,6 +161,45 @@ function UpdatedAt({ updatedAt, staleDays }: { updatedAt: string | null; staleDa
   return <p className="text-xs text-slate-500 mt-1">Zuletzt aktualisiert: {formatted}</p>
 }
 
+function AccordionCard({
+  title, subtitle, open, onToggle, children,
+}: {
+  title: string; subtitle: string; open: boolean; onToggle: () => void; children: React.ReactNode
+}) {
+  return (
+    <div className="bg-slate-800 rounded-2xl overflow-hidden">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-start justify-between p-5 text-left"
+      >
+        <div>
+          <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">{title}</h2>
+          {!open && <p className="text-xs text-slate-500 mt-1">{subtitle}</p>}
+        </div>
+        <svg
+          viewBox="0 0 24 24"
+          className={`w-4 h-4 text-slate-400 shrink-0 mt-0.5 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+          fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+      <div
+        style={{
+          maxHeight: open ? '1400px' : '0',
+          overflow: 'hidden',
+          transition: 'max-height 300ms ease-out',
+        }}
+      >
+        <div className="px-5 pb-5">
+          {children}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function SortableMuscleItem({ id, label, rank }: { id: string; label: string; rank: number }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
   return (
@@ -225,6 +264,13 @@ export default function Profile() {
   const origMaxHr  = useRef('')
   const origWeight = useRef('')
   const origBest5k = useRef<number | null>(null)
+
+  // accordion open/closed state — default collapsed
+  const [equipmentOpen, setEquipmentOpen] = useState(false)
+  const [aestheticOpen,  setAestheticOpen]  = useState(false)
+
+  // track previous hasStrength to detect activation (not initial load)
+  const prevHasStrength = useRef<boolean | null>(null)
 
   // dnd-kit sensors (8px threshold prevents accidental drags on scroll)
   const sensors = useSensors(
@@ -446,6 +492,24 @@ export default function Profile() {
   }
 
   const showAesthetic = bodyGoals.includes('Nackt gut ausschauen')
+  const hasStrength   = sportConfigs.some(s => s.type === 'strength')
+
+  // auto-open accordion sections when strength is newly activated
+  useEffect(() => {
+    if (prevHasStrength.current === false && hasStrength) {
+      setEquipmentOpen(true)
+      setAestheticOpen(true)
+    }
+    prevHasStrength.current = hasStrength
+  }, [hasStrength])
+
+  const equipmentSubtitle = (() => {
+    if (equipment.gym.active) return 'Gym (alles verfügbar)'
+    const n = EQUIPMENT_ITEMS.filter(i => (equipment[i.key] as { active: boolean }).active).length
+    return n === 0 ? 'Kein Equipment gewählt' : `${n} ${n === 1 ? 'Gerät' : 'Geräte'} aktiv`
+  })()
+
+  const aestheticSubtitle = orderedGroups.slice(0, 3).map(g => g.label).join(', ') + '…'
 
   // ── render ──────────────────────────────────────────────────────────────
 
@@ -727,8 +791,14 @@ export default function Profile() {
           </div>
         </SectionCard>
 
-        {/* ── Equipment ──────────────────────────────────────── */}
-        <SectionCard title="Equipment">
+        {/* ── Equipment (nur bei Krafttraining) ──────────────── */}
+        {hasStrength && (
+        <AccordionCard
+          title="Equipment"
+          subtitle={equipmentSubtitle}
+          open={equipmentOpen}
+          onToggle={() => setEquipmentOpen(o => !o)}
+        >
           <div className="flex flex-col gap-3">
             {EQUIPMENT_ITEMS.map(item => {
               const itemData = equipment[item.key] as { active: boolean; max_kg?: number }
@@ -791,11 +861,17 @@ export default function Profile() {
               )}
             </div>
           </div>
-        </SectionCard>
+        </AccordionCard>
+        )}
 
-        {/* ── Ästhetik-Ziele (nur wenn "Nackt gut ausschauen" aktiv) ── */}
-        {showAesthetic && (
-          <SectionCard title="Körperziele (Priorität)">
+        {/* ── Ästhetik-Ziele (Krafttraining + "Nackt gut ausschauen") ── */}
+        {hasStrength && showAesthetic && (
+          <AccordionCard
+            title="Körperziele (Priorität)"
+            subtitle={aestheticSubtitle}
+            open={aestheticOpen}
+            onToggle={() => setAestheticOpen(o => !o)}
+          >
             <p className="text-xs text-slate-500 mb-4">
               Ziehe die Muskelgruppen in deine gewünschte Priorität — oben = wichtigster Fokus für den Coach.
             </p>
@@ -834,7 +910,7 @@ export default function Profile() {
                 className="w-full bg-slate-700 text-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none placeholder:text-slate-500"
               />
             </div>
-          </SectionCard>
+          </AccordionCard>
         )}
 
       </div>
