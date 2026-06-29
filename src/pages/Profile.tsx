@@ -263,6 +263,12 @@ export default function Profile() {
     })()
   }, [navigate])
 
+  // ── sport helpers ───────────────────────────────────────────────────────
+
+  const trainingDaysNum = trainingDays ? parseInt(trainingDays) : 0
+  const totalDays = sportConfigs.reduce((sum, s) => sum + s.days, 0)
+  const hasSportViolation = trainingDaysNum > 0 && totalDays > trainingDaysNum
+
   // debounced auto-save — fires 800ms after any field change
   useEffect(() => {
     if (!initialized.current || !athlete) return
@@ -298,13 +304,7 @@ export default function Profile() {
       setTimeout(() => setSaveState('idle'), 2000)
     }, 800)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name, ftpWatts, maxHr, weightKg, trainingDays, sportConfigs, bodyGoals, personaStyle, personaFocus, equipment, aestheticGoals, seasonPhaseOverride])
-
-  // ── sport helpers ───────────────────────────────────────────────────────
-
-  const trainingDaysNum = trainingDays ? parseInt(trainingDays) : 0
-  const totalDays = sportConfigs.reduce((sum, s) => sum + s.days, 0)
-  const hasSportViolation = trainingDaysNum > 0 && totalDays > trainingDaysNum
+  }, [name, ftpWatts, maxHr, weightKg, trainingDays, sportConfigs, hasSportViolation, bodyGoals, personaStyle, personaFocus, equipment, aestheticGoals, seasonPhaseOverride])
 
   function toggleSport(key: string) {
     setFocusedSport(prev => prev === key ? null : key)

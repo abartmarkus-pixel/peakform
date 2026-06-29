@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 29. Juni 2026 (Sportarten-Stepper: FIX 1 Pill-Zustand, FIX 2 clampSportDays entfernt)
+> Letzte Aktualisierung: 29. Juni 2026 (Sportarten-Stepper: FIX 3 — hasSportViolation vor useEffect verschoben)
 
 ---
 
@@ -386,6 +386,8 @@ Strava OAuth Token Exchange & Refresh — STRAVA_CLIENT_SECRET bleibt server-sei
 - Coach-Fokus: Freitext-Textarea
 
 **Auto-Save:** 800ms Debounce nach jeder Änderung. Kein manueller Save-Button. Status-Indikator (Speichert… / ✓ Gespeichert).
+- `hasSportViolation`, `totalDays`, `trainingDaysNum` werden **vor** dem Auto-Save-`useEffect` deklariert, damit die Closure beim Timer-Check den korrekten Wert liest
+- `hasSportViolation` ist explizit in der Dep-Liste des `useEffect` — stellt sicher dass der Debounce-Timer neu startet wenn die Verletzung aufgelöst wird
 
 ### Goals.tsx
 - Lädt alle `season_goals` mit `active = true`, sortiert nach `event_date`
