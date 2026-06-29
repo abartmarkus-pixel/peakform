@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { supabase, type SeasonGoal } from '../lib/supabase'
+import { IconAdd, IconEdit, IconMissed, IconGoals } from '../lib/icons'
 
 // ── types & constants ──────────────────────────────────────────────────────
 
@@ -173,19 +174,18 @@ export default function Goals() {
   )
 
   return (
-    <div className="min-h-screen p-4 max-w-2xl mx-auto pb-12">
+    <div className="min-h-screen p-4 max-w-2xl mx-auto page-content">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <Link to="/dashboard" className="text-brand-500 hover:underline text-sm">← Zurück</Link>
+        <h1 className="text-2xl font-bold text-slate-100">Saison-Ziele</h1>
         <button
           onClick={openAdd}
-          className="bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold px-4 py-2 rounded-xl transition-colors"
+          className="flex items-center gap-1.5 bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold px-3 py-2 rounded-xl transition-colors"
         >
-          + Ziel hinzufügen
+          <IconAdd size={14} />
+          Hinzufügen
         </button>
       </div>
-
-      <h1 className="text-2xl font-bold text-slate-100 mb-6">Saison-Ziele</h1>
 
       {/* A-Event Countdown */}
       {nextA && (
@@ -201,7 +201,7 @@ export default function Goals() {
       {/* Goal list */}
       {sorted.length === 0 ? (
         <div className="text-center py-16 text-slate-500">
-          <p className="text-4xl mb-3">🎯</p>
+          <IconGoals size={40} className="mx-auto mb-3 text-slate-600" />
           <p className="text-sm">Noch keine Ziele. Füge dein erstes Saisonziel hinzu.</p>
         </div>
       ) : (
@@ -220,15 +220,17 @@ export default function Goals() {
                   <div className="flex items-center gap-2 shrink-0">
                     <button
                       onClick={() => openEdit(g)}
-                      className="text-slate-500 hover:text-slate-300 text-xs"
+                      className="text-slate-500 hover:text-slate-300 p-1"
+                      title="Bearbeiten"
                     >
-                      Bearbeiten
+                      <IconEdit size={14} />
                     </button>
                     <button
                       onClick={() => handleDeactivate(g.id)}
-                      className="text-slate-600 hover:text-red-400 text-xs"
+                      className="text-slate-600 hover:text-red-400 p-1"
+                      title="Deaktivieren"
                     >
-                      ✕
+                      <IconMissed size={14} />
                     </button>
                   </div>
                 </div>

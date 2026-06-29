@@ -4,6 +4,10 @@ import { useNavigate, Link } from 'react-router-dom'
 import { fetchRecentActivities, getValidAccessToken, type StravaActivity } from '../lib/strava'
 import { supabase, type Athlete } from '../lib/supabase'
 import { buildCoachSystemPrompt } from '../lib/coachPrompt'
+import {
+  IconLogout, IconRunning, IconCycling, IconStrength, IconWarning,
+} from '../lib/icons'
+import { SPORT_DISPLAY } from '../lib/icons'
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -27,16 +31,14 @@ function formatDistance(meters: number) {
   return (meters / 1000).toFixed(2) + ' km'
 }
 
-function activityIcon(type: string) {
-  const icons: Record<string, string> = {
-    Run: '🏃',
-    Ride: '🚴',
-    Swim: '🏊',
-    Walk: '🚶',
-    Hike: '🥾',
-    WeightTraining: '🏋️',
-  }
-  return icons[type] ?? '🏅'
+function ActivityIcon({ type }: { type: string }) {
+  if (type === 'Run' || type === 'VirtualRun' || type === 'TrailRun')
+    return <IconRunning size={18} color={SPORT_DISPLAY.running.color} />
+  if (type === 'Ride' || type === 'VirtualRide' || type === 'MountainBikeRide' || type === 'GravelRide')
+    return <IconCycling size={18} color={SPORT_DISPLAY.cycling.color} />
+  if (type === 'WeightTraining' || type === 'Workout')
+    return <IconStrength size={18} color={SPORT_DISPLAY.strength.color} />
+  return <IconRunning size={18} className="text-slate-400" />
 }
 
 // ── component ──────────────────────────────────────────────────────────────
@@ -205,8 +207,14 @@ oder
     )
   }
 
+  const FILTER_BUTTONS: [string, JSX.Element][] = [
+    ['WeightTraining', <IconStrength size={16} />],
+    ['Ride',          <IconCycling  size={16} />],
+    ['Run',           <IconRunning  size={16} />],
+  ]
+
   return (
-    <div className="min-h-screen p-4 max-w-2xl mx-auto">
+    <div className="min-h-screen p-4 max-w-2xl mx-auto page-content">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold text-brand-500">PeakForm</h1>
         <button
@@ -214,39 +222,14 @@ oder
           className="text-slate-500 hover:text-slate-300 transition-colors"
           title="Abmelden"
         >
-          <svg viewBox="0 0 24 24" className="w-7 h-7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-            <polyline points="16 17 21 12 16 7" />
-            <line x1="21" y1="12" x2="9" y2="12" />
-          </svg>
+          <IconLogout size={22} />
         </button>
-      </div>
-
-      <div className="grid grid-cols-4 gap-3 mb-6">
-        {([
-          ['/chat',    '💬', 'Coach'],
-          ['/plan',    '📅', 'Plan'],
-          ['/goals',   '🎯', 'Ziele'],
-          ['/profile', '👤', 'Profil'],
-        ] as [string, string, string][]).map(([to, icon, label]) => (
-          <Link
-            key={to}
-            to={to}
-            className="flex flex-col items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 rounded-xl py-4 transition-colors aspect-square"
-          >
-            <span className="text-4xl">{icon}</span>
-            <span className="text-sm font-medium text-slate-300">{label}</span>
-          </Link>
-        ))}
       </div>
 
       {/* ── Echtzeit-Alert Banner ──────────────────────────────── */}
       {alert && !alertDismissed && (
         <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 mb-5 flex items-start gap-3">
-          <svg viewBox="0 0 24 24" className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-            <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-          </svg>
+          <IconWarning size={18} className="text-amber-400 shrink-0 mt-0.5" />
           <div className="flex-1 min-w-0">
             <p className="text-sm text-amber-200 mb-3">{alert.message}</p>
             <div className="flex gap-2 flex-wrap">
@@ -270,17 +253,17 @@ oder
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-lg font-semibold text-slate-200">Letzte Aktivitäten</h2>
         <div className="flex gap-1.5">
-          {([['WeightTraining', '🏋️'], ['Ride', '🚴'], ['Run', '🏃']] as [string, string][]).map(([type, emoji]) => (
+          {FILTER_BUTTONS.map(([type, icon]) => (
             <button
               key={type}
               onClick={() => setFilter(f => f === type ? null : type)}
-              className={`text-base w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${
+              className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${
                 filter === type
-                  ? 'bg-brand-500/30 ring-1 ring-brand-500'
-                  : 'bg-slate-800 hover:bg-slate-700'
+                  ? 'bg-brand-500/30 ring-1 ring-brand-500 text-brand-400'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-400'
               }`}
             >
-              {emoji}
+              {icon}
             </button>
           ))}
         </div>
@@ -296,7 +279,7 @@ oder
               className="block bg-slate-800 hover:bg-slate-700 rounded-xl p-4 transition-colors"
             >
               <div className="flex items-center gap-2 mb-1">
-                <span className="text-xl">{activityIcon(act.type)}</span>
+                <ActivityIcon type={act.type} />
                 <span className="font-semibold text-slate-100 truncate">{act.name}</span>
                 <span className="ml-auto text-xs text-slate-400">
                   {new Date(act.start_date).toLocaleDateString('de-DE')}

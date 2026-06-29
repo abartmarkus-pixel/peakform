@@ -7,3 +7,9 @@
     @apply bg-slate-900 text-slate-100 antialiased;
   }
 }
+
+@layer utilities {
+  .page-content {
+    padding-bottom: 80px;
+  }
+}

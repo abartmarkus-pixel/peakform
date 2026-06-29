@@ -1,9 +1,15 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { supabase, type Athlete, type WeeklyPlan, type Activity, type SportConfig } from '../lib/supabase'
 import { buildCoachContext } from '../lib/coachContext'
 import { buildCoachSystemPrompt } from '../lib/coachPrompt'
 import { getValidAccessToken, fetchRecentActivities } from '../lib/strava'
+import {
+  IconRunning, IconCycling, IconStrength, IconRest,
+  IconChevronLeft, IconChevronRight,
+  IconCheck, IconMissed, IconWarning, IconPlan,
+  SPORT_DISPLAY,
+} from '../lib/icons'
 
 // ── types ──────────────────────────────────────────────────────────────────
 
@@ -37,16 +43,6 @@ type DayMatch = {
 
 const DAYS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
 
-const TYPE_ICON: Record<string, string> = {
-  Ruhetag: '💤', Erholung: '💤', Regeneration: '💤',
-  Ride: '🚴', Radfahren: '🚴', Cycling: '🚴',
-  Run: '🏃', Laufen: '🏃', Running: '🏃',
-  Kraft: '🏋️', WeightTraining: '🏋️', Krafttraining: '🏋️',
-  Schwimmen: '🏊', Swimming: '🏊',
-  Hike: '🥾', Wandern: '🥾',
-  Lockerung: '🚶', Spaziergang: '🚶',
-  Triathlon: '🏅',
-}
 
 // ── constraint validation ──────────────────────────────────────────────────
 
@@ -133,8 +129,17 @@ function parseReviewJson(text: string): ReviewJson {
   return JSON.parse(raw.trim()) as ReviewJson
 }
 
-function typeIcon(type: string): string {
-  return TYPE_ICON[type] ?? '🏅'
+function TypeIcon({ type, size = 16 }: { type: string; size?: number }) {
+  const t = type.toLowerCase()
+  if (['ruhetag', 'erholung', 'regeneration'].some(k => t.includes(k)))
+    return <IconRest size={size} color={SPORT_DISPLAY.rest.color} />
+  if (['run', 'laufen', 'running'].some(k => t.includes(k)))
+    return <IconRunning size={size} color={SPORT_DISPLAY.running.color} />
+  if (['ride', 'radfahren', 'cycling'].some(k => t.includes(k)))
+    return <IconCycling size={size} color={SPORT_DISPLAY.cycling.color} />
+  if (['kraft', 'weighttraining', 'krafttraining'].some(k => t.includes(k)))
+    return <IconStrength size={size} color={SPORT_DISPLAY.strength.color} />
+  return <IconRunning size={size} className="text-slate-400" />
 }
 
 const SPORT_MATCH: Record<string, string[]> = {
@@ -209,10 +214,10 @@ function DayCard({ day, idx, monday, plan, match, onPress }: {
             </span>
           )}
           {match?.status === 'completed' && (
-            <span className="text-brand-400 text-xs font-bold leading-none">✓</span>
+            <IconCheck size={12} className="text-brand-400" />
           )}
           {match?.status === 'missed' && (
-            <span className="text-amber-400 text-xs font-bold leading-none">✗</span>
+            <IconMissed size={12} className="text-amber-400" />
           )}
         </div>
       </div>
@@ -220,7 +225,7 @@ function DayCard({ day, idx, monday, plan, match, onPress }: {
       {plan ? (
         <>
           <div className={`flex items-center gap-1.5 ${isKraft ? '' : 'mb-1.5'}`}>
-            <span>{typeIcon(plan.type)}</span>
+            <TypeIcon type={plan.type} size={16} />
             <span className={`text-sm font-semibold ${isRest ? 'text-slate-500' : 'text-slate-100'}`}>
               {plan.type}
             </span>
@@ -241,13 +246,17 @@ function DayCard({ day, idx, monday, plan, match, onPress }: {
             </p>
           )}
           {match?.status === 'completed' && match.activity && (
-            <p className="text-xs text-brand-400/70 mt-1.5 truncate">
-              ✓ {match.activity.name}
+            <p className="text-xs text-brand-400/70 mt-1.5 truncate flex items-center gap-1">
+              <IconCheck size={10} className="text-brand-400 shrink-0" />
+              {match.activity.name}
               {match.activity.duration_s ? ` · ${Math.round(match.activity.duration_s / 60)} min` : ''}
             </p>
           )}
           {match?.status === 'missed' && !isRest && (
-            <p className="text-xs text-amber-400/70 mt-1.5">✗ Nicht absolviert</p>
+            <p className="text-xs text-amber-400/70 mt-1.5 flex items-center gap-1">
+              <IconMissed size={10} className="text-amber-400 shrink-0" />
+              Nicht absolviert
+            </p>
           )}
         </>
       ) : (
@@ -691,16 +700,14 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
   const displayPlanJson = pendingPlanJson ?? planJson
 
   return (
-    <div className="min-h-screen p-4 max-w-2xl mx-auto pb-12">
+    <div className="min-h-screen p-4 max-w-2xl mx-auto page-content">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <Link to="/dashboard" className="text-brand-500 hover:underline text-sm">← Zurück</Link>
+        <h1 className="text-2xl font-bold text-slate-100">Wochenplan</h1>
         {plan && (
           <span className="text-xs text-slate-500">Version {plan.version}</span>
         )}
       </div>
-
-      <h1 className="text-2xl font-bold text-slate-100 mb-4">Wochenplan</h1>
 
       {/* Week navigation */}
       <div className="flex items-center gap-3 mb-6">
@@ -708,7 +715,7 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
           onClick={() => setMonday(m => addWeeks(m, -1))}
           className="w-9 h-9 flex items-center justify-center bg-slate-800 hover:bg-slate-700 rounded-xl text-slate-300 transition-colors"
         >
-          ‹
+          <IconChevronLeft size={16} />
         </button>
         <div className="flex-1 text-center">
           <p className="text-sm font-semibold text-slate-200">{weekLabel(monday)}</p>
@@ -718,7 +725,7 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
           onClick={() => setMonday(m => addWeeks(m, 1))}
           className="w-9 h-9 flex items-center justify-center bg-slate-800 hover:bg-slate-700 rounded-xl text-slate-300 transition-colors"
         >
-          ›
+          <IconChevronRight size={16} />
         </button>
       </div>
 
@@ -757,7 +764,7 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
         </div>
       ) : (
         <div className="text-center py-12 text-slate-500 mb-6">
-          <p className="text-4xl mb-3">📅</p>
+          <IconPlan size={40} className="mx-auto mb-3 text-slate-600" />
           <p className="text-sm">Noch kein Plan für diese Woche.</p>
         </div>
       )}
@@ -765,8 +772,8 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
       {/* Constraint violation banner */}
       {violation.length > 0 && pendingPlanJson && (
         <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 mb-4">
-          <p className="text-amber-400 text-sm font-semibold mb-1">
-            ⚠ Der Coach-Plan weicht von deinen Einstellungen ab:
+          <p className="text-amber-400 text-sm font-semibold mb-1 flex items-center gap-1.5">
+            <IconWarning size={14} /> Der Coach-Plan weicht von deinen Einstellungen ab:
           </p>
           <ul className="text-xs text-amber-300/80 mb-3 space-y-0.5">
             {violation.map((d, i) => <li key={i}>• {d}</li>)}
@@ -842,8 +849,8 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
               {reviewError && <p className="text-red-400 text-xs mb-2">{reviewError}</p>}
               {reviewViolationList.length > 0 && pendingReviewData ? (
                 <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">
-                  <p className="text-amber-400 text-sm font-semibold mb-1">
-                    ⚠ Review-Plan weicht von deinen Einstellungen ab:
+                  <p className="text-amber-400 text-sm font-semibold mb-1 flex items-center gap-1.5">
+                    <IconWarning size={14} /> Review-Plan weicht von deinen Einstellungen ab:
                   </p>
                   <ul className="text-xs text-amber-300/80 mb-3 space-y-0.5">
                     {reviewViolationList.map((d, i) => <li key={i}>• {d}</li>)}
@@ -883,7 +890,7 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
             <div className="bg-slate-800 rounded-xl p-4 flex flex-col gap-3">
               <p className="text-sm text-slate-300 leading-relaxed">{reviewResult}</p>
               <div className="flex items-center gap-2 pt-1 border-t border-slate-700">
-                <span className="text-brand-400 text-xs">✓</span>
+                <IconCheck size={12} className="text-brand-400 shrink-0" />
                 <p className="text-xs text-slate-500">Plan für nächste Woche wurde generiert und gespeichert.</p>
               </div>
               <button

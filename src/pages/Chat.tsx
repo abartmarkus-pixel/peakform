@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { supabase, type Athlete, type ChatMessage } from '../lib/supabase'
 import { buildCoachContext } from '../lib/coachContext'
 import { buildCoachSystemPrompt } from '../lib/coachPrompt'
+import { IconChat, IconSend, IconRefresh } from '../lib/icons'
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -197,16 +198,17 @@ Antworte auf die letzte Nachricht des Athleten. Beziehe dich auf seine spezifisc
   }
 
   return (
-    <div className="flex flex-col h-screen max-w-2xl mx-auto">
+    <div className="flex flex-col max-w-2xl mx-auto" style={{ height: 'calc(100vh - 64px)' }}>
 
       {/* ── Header ────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 shrink-0">
-        <Link to="/dashboard" className="text-brand-500 hover:underline text-sm">← Zurück</Link>
         <h1 className="text-base font-semibold text-slate-100">Coach</h1>
         <button
           onClick={startNewThread}
-          className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+          className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+          title="Neues Gespräch"
         >
+          <IconRefresh size={13} />
           Neues Gespräch
         </button>
       </div>
@@ -216,7 +218,7 @@ Antworte auf die letzte Nachricht des Athleten. Beziehe dich auf seine spezifisc
 
         {messages.length === 0 && !sending && (
           <div className="flex-1 flex flex-col items-center justify-center text-slate-500 py-16">
-            <p className="text-4xl mb-4">💬</p>
+            <IconChat size={40} className="mb-4 text-slate-600" />
             <p className="text-sm text-center leading-relaxed max-w-xs">
               Frag deinen Coach — über Training, Erholung, Ziele oder Strategie.
             </p>
@@ -265,12 +267,9 @@ Antworte auf die letzte Nachricht des Athleten. Beziehe dich auf seine spezifisc
           <button
             onClick={send}
             disabled={!input.trim() || sending}
-            className="w-11 h-11 flex items-center justify-center bg-brand-500 hover:bg-brand-600 disabled:opacity-40 rounded-2xl transition-colors shrink-0 self-end"
+            className="w-11 h-11 flex items-center justify-center bg-brand-500 hover:bg-brand-600 disabled:opacity-40 rounded-2xl transition-colors shrink-0 self-end text-white"
           >
-            <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="22" y1="2" x2="11" y2="13" />
-              <polygon points="22 2 15 22 11 13 2 9 22 2" />
-            </svg>
+            <IconSend size={18} />
           </button>
         </div>
         <p className="text-xs text-slate-600 text-center mt-2">

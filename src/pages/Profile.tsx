@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
+import {
+  IconRunning, IconCycling, IconStrength,
+  IconChevronDown, IconWarning,
+  SPORT_DISPLAY,
+} from '../lib/icons'
 import {
   DndContext,
   closestCenter,
@@ -29,9 +34,9 @@ import { calculateSeasonPhase } from '../lib/coachContext'
 // ── constants ──────────────────────────────────────────────────────────────
 
 const SPORT_OPTIONS = [
-  { key: 'cycling',  label: '🚴 Radfahren' },
-  { key: 'running',  label: '🏃 Laufen' },
-  { key: 'strength', label: '🏋️ Krafttraining' },
+  { key: 'cycling',  Icon: IconCycling,  color: SPORT_DISPLAY.cycling.color,  label: 'Radfahren'    },
+  { key: 'running',  Icon: IconRunning,  color: SPORT_DISPLAY.running.color,  label: 'Laufen'       },
+  { key: 'strength', Icon: IconStrength, color: SPORT_DISPLAY.strength.color, label: 'Krafttraining' },
 ]
 
 const SPORT_LABELS: Record<string, string> = {
@@ -48,10 +53,10 @@ const BODY_GOALS = [
 ]
 
 const PERSONA_STYLES = [
-  { key: 'motivierend', label: '🔥 Motivierend' },
-  { key: 'analytisch',  label: '📊 Analytisch' },
-  { key: 'direkt',      label: '⚡ Direkt' },
-  { key: 'empathisch',  label: '💙 Empathisch' },
+  { key: 'motivierend', label: 'Motivierend' },
+  { key: 'analytisch',  label: 'Analytisch' },
+  { key: 'direkt',      label: 'Direkt' },
+  { key: 'empathisch',  label: 'Empathisch' },
 ]
 
 const EQUIPMENT_ITEMS: { key: keyof EquipmentConfig; label: string }[] = [
@@ -120,13 +125,10 @@ function AccordionSection({
         {!open && subtitle && (
           <p className="text-xs text-slate-500 flex-1 text-right truncate">{subtitle}</p>
         )}
-        <svg
-          viewBox="0 0 24 24"
-          className={`w-4 h-4 text-slate-400 shrink-0 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
-          fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-        >
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
+        <IconChevronDown
+          size={16}
+          className={`text-slate-400 shrink-0 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+        />
       </button>
       <div
         style={{
@@ -202,7 +204,7 @@ function UpdatedAt({ updatedAt, staleDays }: { updatedAt: string | null; staleDa
   const daysSince = Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24))
   const formatted = new Intl.DateTimeFormat('de-AT', { day: 'numeric', month: 'long', year: 'numeric' }).format(date)
   if (daysSince > staleDays) {
-    return <p className="text-xs text-amber-400 mt-1">⚠ Zuletzt aktualisiert: {formatted} — Retest empfohlen</p>
+    return <p className="text-xs text-amber-400 mt-1 flex items-center gap-1"><IconWarning size={11} /> Zuletzt aktualisiert: {formatted} — Retest empfohlen</p>
   }
   return <p className="text-xs text-slate-500 mt-1">Zuletzt aktualisiert: {formatted}</p>
 }
@@ -562,7 +564,7 @@ export default function Profile() {
   // ── render ──────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen p-4 max-w-2xl mx-auto pb-12">
+    <div className="min-h-screen p-4 max-w-2xl mx-auto page-content">
 
       {/* Fixed save status */}
       <div className={`fixed top-4 right-4 z-50 text-xs transition-opacity duration-300 pointer-events-none ${
@@ -571,13 +573,6 @@ export default function Profile() {
         <span className={saveState === 'saved' ? 'text-brand-400' : 'text-slate-500'}>
           {saveState === 'saved' ? '✓ Gespeichert' : 'Speichert…'}
         </span>
-      </div>
-
-      {/* Header */}
-      <div className="flex items-center mb-6">
-        <Link to="/dashboard" className="text-brand-500 hover:underline text-sm">
-          ← Zurück
-        </Link>
       </div>
 
       <h1 className="text-2xl font-bold text-slate-100 mb-6">Profil</h1>
@@ -632,19 +627,23 @@ export default function Profile() {
           <div>
             <label className="text-xs text-slate-400 mb-2 block">Sportarten</label>
             <div className="flex gap-2">
-              {SPORT_OPTIONS.map(({ key, label }) => (
-                <button
-                  key={key}
-                  onClick={() => toggleSport(key)}
-                  className={`px-3 py-1.5 rounded-xl text-sm font-medium transition-colors ${
-                    sportConfigs.some(s => s.type === key)
-                      ? 'bg-brand-500/20 text-brand-400 ring-1 ring-brand-500'
-                      : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
+              {SPORT_OPTIONS.map(({ key, Icon, color, label }) => {
+                const isActive = sportConfigs.some(s => s.type === key)
+                return (
+                  <button
+                    key={key}
+                    onClick={() => toggleSport(key)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium transition-colors ${
+                      isActive
+                        ? 'bg-brand-500/20 text-brand-400 ring-1 ring-brand-500'
+                        : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                    }`}
+                  >
+                    <Icon size={14} color={isActive ? undefined : '#94a3b8'} style={isActive ? { color } : undefined} />
+                    {label}
+                  </button>
+                )
+              })}
             </div>
 
             {/* Akkordeon-Stepper */}
@@ -680,8 +679,8 @@ export default function Profile() {
             })()}
 
             {hasSportViolation && (
-              <p className="mt-2 text-xs text-amber-400">
-                ⚠ Deine Sporttage ({totalDays}) übersteigen die Trainingstage ({trainingDaysNum}) — bitte anpassen
+              <p className="mt-2 text-xs text-amber-400 flex items-center gap-1">
+                <IconWarning size={11} /> Deine Sporttage ({totalDays}) übersteigen die Trainingstage ({trainingDaysNum}) — bitte anpassen
               </p>
             )}
           </div>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import { IconChevronLeft } from '../lib/icons'
 import {
   ResponsiveContainer,
   AreaChart,
@@ -571,9 +572,9 @@ ${exercises.length > 0
   const hasWatts = chartData.some(d => d.watts !== undefined)
 
   return (
-    <div className="min-h-screen p-4 max-w-2xl mx-auto pb-12">
-      <Link to="/dashboard" className="text-brand-500 hover:underline text-sm mb-4 inline-block">
-        ← Zurück
+    <div className="min-h-screen p-4 max-w-2xl mx-auto page-content">
+      <Link to="/dashboard" className="inline-flex items-center gap-1 text-brand-500 hover:text-brand-400 text-sm mb-4">
+        <IconChevronLeft size={14} /> Zurück
       </Link>
 
       <h1 className="text-xl font-bold text-slate-100 mb-1">{activity?.name}</h1>

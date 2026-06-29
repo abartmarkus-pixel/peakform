@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 29. Juni 2026 (Profile.tsx: alle Sektionen als einklappbares Akkordeon, neue Reihenfolge, KRAFTTRAINING als eigene Sektion)
+> Letzte Aktualisierung: 29. Juni 2026 (Bottom-Navigation, FA6 Icon-System, Dashboard Nav-Kacheln entfernt)
 
 ---
 
@@ -30,6 +30,7 @@ PeakForm ist eine PWA (Progressive Web App) die als KI-Trainingscoach fungiert. 
 | Build | Vite | 5.3 |
 | Styling | Tailwind CSS | 3.4 |
 | Routing | React Router v6 | 6.24 |
+| Icons | react-icons (Font Awesome 6 Free) | 5.6 |
 | Charts | Recharts | 2.12 |
 | Drag & Drop | @dnd-kit/core + @dnd-kit/sortable + @dnd-kit/utilities | 6.3 / 10.0 / 3.2 |
 | Sprache | TypeScript | 5.2 |
@@ -54,7 +55,10 @@ peakform/
 │   └── strava-token.ts     # Vercel Serverless Function — Strava OAuth Token Exchange/Refresh
 │                             STRAVA_CLIENT_SECRET ausschließlich server-seitig
 ├── src/
-│   ├── App.tsx             # Router (8 Routen, alle ohne Supabase Auth)
+│   ├── App.tsx             # Router (8 Routen) + Layout-Wrapper mit BottomNav
+│   ├── components/
+│   │   └── BottomNav.tsx   # Fix-positionierte 5-Tab Navigation (Home|Plan|Coach|Ziele|Profil)
+│   │                         Sichtbar auf allen Seiten außer / und /auth/callback
 │   ├── pages/
 │   │   ├── Home.tsx           # Strava-Connect-Button; Auto-Redirect zu /dashboard
 │   │   ├── AuthCallback.tsx   # OAuth-Code → /api/strava-token → Supabase upsert → localStorage
@@ -67,6 +71,8 @@ peakform/
 │   └── lib/
 │       ├── supabase.ts        # Supabase Client + TypeScript-Types
 │       ├── strava.ts          # OAuth URL, Token Exchange/Refresh via /api/strava-token, Activities, Streams, Laps
+│       ├── icons.ts           # Zentrale Icon-Exports (FA6 via react-icons/fa6) + SPORT_DISPLAY Konstante
+│       │                        SPORT_DISPLAY: { cycling, running, strength, rest } → { color, label }
 │       ├── coachContext.ts    # buildCoachContext(athleteId, threadId?) — 7 Abschnitte, alle parallel
 │       │                        buildSpecialistContext(athleteId, sport) — sportart-spezifische Historien
 │       └── coachPrompt.ts     # buildCoachSystemPrompt(athleteId): Promise<string> (Hauptcoach, dynamisch aus DB)
@@ -303,7 +309,7 @@ Strava OAuth Token Exchange & Refresh — STRAVA_CLIENT_SECRET bleibt server-sei
 |---|---|---|
 | `/` | Home.tsx | Strava-Connect-Button; Auto-Redirect zu `/dashboard` wenn eingeloggt |
 | `/auth/callback` | AuthCallback.tsx | OAuth-Code verarbeiten, athletes upsert, localStorage setzen |
-| `/dashboard` | Dashboard.tsx | 4 Nav-Kacheln + letzte 10 Aktivitäten + Filter |
+| `/dashboard` | Dashboard.tsx | Letzte 10 Aktivitäten + Filter + Alert-Banner |
 | `/activity/:id` | ActivityDetail.tsx | Detail-Ansicht mit Charts, Hevy-Übungen, Claude-Analyse |
 | `/profile` | Profile.tsx | Athleten-Profil mit Auto-Save |
 | `/goals` | Goals.tsx | Saison-Ziele verwalten |
@@ -329,9 +335,9 @@ Strava OAuth Token Exchange & Refresh — STRAVA_CLIENT_SECRET bleibt server-sei
 - Lädt `athletes` by `strava_athlete_id` aus Supabase
 - Holt letzte 10 Aktivitäten von Strava API (`per_page=10`)
 - Upsert in `activities` (ohne `tss`, ohne `description`)
-- 4 quadratische Nav-Kacheln: Coach / Plan / Ziele / Profil
-- Filter-Buttons: WeightTraining 🏋️, Ride 🚴, Run 🏃 (VirtualRide/VirtualRun werden mitgefiltert)
+- Filter-Buttons: WeightTraining / Ride / Run mit FA6-Icons (VirtualRide/VirtualRun werden mitgefiltert)
 - Logout-Icon: `localStorage.clear()` + Redirect
+- Keine Nav-Kacheln mehr (ersetzt durch BottomNav)
 
 **Echtzeit-Alert nach Strava-Sync:**
 - Einmal pro Session (via `sessionStorage`, Key: `peakform_alert_{weekStart}`)
@@ -727,10 +733,16 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 - Supabase Schema (6 Tabellen)
 - Strava OAuth 2.0 (Code-Exchange + Auto-Refresh)
 
+**Navigation & Icons:**
+- Bottom-Navigation (5 Tabs: Home / Plan / Coach / Ziele / Profil) — fix positioniert, außer auf / und /auth/callback
+- FA6 Icon-System (react-icons/fa6): alle Lucide/Emoji-Icons ersetzt
+- SPORT_DISPLAY Konstante in icons.ts (cycling/running/strength/rest → Farbe + Label)
+- page-content CSS-Klasse (padding-bottom: 80px) auf allen Hauptseiten
+
 **Dashboard & Aktivitäten:**
 - Letzte 10 Aktivitäten von Strava, gecacht in Supabase
-- 4 Nav-Kacheln (Coach / Plan / Ziele / Profil)
-- Aktivitäten-Filter nach Typ (Rad/Lauf/Kraft)
+- Nav-Kacheln entfernt (durch BottomNav ersetzt)
+- Aktivitäten-Filter nach Typ (Rad/Lauf/Kraft) mit FA6-Icons
 - Logout
 
 **ActivityDetail:**
@@ -823,7 +835,7 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 - **Pagination** — nur immer die letzten 10 Aktivitäten (kein "Mehr laden")
 - **CTL/ATL/TSB Fitness-Kurve**
 - **Push Notifications**
-- **Bottom-Navigation Mobile**
+- ~~Bottom-Navigation Mobile~~ ✅ Implementiert
 - **Aktivitäts-spezifischer Chat-Thread**
 - **OAuth State-Parameter** (CSRF-Schutz bei OAuth-Flow)
 
