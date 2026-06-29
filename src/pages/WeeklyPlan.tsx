@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { supabase, type Athlete, type WeeklyPlan, type Activity, type SportConfig } from '../lib/supabase'
 import { buildCoachContext } from '../lib/coachContext'
 import { buildCoachSystemPrompt } from '../lib/coachPrompt'
+import { getValidAccessToken, fetchRecentActivities } from '../lib/strava'
 
 // ── types ──────────────────────────────────────────────────────────────────
 
@@ -23,6 +24,13 @@ type ReviewJson = {
   review: string
   coach_decision_reason: string
   next_week_plan: PlanJson
+}
+
+type MatchStatus = 'completed' | 'missed' | 'pending'
+
+type DayMatch = {
+  status: MatchStatus
+  activity?: Activity
 }
 
 // ── constants ──────────────────────────────────────────────────────────────
@@ -129,33 +137,84 @@ function typeIcon(type: string): string {
   return TYPE_ICON[type] ?? '🏅'
 }
 
+const SPORT_MATCH: Record<string, string[]> = {
+  laufen:        ['Run', 'VirtualRun', 'TrailRun'],
+  run:           ['Run', 'VirtualRun', 'TrailRun'],
+  running:       ['Run', 'VirtualRun', 'TrailRun'],
+  radfahren:     ['Ride', 'VirtualRide', 'MountainBikeRide', 'GravelRide'],
+  ride:          ['Ride', 'VirtualRide', 'MountainBikeRide', 'GravelRide'],
+  cycling:       ['Ride', 'VirtualRide', 'MountainBikeRide', 'GravelRide'],
+  krafttraining: ['WeightTraining', 'Workout'],
+  kraft:         ['WeightTraining', 'Workout'],
+  weighttraining:['WeightTraining', 'Workout'],
+}
+
+function matchActivityToDay(
+  date: Date,
+  dayPlan: DayPlan,
+  activities: Activity[]
+): DayMatch {
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const d = new Date(date); d.setHours(0, 0, 0, 0)
+
+  if (REST_KEYWORDS.some(k => dayPlan.type.toLowerCase().includes(k))) {
+    return { status: 'pending' }
+  }
+
+  const matchingTypes = SPORT_MATCH[dayPlan.type.toLowerCase()] ?? []
+
+  const matched = activities.find(a => {
+    const actDate = new Date(a.date); actDate.setHours(0, 0, 0, 0)
+    return actDate.getTime() === d.getTime() && matchingTypes.includes(a.type)
+  })
+
+  if (matched) return { status: 'completed', activity: matched }
+  if (d < today) return { status: 'missed' }
+  return { status: 'pending' }
+}
+
 // ── sub-components ─────────────────────────────────────────────────────────
 
-function DayCard({ day, idx, monday, plan }: {
+function DayCard({ day, idx, monday, plan, match, onPress }: {
   day: string; idx: number; monday: Date; plan: DayPlan | undefined
+  match?: DayMatch; onPress?: () => void
 }) {
-  const isRest = !plan || plan.type.toLowerCase().includes('ruhetag') ||
-                 plan.type.toLowerCase().includes('erholung') ||
-                 plan.type.toLowerCase().includes('regeneration')
+  const isRest = !plan || REST_KEYWORDS.some(k => plan.type.toLowerCase().includes(k))
   const isKraft = plan ? SPORT_KEYWORDS.strength.some(k => plan.type.toLowerCase().includes(k)) : false
   const workoutLabel = isKraft && plan?.description
     ? (plan.description.match(/^Workout (III|II|I)$/i)?.[0] ?? null)
     : null
 
+  const borderClass =
+    match?.status === 'completed' ? 'border-l-[3px] border-l-brand-500' :
+    match?.status === 'missed'    ? 'border-l-[3px] border-l-amber-500' : ''
+  const isClickable = match?.status === 'completed' && !!onPress
+
   return (
-    <div className={`rounded-xl p-3.5 ${isRest ? 'bg-slate-800/50' : 'bg-slate-800'}`}>
+    <div
+      className={`rounded-xl p-3.5 ${isRest ? 'bg-slate-800/50' : 'bg-slate-800'} ${borderClass} ${isClickable ? 'cursor-pointer active:bg-slate-700' : ''}`}
+      onClick={isClickable ? onPress : undefined}
+    >
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-1.5">
           <span className="text-xs font-bold text-slate-400 w-6">{day}</span>
           <span className="text-xs text-slate-600">{dayDate(monday, idx)}</span>
         </div>
-        {plan && !isRest && (
-          <span className="text-xs text-slate-500">
-            {plan.duration_min ? `${plan.duration_min} min` : ''}
-            {plan.distance_km && !['laufen', 'run', 'running'].includes(plan.type.toLowerCase())
-              ? ` · ${plan.distance_km} km` : ''}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {plan && !isRest && (
+            <span className="text-xs text-slate-500">
+              {plan.duration_min ? `${plan.duration_min} min` : ''}
+              {plan.distance_km && !['laufen', 'run', 'running'].includes(plan.type.toLowerCase())
+                ? ` · ${plan.distance_km} km` : ''}
+            </span>
+          )}
+          {match?.status === 'completed' && (
+            <span className="text-brand-400 text-xs font-bold leading-none">✓</span>
+          )}
+          {match?.status === 'missed' && (
+            <span className="text-amber-400 text-xs font-bold leading-none">✗</span>
+          )}
+        </div>
       </div>
 
       {plan ? (
@@ -180,6 +239,15 @@ function DayCard({ day, idx, monday, plan }: {
             <p className={`text-xs leading-relaxed ${isRest ? 'text-slate-600' : 'text-slate-400'}`}>
               {plan.description}
             </p>
+          )}
+          {match?.status === 'completed' && match.activity && (
+            <p className="text-xs text-brand-400/70 mt-1.5 truncate">
+              ✓ {match.activity.name}
+              {match.activity.duration_s ? ` · ${Math.round(match.activity.duration_s / 60)} min` : ''}
+            </p>
+          )}
+          {match?.status === 'missed' && !isRest && (
+            <p className="text-xs text-amber-400/70 mt-1.5">✗ Nicht absolviert</p>
           )}
         </>
       ) : (
@@ -225,7 +293,7 @@ export default function WeeklyPlan() {
       .then(({ data }) => setAthlete(data as Athlete))
   }, [navigate])
 
-  // load plan + week activities whenever week changes
+  // load plan + week activities whenever week changes (with Strava mini-sync)
   useEffect(() => {
     if (!athlete) return
     setLoadingPlan(true)
@@ -236,26 +304,48 @@ export default function WeeklyPlan() {
 
     const sunday = toDateStr(addWeeks(monday, 1))
 
-    Promise.all([
-      supabase
-        .from('weekly_plans')
-        .select('*')
-        .eq('athlete_id', athlete.id)
-        .eq('week_start', weekStr)
-        .order('version', { ascending: false })
-        .limit(1),
-      supabase
-        .from('activities')
-        .select('*')
-        .eq('athlete_id', athlete.id)
-        .gte('date', weekStr)
-        .lt('date', sunday)
-        .order('date', { ascending: true }),
-    ]).then(([planRes, actsRes]) => {
+    ;(async () => {
+      // Mini-sync: pull latest 10 activities from Strava → upsert to Supabase
+      try {
+        const token = await getValidAccessToken(athlete)
+        const acts = await fetchRecentActivities(token)
+        await supabase.from('activities').upsert(
+          acts.map(a => ({
+            athlete_id: athlete.id,
+            strava_id:  a.id,
+            name:       a.name,
+            type:       a.type,
+            date:       a.start_date,
+            distance_m: a.distance ?? null,
+            duration_s: a.moving_time ?? null,
+            avg_hr:     a.average_heartrate ?? null,
+            max_hr:     a.max_heartrate ?? null,
+            np_watts:   a.weighted_average_watts ?? null,
+          })),
+          { onConflict: 'strava_id' }
+        )
+      } catch { /* sync failure doesn't block UI */ }
+
+      const [planRes, actsRes] = await Promise.all([
+        supabase
+          .from('weekly_plans')
+          .select('*')
+          .eq('athlete_id', athlete.id)
+          .eq('week_start', weekStr)
+          .order('version', { ascending: false })
+          .limit(1),
+        supabase
+          .from('activities')
+          .select('*')
+          .eq('athlete_id', athlete.id)
+          .gte('date', weekStr)
+          .lt('date', sunday)
+          .order('date', { ascending: true }),
+      ])
       setPlan(planRes.data?.[0] as WeeklyPlan ?? null)
       setWeekActivities((actsRes.data ?? []) as Activity[])
       setLoadingPlan(false)
-    })
+    })()
   }, [athlete, weekStr])
 
   async function savePlanJson(planJson: PlanJson, hasViolation: boolean) {
@@ -648,15 +738,22 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
         </div>
       ) : displayPlanJson ? (
         <div className="flex flex-col gap-2 mb-6">
-          {DAYS.map((day, idx) => (
-            <DayCard
-              key={day}
-              day={day}
-              idx={idx}
-              monday={monday}
-              plan={displayPlanJson.days?.[day]}
-            />
-          ))}
+          {DAYS.map((day, idx) => {
+            const dayPlan = displayPlanJson.days?.[day]
+            const date = new Date(monday); date.setDate(date.getDate() + idx)
+            const match = dayPlan ? matchActivityToDay(date, dayPlan, weekActivities) : undefined
+            return (
+              <DayCard
+                key={day}
+                day={day}
+                idx={idx}
+                monday={monday}
+                plan={dayPlan}
+                match={match}
+                onPress={match?.activity ? () => navigate(`/activity/${match.activity!.id}`) : undefined}
+              />
+            )
+          })}
         </div>
       ) : (
         <div className="text-center py-12 text-slate-500 mb-6">

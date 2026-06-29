@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 29. Juni 2026 (Sportarten-Stepper: FIX 3 — hasSportViolation vor useEffect verschoben)
+> Letzte Aktualisierung: 29. Juni 2026 (Aktivitäts-Matching in WeeklyPlan implementiert)
 
 ---
 
@@ -725,6 +725,12 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 - Review-Violations werden dem User angezeigt (nicht still gespeichert)
 - review_notes in coach context für Plan-Generierung der nächsten Woche
 - coach_decisions Logging
+- **Aktivitäts-Matching:** DayCards zeigen Status completed (grün) / missed (amber) / pending (neutral)
+  - `matchActivityToDay()`: Typ-Matching Laufen→Run/VirtualRun/TrailRun, Radfahren→Ride/..., Kraft→WeightTraining/Workout
+  - completed: grüner linker Rand + ✓ Icon + Aktivitätsname + Dauer; Tap → `/activity/{id}`
+  - missed: amber linker Rand + ✗ Icon + "Nicht absolviert" (nur vergangene Tage)
+  - pending: neutrales Erscheinungsbild; Ruhetage haben keinen Status
+  - Mini-Sync: beim Laden des Wochenplans werden zuerst die letzten 10 Strava-Aktivitäten in Supabase gesynct (silent, non-blocking bei Fehler)
 
 **Coach-Chat:**
 - Supabase-persistente Messages (chat_messages)
@@ -766,7 +772,7 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 - **Hevy API-Integration** — Hevy-Daten kommen ausschließlich via Strava description; kein `hevy_api_key`, keine eigene `strength_workouts`-Tabelle
 - **Body Check-in** — kein Foto-Upload, keine Claude Vision, keine body_checkins-Tabelle, keine PWA-Erinnerung
 - **Kraftcoach-Ästhetik-Bewertung** — Equipment + aesthetic_goals werden zwar als Kontext mitgeschickt, aber es gibt kein automatisches Übungs-Matching / Lücken-Identifikation (Phase D aus Kap. 18)
-- **Aktivitäts-Matching** — DayCards zeigen kein Grün/Orange/Grau-Status ob eine Aktivität zum Plan-Tag passt
+- **Aktivitäts-Matching** ✅ — DayCards zeigen Status completed/missed/pending; Tap auf completed → ActivityDetail
 - **Recovery-Extraktion für bestehende Analysen** — ✅ Behoben: ActivityDetail prüft beim Laden einer bestehenden `claude_analysis` ob bereits ein `coach_decisions`-Eintrag mit `related_activity_id = act.id` und `decision_type = 'recovery_required'` existiert. Falls nicht → fire-and-forget Extraction wird nachträglich getriggert.
 - **Pagination** — nur immer die letzten 10 Aktivitäten (kein "Mehr laden")
 - **CTL/ATL/TSB Fitness-Kurve**
