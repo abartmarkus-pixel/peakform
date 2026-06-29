@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 29. Juni 2026 (Persistente Session: restoreSessionFromSupabase, sessionStorage-Fallback, Splash-Screen)
+> Letzte Aktualisierung: 29. Juni 2026 (Branding: AppHeader, Favicon-Set, Startbild, Seitenüberschriften entfernt)
 
 ---
 
@@ -54,13 +54,24 @@ peakform/
 │   │                         Limits: 80.000 Zeichen, max_tokens Cap 4.096
 │   └── strava-token.ts     # Vercel Serverless Function — Strava OAuth Token Exchange/Refresh
 │                             STRAVA_CLIENT_SECRET ausschließlich server-seitig
+├── public/
+│   ├── peakform-logo.png        # Schriftzug Header (1x, max 320×80)
+│   ├── peakform-logo@2x.png     # Schriftzug Header (2x Retina)
+│   ├── favicon-16.png           # Favicon 16×16
+│   ├── favicon-32.png           # Favicon 32×32
+│   ├── apple-touch-icon.png     # iOS Home-Screen Icon 180×180
+│   ├── icon-192.png             # PWA Icon 192×192
+│   ├── icon-512.png             # PWA Icon 512×512 (auch maskable)
+│   ├── splash.png               # PWA Splash 1024×1024
+│   └── splash-bg.jpg            # Home.tsx Hintergrundbild, max 1200px, JPEG 80%
 ├── src/
-│   ├── App.tsx             # Router (8 Routen) + Layout-Wrapper mit BottomNav
+│   ├── App.tsx             # Router (8 Routen) + Layout-Wrapper mit BottomNav + AppHeader
 │   ├── components/
+│   │   ├── AppHeader.tsx   # Fixierter Header (h-14) mit Logo links; sichtbar außer / und /auth/callback
 │   │   └── BottomNav.tsx   # Fix-positionierte 5-Tab Navigation (Home|Plan|Coach|Ziele|Profil)
 │   │                         Sichtbar auf allen Seiten außer / und /auth/callback
 │   ├── pages/
-│   │   ├── Home.tsx           # Strava-Connect-Button; Auto-Redirect zu /dashboard
+│   │   ├── Home.tsx           # Vollbild-Hintergrund (splash-bg.jpg) + Logo zentriert + Strava-Button; Auto-Redirect zu /dashboard
 │   │   ├── AuthCallback.tsx   # OAuth-Code → /api/strava-token → Supabase upsert → localStorage
 │   │   ├── Dashboard.tsx      # 4 Nav-Kacheln + letzte 10 Aktivitäten + Typ-Filter
 │   │   ├── ActivityDetail.tsx # Stats-Grid + Charts + Rundentabelle + Hevy-Übungen + Claude-Analyse
@@ -746,9 +757,17 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 
 **Navigation & Icons:**
 - Bottom-Navigation (5 Tabs: Home / Plan / Coach / Ziele / Profil) — fix positioniert, außer auf / und /auth/callback
+- AppHeader (Logo links, h-14, frosted-glass) — fix positioniert, außer auf / und /auth/callback
 - FA6 Icon-System (react-icons/fa6): alle Lucide/Emoji-Icons ersetzt
 - SPORT_DISPLAY Konstante in icons.ts (cycling/running/strength/rest → Farbe + Label)
-- page-content CSS-Klasse (padding-bottom: 80px) auf allen Hauptseiten
+- page-content CSS-Klasse (padding-top: 56px + padding-bottom: 80px) auf allen Hauptseiten
+
+**Branding / Assets:**
+- Favicon-Set in public/: favicon-16.png, favicon-32.png, apple-touch-icon.png (180×180), icon-192.png, icon-512.png
+- PWA Manifest Icons: icon-192.png (standard + maskable), icon-512.png
+- Logo: public/peakform-logo.png (1x) + peakform-logo@2x.png (Retina) — im AppHeader + Home.tsx
+- Home-Hintergrund: public/splash-bg.jpg (JPEG 80%, max 1200px) — Vollbild in Home.tsx mit 50% Dark Overlay
+- Seitenüberschriften entfernt: Dashboard ("PeakForm"), Chat ("Coach"), Goals ("Saison-Ziele"), Profile ("Profil"), WeeklyPlan ("Wochenplan") — AppHeader ersetzt sie
 
 **Dashboard & Aktivitäten:**
 - Letzte 10 Aktivitäten von Strava, gecacht in Supabase

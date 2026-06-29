@@ -10,6 +10,7 @@
 
 @layer utilities {
   .page-content {
+    padding-top: 56px;
     padding-bottom: 80px;
   }
 }

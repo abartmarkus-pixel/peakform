@@ -575,8 +575,6 @@ export default function Profile() {
         </span>
       </div>
 
-      <h1 className="text-2xl font-bold text-slate-100 mb-6">Profil</h1>
-
       <div className="flex flex-col gap-4">
 
         {/* ── 1. ALLGEMEIN ───────────────────────────────────── */}

@@ -177,7 +177,6 @@ export default function Goals() {
     <div className="min-h-screen p-4 max-w-2xl mx-auto page-content">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-slate-100">Saison-Ziele</h1>
         <button
           onClick={openAdd}
           className="flex items-center gap-1.5 bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold px-3 py-2 rounded-xl transition-colors"

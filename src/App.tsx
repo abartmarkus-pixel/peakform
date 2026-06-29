@@ -9,6 +9,7 @@ import Goals from './pages/Goals'
 import WeeklyPlan from './pages/WeeklyPlan'
 import Chat from './pages/Chat'
 import BottomNav from './components/BottomNav'
+import { AppHeader } from './components/AppHeader'
 import { restoreSessionFromSupabase } from './lib/strava'
 
 const NO_NAV_PATHS = ['/', '/auth/callback']
@@ -51,6 +52,7 @@ function Layout() {
 
   return (
     <>
+      {showNav && <AppHeader />}
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
