@@ -10,6 +10,19 @@ export type SportConfig = {
   days: number
 }
 
+export type EquipmentConfig = {
+  dumbbells: { active: boolean; max_kg?: number }
+  bands: { active: boolean }
+  bodyweight: { active: boolean }
+  pullup_bar: { active: boolean }
+  gym: { active: boolean }
+}
+
+export type AestheticGoals = {
+  priorities: string[]
+  notes: string
+}
+
 export type Athlete = {
   id: string
   strava_athlete_id: number
@@ -27,6 +40,9 @@ export type Athlete = {
   coach_persona: Record<string, unknown> | null
   body_goal: string | null
   body_goals: string[] | null
+  // Phase 3 coach system fields
+  equipment: EquipmentConfig | null
+  aesthetic_goals: AestheticGoals | null
 }
 
 export type SeasonGoal = {
@@ -90,6 +106,7 @@ export type Activity = {
   np_watts: number | null
   tss: number | null
   streams_json: Record<string, unknown> | null
+  description: string | null
   claude_analysis: string | null
   created_at: string
 }
