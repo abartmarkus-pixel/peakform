@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 
-import { fetchRecentActivities, getValidAccessToken, type StravaActivity } from '../lib/strava'
+import { fetchRecentActivities, getValidAccessToken, syncActivitiesToSupabase, type StravaActivity } from '../lib/strava'
 import { supabase, type Athlete } from '../lib/supabase'
 import { buildCoachSystemPrompt } from '../lib/coachPrompt'
 import {
@@ -77,21 +77,7 @@ export default function Dashboard() {
           const acts = await fetchRecentActivities(token)
           setActivities(acts)
 
-          await supabase.from('activities').upsert(
-            acts.map((a) => ({
-              athlete_id: athlete.id,
-              strava_id: a.id,
-              name: a.name,
-              type: a.type,
-              date: a.start_date,
-              distance_m: a.distance ?? null,
-              duration_s: a.moving_time ?? null,
-              avg_hr: a.average_heartrate ?? null,
-              max_hr: a.max_heartrate ?? null,
-              np_watts: a.weighted_average_watts ?? null,
-            })),
-            { onConflict: 'strava_id' },
-          )
+          await syncActivitiesToSupabase(acts, athlete.id)
 
           // ── Echtzeit-Alert: einmal pro Session prüfen ──────────────────
           const thisWeek = mondayOf(new Date())

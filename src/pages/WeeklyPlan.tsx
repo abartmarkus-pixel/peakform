@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase, type Athlete, type WeeklyPlan, type Activity, type SportConfig } from '../lib/supabase'
 import { buildCoachContext } from '../lib/coachContext'
 import { buildCoachSystemPrompt } from '../lib/coachPrompt'
-import { getValidAccessToken, fetchRecentActivities } from '../lib/strava'
+import { getValidAccessToken, fetchRecentActivities, syncActivitiesToSupabase } from '../lib/strava'
 import {
   IconRunning, IconCycling, IconStrength, IconRest,
   IconChevronLeft, IconChevronRight,
@@ -318,21 +318,7 @@ export default function WeeklyPlan() {
       try {
         const token = await getValidAccessToken(athlete)
         const acts = await fetchRecentActivities(token)
-        await supabase.from('activities').upsert(
-          acts.map(a => ({
-            athlete_id: athlete.id,
-            strava_id:  a.id,
-            name:       a.name,
-            type:       a.type,
-            date:       a.start_date,
-            distance_m: a.distance ?? null,
-            duration_s: a.moving_time ?? null,
-            avg_hr:     a.average_heartrate ?? null,
-            max_hr:     a.max_heartrate ?? null,
-            np_watts:   a.weighted_average_watts ?? null,
-          })),
-          { onConflict: 'strava_id' }
-        )
+        await syncActivitiesToSupabase(acts, athlete.id)
       } catch { /* sync failure doesn't block UI */ }
 
       const [planRes, actsRes] = await Promise.all([

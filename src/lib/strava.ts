@@ -137,6 +137,27 @@ export async function restoreSessionFromSupabase(): Promise<boolean> {
   }
 }
 
+export async function syncActivitiesToSupabase(
+  activities: StravaActivity[],
+  athleteId: string,
+): Promise<void> {
+  await supabase.from('activities').upsert(
+    activities.map(a => ({
+      athlete_id: athleteId,
+      strava_id:  a.id,
+      name:       a.name,
+      type:       a.type,
+      date:       a.start_date,
+      distance_m: a.distance ?? null,
+      duration_s: a.moving_time ?? null,
+      avg_hr:     a.average_heartrate ?? null,
+      max_hr:     a.max_heartrate ?? null,
+      np_watts:   a.weighted_average_watts ?? null,
+    })),
+    { onConflict: 'strava_id' },
+  )
+}
+
 // Returns a valid access token, refreshing automatically if expired (with 60s buffer).
 export async function getValidAccessToken(athlete: Athlete): Promise<string> {
   const expiresAt = athlete.expires_at ? new Date(athlete.expires_at).getTime() : 0
