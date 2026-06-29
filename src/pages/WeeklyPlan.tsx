@@ -302,7 +302,19 @@ export default function WeeklyPlan() {
     setViolation([])
 
     try {
-      const context = await buildCoachContext(athlete.id)
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+
+      const [context, { data: recoveryRows }] = await Promise.all([
+        buildCoachContext(athlete.id),
+        supabase
+          .from('coach_decisions')
+          .select('decision_summary, reasoning, created_at')
+          .eq('athlete_id', athlete.id)
+          .eq('decision_type', 'recovery_required')
+          .gte('created_at', sevenDaysAgo)
+          .order('created_at', { ascending: false }),
+      ])
+
       const monday8 = monday.toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' })
       const sunday8 = new Date(monday.getTime() + 6 * 86400000)
         .toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' })
@@ -323,6 +335,14 @@ export default function WeeklyPlan() {
         `- ${SPORT_LABEL[s.type] ?? s.type}: exakt ${s.days} ${s.days === 1 ? 'Tag' : 'Tage'} geplant?`
       ).join('\n')
 
+      const recoverySection = recoveryRows?.length
+        ? `\nAKTUELLE ERHOLUNGS-EINSCHRÄNKUNGEN (höchste Priorität — überschreiben alle anderen Regeln):\n${
+            recoveryRows.map(d =>
+              `- ${new Date(d.created_at).toLocaleDateString('de-DE')}: ${d.reasoning ?? d.decision_summary}`
+            ).join('\n')
+          }\n`
+        : ''
+
       const prompt = `${context}
 
 ---
@@ -333,7 +353,7 @@ HARTE REGELN (nicht verhandelbar):
 1. Gesamttage: Der Plan enthält exakt ${trainingDays} Trainingstage und ${calendarRestDays} Ruhetage (Mo–So = 7 Tage).
 2. Sportarten-Verteilung (exakt einhalten):
 ${sportConstraintLines}
-
+${recoverySection}
 SPORTWISSENSCHAFTLICHE REIHENFOLGE-REGELN:
 3. Nie zwei intensive Einheiten (Z3+, Tempolauf, schweres Krafttraining) an aufeinanderfolgenden Tagen.
 4. Krafttraining nie am Tag vor einer intensiven Ausdauereinheit.
@@ -453,7 +473,27 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, 
     ).join('\n')
 
     try {
-      const context = await buildCoachContext(athlete.id)
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+
+      const [context, { data: recoveryRows }] = await Promise.all([
+        buildCoachContext(athlete.id),
+        supabase
+          .from('coach_decisions')
+          .select('decision_summary, reasoning, created_at')
+          .eq('athlete_id', athlete.id)
+          .eq('decision_type', 'recovery_required')
+          .gte('created_at', sevenDaysAgo)
+          .order('created_at', { ascending: false }),
+      ])
+
+      const reviewRecoverySection = recoveryRows?.length
+        ? `\nAKTUELLE ERHOLUNGS-EINSCHRÄNKUNGEN (höchste Priorität — überschreiben alle anderen Regeln):\n${
+            recoveryRows.map(d =>
+              `- ${new Date(d.created_at).toLocaleDateString('de-DE')}: ${d.reasoning ?? d.decision_summary}`
+            ).join('\n')
+          }\n`
+        : ''
+
       const nextMonday = addWeeks(monday, 1)
       const nextSunday = new Date(nextMonday.getTime() + 6 * 86400000)
 
@@ -475,7 +515,7 @@ HARTE REGELN für next_week_plan (nicht verhandelbar):
 1. Gesamttage: Der Plan enthält exakt ${trainingDaysRequired} Trainingstage und ${calendarRestDays} Ruhetage (Mo–So = 7 Tage).
 2. Sportarten-Verteilung (exakt einhalten):
 ${sportConstraintLines}
-
+${reviewRecoverySection}
 SELF-CHECK für next_week_plan vor Ausgabe — prüfe intern:
 - Gesamttage: stimmt mit ${trainingDaysRequired} Trainingstagen überein?
 ${selfCheckLines}

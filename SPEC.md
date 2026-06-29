@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 29. Juni 2026 (Coach-System Kap. 18, Steps 2–6)
+> Letzte Aktualisierung: 29. Juni 2026 (Bugfix: Aktivitäts-Analyse in Wochenplan-Generierung)
 
 ---
 
@@ -402,14 +402,14 @@ Strava OAuth Token Exchange & Refresh — STRAVA_CLIENT_SECRET bleibt server-sei
 ### Plan-Generierung (`generatePlan()`)
 
 **Inputs:**
-- `buildCoachContext(athleteId)` → vollständiger Coach-Kontext als User-Message
+- `buildCoachContext(athleteId)` + `coach_decisions[type=recovery_required, letzte 7 Tage]` → parallel
 - `COACH_SYSTEM_PROMPT` → als `system`-Parameter
 - Woche (Montag-Datum als Referenz)
 - `athlete.training_days_per_week` und `athlete.sport_types`
 
 **Prompt-Struktur:**
 ```
-{context}
+{context}                             ← enthält [LETZTE AKTIVITÄTS-ANALYSE] Block
 ---
 Erstelle den Wochenplan für die Woche vom {monday} bis {sunday}.
 
@@ -419,6 +419,9 @@ HARTE REGELN (nicht verhandelbar):
    - Laufen: exakt 2 Tage
    - Radfahren: exakt 2 Tage
    - Krafttraining: exakt 1 Tag
+
+AKTUELLE ERHOLUNGS-EINSCHRÄNKUNGEN (höchste Priorität — überschreiben alle anderen Regeln):
+- {date}: {reasoning}                 ← aus coach_decisions, type='recovery_required'
 
 SPORTWISSENSCHAFTLICHE REIHENFOLGE-REGELN:
 3–6. Keine zwei intensiven Tage hintereinander; Kraft nie vor intensiver Ausdauer; etc.
@@ -534,6 +537,11 @@ Funktion in `src/lib/coachContext.ts`. Wird bei JEDEM Claude-Call als User-Messa
   + review_notes der Vorwoche (falls vorhanden)
   + plan_json als JSON
 
+[LETZTE AKTIVITÄTS-ANALYSE]            ~300 tokens  (nur wenn claude_analysis vorhanden)
+  Neueste Aktivität mit claude_analysis aus activities
+  Format: "{name} ({date}, {type}):\n{claude_analysis}"
+  → "Diese Analyse MUSS bei der Wochenplanung berücksichtigt werden."
+
 [TRAININGSHISTORIE — LETZTE 4 WOCHEN]  ~600 tokens
   Aggregiert aus activities: Anzahl, km, Stunden, TSS, Ø HF, NP max — pro Woche
 
@@ -548,7 +556,7 @@ Funktion in `src/lib/coachContext.ts`. Wird bei JEDEM Claude-Call als User-Messa
   Letzte 10 Messages des threadId, chronologisch
 ```
 
-**Ziel: unter ~2.700 tokens, immer gleiche Struktur.**
+**Ziel: unter ~3.000 tokens, immer gleiche Struktur.**
 
 ### `buildSpecialistContext(athleteId, sport)`
 
@@ -722,6 +730,7 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 - **Body Check-in** — kein Foto-Upload, keine Claude Vision, keine body_checkins-Tabelle, keine PWA-Erinnerung
 - **Kraftcoach-Ästhetik-Bewertung** — Equipment + aesthetic_goals werden zwar als Kontext mitgeschickt, aber es gibt kein automatisches Übungs-Matching / Lücken-Identifikation (Phase D aus Kap. 18)
 - **Aktivitäts-Matching** — DayCards zeigen kein Grün/Orange/Grau-Status ob eine Aktivität zum Plan-Tag passt
+- **Automatische Recovery-Extraktion** — beim Ausführen der Analyse wird `coach_decisions[recovery_required]` nur erstellt, wenn Claude eine echte Einschränkung erkennt; keine harte Garantie für jede Aktivität
 - **Pagination** — nur immer die letzten 10 Aktivitäten (kein "Mehr laden")
 - **CTL/ATL/TSB Fitness-Kurve**
 - **Push Notifications**

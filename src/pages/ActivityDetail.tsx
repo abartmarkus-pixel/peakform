@@ -491,6 +491,39 @@ ${exercises.length > 0
 
       setAnalysis(text)
       await supabase.from('activities').update({ claude_analysis: text }).eq('strava_id', Number(id))
+
+      // Extract recovery restriction into coach_decisions (fire-and-forget, non-blocking)
+      if (athleteId) {
+        fetch('/api/analyse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: `Extrahiere aus dieser Trainingsanalyse eine konkrete Erholungsempfehlung als JSON:\n{"has_restriction": boolean, "restriction_until": "YYYY-MM-DD or null", "description": "string"}\nNur JSON, kein Text davor oder danach.\n\nAnalyse:\n${text}`,
+            system: COACH_SYSTEM_PROMPT,
+            max_tokens: 150,
+          }),
+        })
+          .then(r => r.json())
+          .then(async (json: { text: string }) => {
+            const match = json.text.match(/\{[\s\S]*\}/)
+            if (!match) return
+            const restriction = JSON.parse(match[0]) as {
+              has_restriction: boolean
+              restriction_until: string | null
+              description: string
+            }
+            if (!restriction.has_restriction || !restriction.description) return
+            await supabase.from('coach_decisions').insert({
+              athlete_id:       athleteId,
+              decision_type:    'recovery_required',
+              decision_summary: restriction.description.split(/[.!?]/)[0]?.trim() ?? restriction.description,
+              reasoning:        restriction.description +
+                (restriction.restriction_until ? ` (bis ${restriction.restriction_until})` : ''),
+              related_plan_id:  null,
+            })
+          })
+          .catch(() => { /* silent — recovery extraction is best-effort */ })
+      }
     } catch (e) {
       console.error(e)
       setError('Analyse fehlgeschlagen.')

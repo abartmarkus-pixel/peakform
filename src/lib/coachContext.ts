@@ -48,6 +48,7 @@ export async function buildCoachContext(
     { data: planHistory },
     { data: decisions },
     { data: chatRows },
+    { data: lastAnalysisRows },
   ] = await Promise.all([
     supabase
       .from('athletes')
@@ -99,6 +100,14 @@ export async function buildCoachContext(
           .order('created_at', { ascending: false })
           .limit(10)
       : Promise.resolve({ data: [] }),
+
+    supabase
+      .from('activities')
+      .select('name, date, type, claude_analysis')
+      .eq('athlete_id', athleteId)
+      .not('claude_analysis', 'is', null)
+      .order('date', { ascending: false })
+      .limit(1),
   ])
 
   const sections: string[] = []
@@ -178,6 +187,17 @@ export async function buildCoachContext(
   sections.push(
     `[AKTUELLER WOCHENPLAN]\nWoche: ${thisWeek}${currentPlan ? ` | Version ${currentPlan.version}` : ' | Noch kein Plan'}${reviewNote}\n${planBody}`
   )
+
+  // ── 3b. LETZTE AKTIVITÄTS-ANALYSE ─────────────────────────────────────
+  const lastAct = lastAnalysisRows?.[0] ?? null
+  if (lastAct?.claude_analysis) {
+    sections.push([
+      '[LETZTE AKTIVITÄTS-ANALYSE]',
+      `${lastAct.name} (${lastAct.date.slice(0, 10)}, ${lastAct.type}):`,
+      lastAct.claude_analysis,
+      '→ Diese Analyse MUSS bei der Wochenplanung berücksichtigt werden.',
+    ].join('\n'))
+  }
 
   // ── 4. TRAININGSHISTORIE — LETZTE 4 WOCHEN (~600 tokens) ──────────────
   type WeekBucket = {
