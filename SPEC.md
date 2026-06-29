@@ -94,11 +94,22 @@ peakform/
 3. `AuthCallback.tsx` ruft `/api/strava-token` auf (POST, server-side)
 4. Server tauscht Code gegen Token (`STRAVA_CLIENT_SECRET` bleibt server-seitig)
 5. `athletes` Upsert in Supabase via `strava_athlete_id` als Konflikt-Key
-6. `localStorage.setItem('athlete_strava_id', stravaId)` → Basis für alle weiteren Seiten
+6. `localStorage.setItem('athlete_strava_id', stravaId)` + `sessionStorage.setItem(...)` — Basis für alle weiteren Seiten
 
-**Session-Check:** Jede Seite liest `localStorage.getItem('athlete_strava_id')` und navigiert zu `/` wenn null.
+**Session-Wiederherstellung beim App-Start** (`App.tsx → Layout`):
+1. Öffentliche Pfade (`/`, `/auth/callback`): keine Prüfung nötig
+2. `localStorage` oder `sessionStorage` enthält `athlete_strava_id`: Session gültig, `localStorage` wird bei Bedarf nachgefüllt
+3. Beides leer → `restoreSessionFromSupabase()`: liest den einzigen Athletes-Eintrag aus Supabase, refresht Token falls abgelaufen, schreibt `athlete_strava_id` zurück in `localStorage` + `sessionStorage`
+4. Kein Eintrag in Supabase oder kein `refresh_token` → Redirect zu `/` (echter Strava-Login nötig)
 
-**Logout:** `localStorage.clear()` → Redirect zu `/`
+Während Schritt 3 läuft: Splash-Screen "PeakForm wird geladen…"
+
+**`restoreSessionFromSupabase()`** (in `src/lib/strava.ts`):
+- `SELECT id, strava_athlete_id, strava_access_token, strava_refresh_token, expires_at FROM athletes LIMIT 1`
+- Falls Eintrag mit `refresh_token`: `getValidAccessToken()` aufrufen → `localStorage` + `sessionStorage` setzen → `return true`
+- Sonst: `return false`
+
+**Logout:** `localStorage.clear()` + `sessionStorage.clear()` → Redirect zu `/`
 
 **Token-Refresh:** Automatisch in `getValidAccessToken()` — 60s Buffer vor Ablauf, neuer Token via `/api/strava-token` (grant_type: `refresh_token`), Update in Supabase.
 

@@ -33,7 +33,9 @@ export default function AuthCallback() {
           { onConflict: 'strava_athlete_id' },
         )
         if (dbError) throw dbError
-        localStorage.setItem('athlete_strava_id', String(token.athlete.id))
+        const stravaId = String(token.athlete.id)
+        localStorage.setItem('athlete_strava_id', stravaId)
+        sessionStorage.setItem('athlete_strava_id', stravaId)
         navigate('/dashboard')
       })
       .catch((err) => {

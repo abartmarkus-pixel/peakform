@@ -218,7 +218,7 @@ oder
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold text-brand-500">PeakForm</h1>
         <button
-          onClick={() => { localStorage.clear(); navigate('/') }}
+          onClick={() => { localStorage.clear(); sessionStorage.clear(); navigate('/') }}
           className="text-slate-500 hover:text-slate-300 transition-colors"
           title="Abmelden"
         >

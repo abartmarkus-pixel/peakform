@@ -1,4 +1,5 @@
-import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { BrowserRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom'
 import Home from './pages/Home'
 import AuthCallback from './pages/AuthCallback'
 import Dashboard from './pages/Dashboard'
@@ -8,12 +9,45 @@ import Goals from './pages/Goals'
 import WeeklyPlan from './pages/WeeklyPlan'
 import Chat from './pages/Chat'
 import BottomNav from './components/BottomNav'
+import { restoreSessionFromSupabase } from './lib/strava'
 
 const NO_NAV_PATHS = ['/', '/auth/callback']
+const PUBLIC_PATHS = ['/', '/auth/callback']
 
 function Layout() {
   const { pathname } = useLocation()
+  const navigate = useNavigate()
   const showNav = !NO_NAV_PATHS.includes(pathname)
+  const [sessionReady, setSessionReady] = useState(() => PUBLIC_PATHS.includes(pathname))
+
+  useEffect(() => {
+    if (PUBLIC_PATHS.includes(window.location.pathname)) return
+
+    const stravaId =
+      localStorage.getItem('athlete_strava_id') ||
+      sessionStorage.getItem('athlete_strava_id')
+
+    if (stravaId) {
+      if (!localStorage.getItem('athlete_strava_id')) {
+        localStorage.setItem('athlete_strava_id', stravaId)
+      }
+      setSessionReady(true)
+      return
+    }
+
+    restoreSessionFromSupabase().then(restored => {
+      if (!restored) navigate('/', { replace: true })
+      setSessionReady(true)
+    })
+  }, [navigate])
+
+  if (!sessionReady) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-900">
+        <p className="text-slate-400 text-lg">PeakForm wird geladen…</p>
+      </div>
+    )
+  }
 
   return (
     <>

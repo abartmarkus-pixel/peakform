@@ -114,6 +114,29 @@ async function refreshAccessToken(refreshToken: string): Promise<RefreshResult> 
   return res.json()
 }
 
+// Attempts to restore the session from Supabase when localStorage is empty.
+// Single-user app — queries the one athlete row, refreshes token if needed.
+export async function restoreSessionFromSupabase(): Promise<boolean> {
+  try {
+    const { data } = await supabase
+      .from('athletes')
+      .select('id, strava_athlete_id, strava_access_token, strava_refresh_token, expires_at')
+      .limit(1)
+      .single()
+
+    if (!data?.strava_refresh_token) return false
+
+    await getValidAccessToken(data as unknown as Athlete)
+
+    const stravaId = String(data.strava_athlete_id)
+    localStorage.setItem('athlete_strava_id', stravaId)
+    sessionStorage.setItem('athlete_strava_id', stravaId)
+    return true
+  } catch {
+    return false
+  }
+}
+
 // Returns a valid access token, refreshing automatically if expired (with 60s buffer).
 export async function getValidAccessToken(athlete: Athlete): Promise<string> {
   const expiresAt = athlete.expires_at ? new Date(athlete.expires_at).getTime() : 0

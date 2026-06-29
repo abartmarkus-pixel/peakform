@@ -6,7 +6,7 @@ export default function Home() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    if (localStorage.getItem('athlete_strava_id')) {
+    if (localStorage.getItem('athlete_strava_id') || sessionStorage.getItem('athlete_strava_id')) {
       navigate('/dashboard', { replace: true })
     }
   }, [navigate])
