@@ -34,6 +34,12 @@ const SPORT_OPTIONS = [
   { key: 'strength', label: '🏋️ Krafttraining' },
 ]
 
+const SPORT_LABELS: Record<string, string> = {
+  cycling: 'Radfahren',
+  running: 'Laufen',
+  strength: 'Krafttraining',
+}
+
 const BODY_GOALS = [
   'Event',
   'Muskelaufbau',
@@ -88,11 +94,51 @@ const DEFAULT_AESTHETIC: AestheticGoals = {
 
 // ── sub-components ─────────────────────────────────────────────────────────
 
-function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
+function AccordionSection({
+  title, subtitle, open, onToggle, children,
+}: {
+  title: string; subtitle?: string; open: boolean; onToggle: () => void; children: React.ReactNode
+}) {
+  const sectionRef = useRef<HTMLDivElement>(null)
+  const prevOpenRef = useRef(open)
+
+  useEffect(() => {
+    if (open && !prevOpenRef.current && sectionRef.current) {
+      sectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
+    prevOpenRef.current = open
+  }, [open])
+
   return (
-    <div className="bg-slate-800 rounded-2xl p-5">
-      <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">{title}</h2>
-      {children}
+    <div ref={sectionRef} className="bg-slate-800 rounded-2xl overflow-hidden">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-center justify-between px-5 py-3 min-h-[3rem] text-left gap-3"
+      >
+        <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider shrink-0">{title}</h2>
+        {!open && subtitle && (
+          <p className="text-xs text-slate-500 flex-1 text-right truncate">{subtitle}</p>
+        )}
+        <svg
+          viewBox="0 0 24 24"
+          className={`w-4 h-4 text-slate-400 shrink-0 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+          fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+      <div
+        style={{
+          maxHeight: open ? '2000px' : '0',
+          overflow: 'hidden',
+          transition: 'max-height 300ms ease-out',
+        }}
+      >
+        <div className="px-5 pb-5">
+          {children}
+        </div>
+      </div>
     </div>
   )
 }
@@ -161,45 +207,6 @@ function UpdatedAt({ updatedAt, staleDays }: { updatedAt: string | null; staleDa
   return <p className="text-xs text-slate-500 mt-1">Zuletzt aktualisiert: {formatted}</p>
 }
 
-function AccordionCard({
-  title, subtitle, open, onToggle, children,
-}: {
-  title: string; subtitle: string; open: boolean; onToggle: () => void; children: React.ReactNode
-}) {
-  return (
-    <div className="bg-slate-800 rounded-2xl overflow-hidden">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="w-full flex items-start justify-between p-5 text-left"
-      >
-        <div>
-          <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">{title}</h2>
-          {!open && <p className="text-xs text-slate-500 mt-1">{subtitle}</p>}
-        </div>
-        <svg
-          viewBox="0 0 24 24"
-          className={`w-4 h-4 text-slate-400 shrink-0 mt-0.5 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
-          fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-        >
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
-      </button>
-      <div
-        style={{
-          maxHeight: open ? '1400px' : '0',
-          overflow: 'hidden',
-          transition: 'max-height 300ms ease-out',
-        }}
-      >
-        <div className="px-5 pb-5">
-          {children}
-        </div>
-      </div>
-    </div>
-  )
-}
-
 function SortableMuscleItem({ id, label, rank }: { id: string; label: string; rank: number }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
   return (
@@ -230,28 +237,28 @@ function SortableMuscleItem({ id, label, rank }: { id: string; label: string; ra
 
 export default function Profile() {
   const navigate = useNavigate()
-  const [athlete, setAthlete]       = useState<Athlete | null>(null)
-  const [saveState, setSaveState]   = useState<'idle' | 'saving' | 'saved'>('idle')
-  const initialized                 = useRef(false)
-  const debounce                    = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [athlete, setAthlete]     = useState<Athlete | null>(null)
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const initialized               = useRef(false)
+  const debounce                  = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // form state
-  const [name,           setName]          = useState('')
-  const [ftpWatts,       setFtpWatts]      = useState('')
-  const [maxHr,          setMaxHr]         = useState('')
-  const [weightKg,       setWeightKg]      = useState('')
-  const [best5kInput,    setBest5kInput]   = useState('')
-  const [best5kError,    setBest5kError]   = useState<string | null>(null)
-  const [trainingDays,   setTrainingDays]  = useState('')
-  const [sportConfigs,   setSportConfigs]  = useState<SportConfig[]>([])
-  const [focusedSport,   setFocusedSport]  = useState<string | null>(null)
-  const [bodyGoals,      setBodyGoals]     = useState<string[]>([])
-  const [personaStyle,   setPersonaStyle]  = useState('')
-  const [personaFocus,   setPersonaFocus]  = useState('')
-  const [equipment,           setEquipment]           = useState<EquipmentConfig>(DEFAULT_EQUIPMENT)
-  const [aestheticGoals,      setAestheticGoals]      = useState<AestheticGoals>(DEFAULT_AESTHETIC)
+  const [name,               setName]              = useState('')
+  const [ftpWatts,           setFtpWatts]          = useState('')
+  const [maxHr,              setMaxHr]             = useState('')
+  const [weightKg,           setWeightKg]          = useState('')
+  const [best5kInput,        setBest5kInput]        = useState('')
+  const [best5kError,        setBest5kError]        = useState<string | null>(null)
+  const [trainingDays,       setTrainingDays]       = useState('')
+  const [sportConfigs,       setSportConfigs]       = useState<SportConfig[]>([])
+  const [focusedSport,       setFocusedSport]       = useState<string | null>(null)
+  const [bodyGoals,          setBodyGoals]          = useState<string[]>([])
+  const [personaStyle,       setPersonaStyle]       = useState('')
+  const [personaFocus,       setPersonaFocus]       = useState('')
+  const [equipment,          setEquipment]          = useState<EquipmentConfig>(DEFAULT_EQUIPMENT)
+  const [aestheticGoals,     setAestheticGoals]     = useState<AestheticGoals>(DEFAULT_AESTHETIC)
   const [seasonPhaseOverride, setSeasonPhaseOverride] = useState<'readaptation' | 'base' | 'race' | 'taper' | null>(null)
-  const [primaryEventDate,    setPrimaryEventDate]    = useState<string | null>(null)
+  const [primaryEventDate,   setPrimaryEventDate]   = useState<string | null>(null)
 
   // _updated_at state
   const [ftpUpdatedAt,    setFtpUpdatedAt]    = useState<string | null>(null)
@@ -265,9 +272,13 @@ export default function Profile() {
   const origWeight = useRef('')
   const origBest5k = useRef<number | null>(null)
 
-  // accordion open/closed state — default collapsed
-  const [equipmentOpen, setEquipmentOpen] = useState(false)
-  const [aestheticOpen,  setAestheticOpen]  = useState(false)
+  // accordion open states — ALLGEMEIN + TRAINING default open
+  const [generalOpen,     setGeneralOpen]     = useState(true)
+  const [trainingOpen,    setTrainingOpen]     = useState(true)
+  const [performanceOpen, setPerformanceOpen]  = useState(false)
+  const [goalCoachOpen,   setGoalCoachOpen]    = useState(false)
+  const [phaseOpen,       setPhaseOpen]        = useState(false)
+  const [strengthOpen,    setStrengthOpen]     = useState(false)
 
   // track previous hasStrength to detect activation (not initial load)
   const prevHasStrength = useRef<boolean | null>(null)
@@ -332,7 +343,6 @@ export default function Profile() {
 
       setSeasonPhaseOverride(a.season_phase_override ?? null)
 
-      // Load primary A-event for auto-phase display
       const { data: goalData } = await supabase
         .from('season_goals')
         .select('event_date')
@@ -347,10 +357,10 @@ export default function Profile() {
     })()
   }, [navigate])
 
-  // ── sport helpers ───────────────────────────────────────────────────────
+  // ── derived values — declared before auto-save useEffect ────────────────
 
-  const trainingDaysNum = trainingDays ? parseInt(trainingDays) : 0
-  const totalDays = sportConfigs.reduce((sum, s) => sum + s.days, 0)
+  const trainingDaysNum  = trainingDays ? parseInt(trainingDays) : 0
+  const totalDays        = sportConfigs.reduce((sum, s) => sum + s.days, 0)
   const hasSportViolation = trainingDaysNum > 0 && totalDays > trainingDaysNum
 
   // debounced auto-save — fires 800ms after any field change
@@ -370,7 +380,6 @@ export default function Profile() {
       const newMaxHr  = maxHr     ? parseInt(maxHr)       : null
       const newWeight = weightKg  ? parseFloat(weightKg)  : null
 
-      // Parse MM:SS → seconds (null if empty or invalid)
       let newBest5k: number | null = null
       if (best5kInput.trim()) {
         const m5k = best5kInput.match(/^(\d{1,2}):(\d{2})$/)
@@ -426,12 +435,14 @@ export default function Profile() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name, ftpWatts, maxHr, weightKg, best5kInput, trainingDays, sportConfigs, hasSportViolation, bodyGoals, personaStyle, personaFocus, equipment, aestheticGoals, seasonPhaseOverride])
 
+  // ── sport helpers ───────────────────────────────────────────────────────
+
   function toggleSport(key: string) {
     setFocusedSport(prev => prev === key ? null : key)
     setSportConfigs(prev => {
       if (prev.find(s => s.type === key)) return prev
       const currentSum = prev.reduce((s, c) => s + c.days, 0)
-      if (trainingDaysNum > 0 && currentSum >= trainingDaysNum) return prev // at capacity
+      if (trainingDaysNum > 0 && currentSum >= trainingDaysNum) return prev
       return [...prev, { type: key, days: 1 }]
     })
   }
@@ -455,10 +466,8 @@ export default function Profile() {
 
   function toggleEquipment(key: keyof EquipmentConfig) {
     setEquipment(prev => {
-      if (key === 'gym') {
-        return { ...prev, gym: { active: !prev.gym.active } }
-      }
-      if (prev.gym.active) return prev // gym active → other items locked
+      if (key === 'gym') return { ...prev, gym: { active: !prev.gym.active } }
+      if (prev.gym.active) return prev
       const item = prev[key] as { active: boolean; max_kg?: number }
       return { ...prev, [key]: { ...item, active: !item.active } }
     })
@@ -470,7 +479,6 @@ export default function Profile() {
 
   // ── aesthetic goals helpers ─────────────────────────────────────────────
 
-  // Ensure all 7 muscle groups appear; missing ones appended in default order
   const orderedGroups = (() => {
     const inOrder = aestheticGoals.priorities
       .map(key => MUSCLE_GROUPS.find(g => g.key === key))
@@ -494,47 +502,103 @@ export default function Profile() {
   const showAesthetic = bodyGoals.includes('Nackt gut ausschauen')
   const hasStrength   = sportConfigs.some(s => s.type === 'strength')
 
-  // auto-open accordion sections when strength is newly activated
+  // auto-open KRAFTTRAINING section when strength is newly activated
   useEffect(() => {
     if (prevHasStrength.current === false && hasStrength) {
-      setEquipmentOpen(true)
-      setAestheticOpen(true)
+      setStrengthOpen(true)
     }
     prevHasStrength.current = hasStrength
   }, [hasStrength])
 
-  const equipmentSubtitle = (() => {
-    if (equipment.gym.active) return 'Gym (alles verfügbar)'
-    const n = EQUIPMENT_ITEMS.filter(i => (equipment[i.key] as { active: boolean }).active).length
-    return n === 0 ? 'Kein Equipment gewählt' : `${n} ${n === 1 ? 'Gerät' : 'Geräte'} aktiv`
+  // ── subtitle computations ───────────────────────────────────────────────
+
+  const generalSubtitle = name.trim() || '—'
+
+  const trainingSubtitle = (() => {
+    const parts: string[] = []
+    if (trainingDays) parts.push(`${trainingDays} Tage/Woche`)
+    if (sportConfigs.length > 0) parts.push(sportConfigs.map(s => SPORT_LABELS[s.type] ?? s.type).join(', '))
+    return parts.join(' · ') || '—'
   })()
 
-  const aestheticSubtitle = orderedGroups.slice(0, 3).map(g => g.label).join(', ') + '…'
+  const performanceSubtitle = (() => {
+    const parts: string[] = []
+    if (ftpWatts && sportConfigs.some(s => s.type === 'cycling')) parts.push(`FTP ${ftpWatts}W`)
+    if (maxHr) parts.push(`Max HF ${maxHr}`)
+    if (weightKg) parts.push(`${weightKg}kg`)
+    if (best5kInput && !best5kError && sportConfigs.some(s => s.type === 'running')) parts.push(`5k ${best5kInput}`)
+    return parts.join(' · ') || 'Noch nicht konfiguriert'
+  })()
+
+  const goalCoachSubtitle = (() => {
+    const parts: string[] = []
+    if (bodyGoals.length > 0) parts.push(bodyGoals.join(', '))
+    if (personaStyle) parts.push(`Coach: ${personaStyle.charAt(0).toUpperCase() + personaStyle.slice(1)}`)
+    return parts.join(' · ') || 'Noch nicht konfiguriert'
+  })()
+
+  const phaseSubtitle = (() => {
+    const weeksUntilEvent = primaryEventDate
+      ? Math.round((new Date(primaryEventDate).getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000))
+      : 99
+    const autoPhase = calculateSeasonPhase(weeksUntilEvent, null)
+    if (seasonPhaseOverride) {
+      const overridePhase = calculateSeasonPhase(weeksUntilEvent, seasonPhaseOverride)
+      return `${overridePhase.label} (manuell gesetzt) ⚠`
+    }
+    return `${autoPhase.label} (automatisch)`
+  })()
+
+  const strengthSubtitle = (() => {
+    const equipParts: string[] = []
+    if (equipment.gym.active) {
+      equipParts.push('Gym (alles verfügbar)')
+    } else {
+      if (equipment.dumbbells.active) equipParts.push(`Kurzhanteln${equipment.dumbbells.max_kg ? ` ${equipment.dumbbells.max_kg}kg` : ''}`)
+      if (equipment.bands.active)     equipParts.push('Bänder')
+      if (equipment.bodyweight.active) equipParts.push('Körpergewicht')
+      if (equipment.pullup_bar.active) equipParts.push('Klimmzugstange')
+    }
+    const parts: string[] = []
+    if (equipParts.length) parts.push(equipParts.join(', '))
+    if (showAesthetic && orderedGroups.length > 0) {
+      parts.push(`${orderedGroups.slice(0, 3).map(g => g.label).join(', ')} (Priorität)`)
+    }
+    return parts.join(' + ') || 'Noch nicht konfiguriert'
+  })()
 
   // ── render ──────────────────────────────────────────────────────────────
 
   return (
     <div className="min-h-screen p-4 max-w-2xl mx-auto pb-12">
 
+      {/* Fixed save status */}
+      <div className={`fixed top-4 right-4 z-50 text-xs transition-opacity duration-300 pointer-events-none ${
+        saveState !== 'idle' ? 'opacity-100' : 'opacity-0'
+      }`}>
+        <span className={saveState === 'saved' ? 'text-brand-400' : 'text-slate-500'}>
+          {saveState === 'saved' ? '✓ Gespeichert' : 'Speichert…'}
+        </span>
+      </div>
+
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center mb-6">
         <Link to="/dashboard" className="text-brand-500 hover:underline text-sm">
           ← Zurück
         </Link>
-        <span className={`text-xs transition-opacity duration-300 ${
-          saveState === 'saved'  ? 'text-brand-400 opacity-100' :
-          saveState === 'saving' ? 'text-slate-500 opacity-100' : 'opacity-0'
-        }`}>
-          {saveState === 'saved' ? '✓ Gespeichert' : 'Speichert…'}
-        </span>
       </div>
 
       <h1 className="text-2xl font-bold text-slate-100 mb-6">Profil</h1>
 
       <div className="flex flex-col gap-4">
 
-        {/* ── Allgemein ──────────────────────────────────────── */}
-        <SectionCard title="Allgemein">
+        {/* ── 1. ALLGEMEIN ───────────────────────────────────── */}
+        <AccordionSection
+          title="Allgemein"
+          subtitle={generalSubtitle}
+          open={generalOpen}
+          onToggle={() => setGeneralOpen(o => !o)}
+        >
           <div>
             <label className="text-xs text-slate-400 mb-1 block">Name</label>
             <input
@@ -545,29 +609,114 @@ export default function Profile() {
               className="bg-slate-700 text-slate-100 rounded-xl px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-brand-500 placeholder:text-slate-500"
             />
           </div>
-        </SectionCard>
+        </AccordionSection>
 
-        {/* ── Leistungsdaten ─────────────────────────────────── */}
-        <SectionCard title="Leistungsdaten">
+        {/* ── 2. TRAINING ────────────────────────────────────── */}
+        <AccordionSection
+          title="Training"
+          subtitle={trainingSubtitle}
+          open={trainingOpen}
+          onToggle={() => setTrainingOpen(o => !o)}
+        >
+          <div className="mb-4">
+            <label className="text-xs text-slate-400 mb-2 block">Trainingstage pro Woche</label>
+            <div className="flex gap-2">
+              {[1,2,3,4,5,6,7].map(n => (
+                <button
+                  key={n}
+                  onClick={() => setTrainingDays(trainingDays === String(n) ? '' : String(n))}
+                  className={`w-9 h-9 rounded-xl text-sm font-semibold transition-colors ${
+                    trainingDays === String(n)
+                      ? 'bg-brand-500 text-white'
+                      : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                  }`}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs text-slate-400 mb-2 block">Sportarten</label>
+            <div className="flex gap-2">
+              {SPORT_OPTIONS.map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => toggleSport(key)}
+                  className={`px-3 py-1.5 rounded-xl text-sm font-medium transition-colors ${
+                    sportConfigs.some(s => s.type === key)
+                      ? 'bg-brand-500/20 text-brand-400 ring-1 ring-brand-500'
+                      : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* Akkordeon-Stepper */}
+            {(() => {
+              const config = focusedSport ? sportConfigs.find(s => s.type === focusedSport) : null
+              return (
+                <div style={{ maxHeight: config ? '72px' : '0', overflow: 'hidden', transition: 'max-height 200ms ease-out' }}>
+                  {config && (
+                    <div className="mt-3 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Stepper
+                          value={config.days}
+                          onDec={() => {
+                            if (config.days <= 1) {
+                              setSportConfigs(prev => prev.filter(s => s.type !== focusedSport))
+                              setFocusedSport(null)
+                            } else {
+                              updateSportConfig(focusedSport!, { days: config.days - 1 })
+                            }
+                          }}
+                          onInc={() => updateSportConfig(focusedSport!, { days: config.days + 1 })}
+                          disableDec={false}
+                          disableInc={trainingDaysNum > 0 && totalDays >= trainingDaysNum}
+                          titleInc="Maximale Trainingstage erreicht"
+                        />
+                        <span className="text-xs text-slate-500">{config.days === 1 ? 'Tag' : 'Tage'}</span>
+                      </div>
+                      <span className="text-xs text-slate-500">{totalDays} / {trainingDaysNum || '—'} Tage</span>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
+
+            {hasSportViolation && (
+              <p className="mt-2 text-xs text-amber-400">
+                ⚠ Deine Sporttage ({totalDays}) übersteigen die Trainingstage ({trainingDaysNum}) — bitte anpassen
+              </p>
+            )}
+          </div>
+        </AccordionSection>
+
+        {/* ── 3. LEISTUNGSDATEN ──────────────────────────────── */}
+        <AccordionSection
+          title="Leistungsdaten"
+          subtitle={performanceSubtitle}
+          open={performanceOpen}
+          onToggle={() => setPerformanceOpen(o => !o)}
+        >
           <div className="flex flex-col gap-4">
-            {/* Max HF — always visible */}
             <div>
               <NumberField label="Max HF" value={maxHr} onChange={setMaxHr} unit="bpm" placeholder="185" />
               <UpdatedAt updatedAt={maxHrUpdatedAt} staleDays={365} />
             </div>
-            {/* Gewicht — always visible */}
             <div>
               <NumberField label="Gewicht" value={weightKg} onChange={setWeightKg} unit="kg" placeholder="70" />
               <UpdatedAt updatedAt={weightUpdatedAt} staleDays={30} />
             </div>
-            {/* FTP — only when cycling active */}
             {sportConfigs.some(s => s.type === 'cycling') && (
               <div>
                 <NumberField label="FTP" value={ftpWatts} onChange={setFtpWatts} unit="W" placeholder="250" />
                 <UpdatedAt updatedAt={ftpUpdatedAt} staleDays={60} />
               </div>
             )}
-            {/* 5k Bestzeit — only when running active */}
             {sportConfigs.some(s => s.type === 'running') && (
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">5k Bestzeit</label>
@@ -597,41 +746,44 @@ export default function Profile() {
               </div>
             )}
           </div>
-        </SectionCard>
+        </AccordionSection>
 
-        {/* ── Training ───────────────────────────────────────── */}
-        <SectionCard title="Training">
-          {/* Trainingstage */}
+        {/* ── 4. ZIEL & COACH ────────────────────────────────── */}
+        <AccordionSection
+          title="Ziel & Coach"
+          subtitle={goalCoachSubtitle}
+          open={goalCoachOpen}
+          onToggle={() => setGoalCoachOpen(o => !o)}
+        >
           <div className="mb-4">
-            <label className="text-xs text-slate-400 mb-2 block">Trainingstage pro Woche</label>
-            <div className="flex gap-2">
-              {[1,2,3,4,5,6,7].map(n => (
+            <label className="text-xs text-slate-400 mb-2 block">Ziele (Mehrfachauswahl)</label>
+            <div className="flex flex-wrap gap-2">
+              {BODY_GOALS.map(goal => (
                 <button
-                  key={n}
-                  onClick={() => setTrainingDays(trainingDays === String(n) ? '' : String(n))}
-                  className={`w-9 h-9 rounded-xl text-sm font-semibold transition-colors ${
-                    trainingDays === String(n)
-                      ? 'bg-brand-500 text-white'
+                  key={goal}
+                  onClick={() => toggleGoal(goal)}
+                  className={`px-3 py-1.5 rounded-xl text-sm font-medium transition-colors ${
+                    bodyGoals.includes(goal)
+                      ? 'bg-brand-500/20 text-brand-400 ring-1 ring-brand-500'
                       : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
                   }`}
                 >
-                  {n}
+                  {goal}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Sportarten */}
-          <div>
-            <label className="text-xs text-slate-400 mb-2 block">Sportarten</label>
-            <div className="flex gap-2">
-              {SPORT_OPTIONS.map(({ key, label }) => (
+          <div className="mb-4">
+            <label className="text-xs text-slate-400 mb-2 block">Coach-Stil</label>
+            <div className="flex flex-wrap gap-2">
+              {PERSONA_STYLES.map(({ key, label }) => (
                 <button
                   key={key}
-                  onClick={() => toggleSport(key)}
+                  onClick={() => setPersonaStyle(personaStyle === key ? '' : key)}
                   className={`px-3 py-1.5 rounded-xl text-sm font-medium transition-colors ${
-                    sportConfigs.some(s => s.type === key)
-                      ? 'bg-brand-500/20 text-brand-400 ring-1 ring-brand-500'
+                    personaStyle === key
+                      ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500'
                       : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
                   }`}
                 >
@@ -639,59 +791,29 @@ export default function Profile() {
                 </button>
               ))}
             </div>
-
-            {/* Akkordeon-Stepper */}
-            {(() => {
-              const config = focusedSport
-                ? sportConfigs.find(s => s.type === focusedSport)
-                : null
-              return (
-                <div style={{
-                  maxHeight: config ? '72px' : '0',
-                  overflow: 'hidden',
-                  transition: 'max-height 200ms ease-out',
-                }}>
-                  {config && (
-                    <div className="mt-3 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Stepper
-                          value={config.days}
-                          onDec={() => {
-                            if (config.days <= 1) {
-                              setSportConfigs(prev => prev.filter(s => s.type !== focusedSport))
-                              setFocusedSport(null)
-                            } else {
-                              updateSportConfig(focusedSport!, { days: config.days - 1 })
-                            }
-                          }}
-                          onInc={() => updateSportConfig(focusedSport!, { days: config.days + 1 })}
-                          disableDec={false}
-                          disableInc={trainingDaysNum > 0 && totalDays >= trainingDaysNum}
-                          titleInc="Maximale Trainingstage erreicht"
-                        />
-                        <span className="text-xs text-slate-500">
-                          {config.days === 1 ? 'Tag' : 'Tage'}
-                        </span>
-                      </div>
-                      <span className="text-xs text-slate-500">
-                        {totalDays} / {trainingDaysNum || '—'} Tage
-                      </span>
-                    </div>
-                  )}
-                </div>
-              )
-            })()}
-
-            {hasSportViolation && (
-              <p className="mt-2 text-xs text-amber-400">
-                ⚠ Deine Sporttage ({totalDays}) übersteigen die Trainingstage ({trainingDaysNum}) — bitte anpassen
-              </p>
-            )}
           </div>
-        </SectionCard>
 
-        {/* ── Trainingsphase ─────────────────────────────────── */}
-        <SectionCard title="Trainingsphase">
+          <div>
+            <label className="text-xs text-slate-400 mb-1 block">
+              Worauf soll der Coach besonders achten?
+            </label>
+            <textarea
+              value={personaFocus}
+              onChange={e => setPersonaFocus(e.target.value)}
+              placeholder="z.B. Ich neige zu Übertraining, bitte auf Regeneration achten…"
+              rows={3}
+              className="w-full bg-slate-700 text-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none placeholder:text-slate-500"
+            />
+          </div>
+        </AccordionSection>
+
+        {/* ── 5. TRAININGSPHASE ──────────────────────────────── */}
+        <AccordionSection
+          title="Trainingsphase"
+          subtitle={phaseSubtitle}
+          open={phaseOpen}
+          onToggle={() => setPhaseOpen(o => !o)}
+        >
           {(() => {
             const weeksUntilEvent = primaryEventDate
               ? Math.round((new Date(primaryEventDate).getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000))
@@ -718,13 +840,11 @@ export default function Profile() {
                     </button>
                   ))}
                 </div>
-                {seasonPhaseOverride && (
+                {seasonPhaseOverride ? (
                   <p className="text-xs text-amber-400/80">
-                    Manuell überschrieben — aktiv bis du wieder "Auto" wählst.
-                    Sinnvoll nach Krankheit oder Verletzung.
+                    Manuell überschrieben — aktiv bis du wieder "Auto" wählst. Sinnvoll nach Krankheit oder Verletzung.
                   </p>
-                )}
-                {!seasonPhaseOverride && (
+                ) : (
                   <p className="text-xs text-slate-600">
                     Überschreibe die automatische Phase wenn du nach Krankheit oder Verletzung zurückgeworfen wurdest.
                   </p>
@@ -732,185 +852,105 @@ export default function Profile() {
               </>
             )
           })()}
-        </SectionCard>
+        </AccordionSection>
 
-        {/* ── Ziel & Coach ───────────────────────────────────── */}
-        <SectionCard title="Ziel & Coach-Einstellungen">
-          {/* Körperziele */}
-          <div className="mb-4">
-            <label className="text-xs text-slate-400 mb-2 block">Ziele (Mehrfachauswahl)</label>
-            <div className="flex flex-wrap gap-2">
-              {BODY_GOALS.map(goal => (
-                <button
-                  key={goal}
-                  onClick={() => toggleGoal(goal)}
-                  className={`px-3 py-1.5 rounded-xl text-sm font-medium transition-colors ${
-                    bodyGoals.includes(goal)
-                      ? 'bg-brand-500/20 text-brand-400 ring-1 ring-brand-500'
-                      : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                  }`}
-                >
-                  {goal}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Coach-Stil */}
-          <div className="mb-4">
-            <label className="text-xs text-slate-400 mb-2 block">Coach-Stil</label>
-            <div className="flex flex-wrap gap-2">
-              {PERSONA_STYLES.map(({ key, label }) => (
-                <button
-                  key={key}
-                  onClick={() => setPersonaStyle(personaStyle === key ? '' : key)}
-                  className={`px-3 py-1.5 rounded-xl text-sm font-medium transition-colors ${
-                    personaStyle === key
-                      ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500'
-                      : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Coach-Fokus */}
-          <div>
-            <label className="text-xs text-slate-400 mb-1 block">
-              Worauf soll der Coach besonders achten?
-            </label>
-            <textarea
-              value={personaFocus}
-              onChange={e => setPersonaFocus(e.target.value)}
-              placeholder="z.B. Ich neige zu Übertraining, bitte auf Regeneration achten…"
-              rows={3}
-              className="w-full bg-slate-700 text-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none placeholder:text-slate-500"
-            />
-          </div>
-        </SectionCard>
-
-        {/* ── Equipment (nur bei Krafttraining) ──────────────── */}
+        {/* ── 6. KRAFTTRAINING (nur wenn strength aktiv) ─────── */}
         {hasStrength && (
-        <AccordionCard
-          title="Equipment"
-          subtitle={equipmentSubtitle}
-          open={equipmentOpen}
-          onToggle={() => setEquipmentOpen(o => !o)}
-        >
-          <div className="flex flex-col gap-3">
-            {EQUIPMENT_ITEMS.map(item => {
-              const itemData = equipment[item.key] as { active: boolean; max_kg?: number }
-              const isGymActive = equipment.gym.active
-              const isDisabled = isGymActive
-              const isActive = isGymActive || itemData.active
-
-              return (
-                <div key={item.key} className={`flex items-center gap-3 ${isDisabled ? 'opacity-50' : ''}`}>
-                  <button
-                    onClick={() => toggleEquipment(item.key)}
-                    disabled={isDisabled}
-                    className={`w-5 h-5 rounded-md flex items-center justify-center border transition-colors shrink-0 ${
-                      isActive
-                        ? 'bg-brand-500 border-brand-500'
-                        : 'border-slate-600 bg-slate-700 hover:border-slate-500'
-                    } disabled:cursor-default`}
-                    aria-label={item.label}
-                  >
-                    {isActive && <Checkmark />}
-                  </button>
-                  <span className="text-sm text-slate-200 flex-1">{item.label}</span>
-
-                  {/* Kurzhantel kg-Input */}
-                  {item.key === 'dumbbells' && itemData.active && !isDisabled && (
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs text-slate-400">bis</span>
-                      <input
-                        type="number"
-                        value={equipment.dumbbells.max_kg ?? 20}
-                        onChange={e => setDumbbellMaxKg(Number(e.target.value))}
-                        min={5} max={200} step={5}
-                        className="w-16 bg-slate-700 text-slate-100 rounded-lg px-2 py-1 text-sm text-center focus:outline-none focus:ring-1 focus:ring-brand-500"
-                      />
-                      <span className="text-xs text-slate-400">kg</span>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-
-            <div className="border-t border-slate-700/50 pt-1" />
-
-            {/* Gym — special row */}
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => toggleEquipment('gym')}
-                className={`w-5 h-5 rounded-md flex items-center justify-center border transition-colors shrink-0 ${
-                  equipment.gym.active
-                    ? 'bg-amber-500 border-amber-500'
-                    : 'border-slate-600 bg-slate-700 hover:border-slate-500'
-                }`}
-                aria-label="Gym"
-              >
-                {equipment.gym.active && <Checkmark />}
-              </button>
-              <span className="text-sm text-slate-200 font-medium flex-1">Gym (alles verfügbar)</span>
-              {equipment.gym.active && (
-                <span className="text-xs text-amber-400">alle aktiviert</span>
-              )}
-            </div>
-          </div>
-        </AccordionCard>
-        )}
-
-        {/* ── Ästhetik-Ziele (Krafttraining + "Nackt gut ausschauen") ── */}
-        {hasStrength && showAesthetic && (
-          <AccordionCard
-            title="Körperziele (Priorität)"
-            subtitle={aestheticSubtitle}
-            open={aestheticOpen}
-            onToggle={() => setAestheticOpen(o => !o)}
+          <AccordionSection
+            title="Krafttraining"
+            subtitle={strengthSubtitle}
+            open={strengthOpen}
+            onToggle={() => setStrengthOpen(o => !o)}
           >
-            <p className="text-xs text-slate-500 mb-4">
-              Ziehe die Muskelgruppen in deine gewünschte Priorität — oben = wichtigster Fokus für den Coach.
-            </p>
+            {/* Teil A: Equipment */}
+            <div className={showAesthetic ? 'mb-6' : ''}>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Equipment</p>
+              <div className="flex flex-col gap-3">
+                {EQUIPMENT_ITEMS.map(item => {
+                  const itemData  = equipment[item.key] as { active: boolean; max_kg?: number }
+                  const isGymActive = equipment.gym.active
+                  const isActive  = isGymActive || itemData.active
+                  return (
+                    <div key={item.key} className={`flex items-center gap-3 ${isGymActive ? 'opacity-50' : ''}`}>
+                      <button
+                        onClick={() => toggleEquipment(item.key)}
+                        disabled={isGymActive}
+                        className={`w-5 h-5 rounded-md flex items-center justify-center border transition-colors shrink-0 ${
+                          isActive
+                            ? 'bg-brand-500 border-brand-500'
+                            : 'border-slate-600 bg-slate-700 hover:border-slate-500'
+                        } disabled:cursor-default`}
+                        aria-label={item.label}
+                      >
+                        {isActive && <Checkmark />}
+                      </button>
+                      <span className="text-sm text-slate-200 flex-1">{item.label}</span>
+                      {item.key === 'dumbbells' && itemData.active && !isGymActive && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs text-slate-400">bis</span>
+                          <input
+                            type="number"
+                            value={equipment.dumbbells.max_kg ?? 20}
+                            onChange={e => setDumbbellMaxKg(Number(e.target.value))}
+                            min={5} max={200} step={5}
+                            className="w-16 bg-slate-700 text-slate-100 rounded-lg px-2 py-1 text-sm text-center focus:outline-none focus:ring-1 focus:ring-brand-500"
+                          />
+                          <span className="text-xs text-slate-400">kg</span>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
 
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDragEnd}
-            >
-              <SortableContext
-                items={orderedGroups.map(g => g.key)}
-                strategy={verticalListSortingStrategy}
-              >
-                <div className="flex flex-col gap-2 mb-4">
-                  {orderedGroups.map((group, idx) => (
-                    <SortableMuscleItem
-                      key={group.key}
-                      id={group.key}
-                      label={group.label}
-                      rank={idx + 1}
-                    />
-                  ))}
+                <div className="border-t border-slate-700/50 pt-1" />
+
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => toggleEquipment('gym')}
+                    className={`w-5 h-5 rounded-md flex items-center justify-center border transition-colors shrink-0 ${
+                      equipment.gym.active
+                        ? 'bg-amber-500 border-amber-500'
+                        : 'border-slate-600 bg-slate-700 hover:border-slate-500'
+                    }`}
+                    aria-label="Gym"
+                  >
+                    {equipment.gym.active && <Checkmark />}
+                  </button>
+                  <span className="text-sm text-slate-200 font-medium flex-1">Gym (alles verfügbar)</span>
+                  {equipment.gym.active && <span className="text-xs text-amber-400">alle aktiviert</span>}
                 </div>
-              </SortableContext>
-            </DndContext>
-
-            <div>
-              <label className="text-xs text-slate-400 mb-1 block">
-                Besonderheiten (z.B. Muskelimbalancen)
-              </label>
-              <textarea
-                value={aestheticGoals.notes}
-                onChange={e => setAestheticGoals(prev => ({ ...prev, notes: e.target.value }))}
-                placeholder="z.B. Linker Bizeps schwächer als rechter — ausgleichen"
-                rows={2}
-                className="w-full bg-slate-700 text-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none placeholder:text-slate-500"
-              />
+              </div>
             </div>
-          </AccordionCard>
+
+            {/* Teil B: Körperziele (nur wenn "Nackt gut ausschauen" aktiv) */}
+            {showAesthetic && (
+              <div>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Körperziele (Priorität)</p>
+                <p className="text-xs text-slate-500 mb-4">
+                  Ziehe die Muskelgruppen in deine gewünschte Priorität — oben = wichtigster Fokus für den Coach.
+                </p>
+                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                  <SortableContext items={orderedGroups.map(g => g.key)} strategy={verticalListSortingStrategy}>
+                    <div className="flex flex-col gap-2 mb-4">
+                      {orderedGroups.map((group, idx) => (
+                        <SortableMuscleItem key={group.key} id={group.key} label={group.label} rank={idx + 1} />
+                      ))}
+                    </div>
+                  </SortableContext>
+                </DndContext>
+                <div>
+                  <label className="text-xs text-slate-400 mb-1 block">Besonderheiten (z.B. Muskelimbalancen)</label>
+                  <textarea
+                    value={aestheticGoals.notes}
+                    onChange={e => setAestheticGoals(prev => ({ ...prev, notes: e.target.value }))}
+                    placeholder="z.B. Linker Bizeps schwächer als rechter — ausgleichen"
+                    rows={2}
+                    className="w-full bg-slate-700 text-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none placeholder:text-slate-500"
+                  />
+                </div>
+              </div>
+            )}
+          </AccordionSection>
         )}
 
       </div>

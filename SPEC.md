@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 29. Juni 2026 (Equipment + Körperziele: strength-conditional + einklappbares Akkordeon)
+> Letzte Aktualisierung: 29. Juni 2026 (Profile.tsx: alle Sektionen als einklappbares Akkordeon, neue Reihenfolge, KRAFTTRAINING als eigene Sektion)
 
 ---
 
@@ -370,52 +370,80 @@ Strava OAuth Token Exchange & Refresh — STRAVA_CLIENT_SECRET bleibt server-sei
 **Markdown-Renderer** (`renderMarkdown`): h1-h3, Bullet-Lists, Blockquotes, `**fett**`, HR, Skip-Tabellen und Code-Blöcke
 
 ### Profile.tsx
-**Felder:**
-- Name (Text)
-- Leistungsdaten: sportartabhängige Sichtbarkeit
-  - Max HF (bpm): immer sichtbar
-  - Gewicht (kg): immer sichtbar
-  - FTP (W): nur wenn `sportConfigs.some(s => s.type === 'cycling')` — Reihenfolge: nach Gewicht
-  - 5k Bestzeit: nur wenn `sportConfigs.some(s => s.type === 'running')` — Reihenfolge: nach FTP
-  - **5k Eingabeformat:** MM:SS Textfeld (z.B. "25:51") — konvertiert automatisch zu/von `best_5k_seconds` (Sekunden)
-    - Validierung live (onChange): Format MM:SS, Minuten 10–59, Sekunden 0–59 → roter Fehlerhinweis
-    - Ungültiger Input → `best_5k_seconds` wird als null gespeichert (andere Felder nicht blockiert)
-  - **"Zuletzt aktualisiert"** unter jedem Feld:
-    - NULL → kein Text
-    - Aktuell → grau: "Zuletzt aktualisiert: 15. März 2026" (de-AT Locale)
-    - Veraltet → amber: "⚠ Zuletzt aktualisiert: … — Retest empfohlen"
-    - Schwellwerte: FTP > 60 Tage, Max HF > 365 Tage, Gewicht > 30 Tage, 5k > 90 Tage
-  - **`_updated_at` Auto-Update:** beim Speichern wird `field_updated_at = NOW()` gesetzt wenn sich der Wert gegenüber dem ursprünglich geladenen DB-Wert geändert hat und nicht null ist (via `origFtp/origMaxHr/origWeight/origBest5k` Refs)
+
+**Struktur:** Alle Sektionen als einklappbares `AccordionSection`-Akkordeon. Reihenfolge:
+
+| # | Sektion | defaultOpen | Bedingung |
+|---|---|---|---|
+| 1 | ALLGEMEIN | true | immer |
+| 2 | TRAINING | true | immer |
+| 3 | LEISTUNGSDATEN | false | immer |
+| 4 | ZIEL & COACH | false | immer |
+| 5 | TRAININGSPHASE | false | immer |
+| 6 | KRAFTTRAINING | false | nur wenn `strength` in sport_types |
+
+**`AccordionSection`-Komponente** (in Profile.tsx, kontrolliert):
+- Props: `title`, `subtitle`, `open`, `onToggle`, `children`
+- Header: Titel (uppercase, xs) links + Subtitle (truncated, rechts vom Titel) + Chevron rechts
+- Subtitle nur sichtbar wenn eingeklappt
+- `maxHeight`-Transition 300ms beim Aufklappen
+- `min-h-[3rem]` für Touch-Target ≥ 48px
+- `scrollIntoView({ behavior: 'smooth', block: 'nearest' })` wenn Sektion neu geöffnet wird (via `prevOpenRef`)
+- Accordion-Zustand in Profile verwaltet (6 useState: `generalOpen`, `trainingOpen`, `performanceOpen`, `goalCoachOpen`, `phaseOpen`, `strengthOpen`)
+
+**Subtitles (werden als Preview angezeigt wenn eingeklappt):**
+- ALLGEMEIN: `name || "—"`
+- TRAINING: `"5 Tage/Woche · Radfahren, Laufen, Krafttraining"`
+- LEISTUNGSDATEN: `"FTP 229W · Max HF 182 · 76kg · 5k 25:51"` (nur nicht-null Felder)
+- ZIEL & COACH: `"Event, Nackt gut ausschauen · Coach: Analytisch"`
+- TRAININGSPHASE: `"Phase 2 — Grundlage (automatisch)"` oder `"… (manuell gesetzt) ⚠"`
+- KRAFTTRAINING: Equipment-Liste `"Kurzhanteln 32kg, Bänder"` + `"Schultern, Brust, Arme (Priorität)"`
+
+**Sektionsinhalte:**
+
+*ALLGEMEIN:* Name (Textfeld)
+
+*TRAINING:*
 - Trainingstage pro Woche: Button-Grid 1–7
 - Sportarten: Pills (Radfahren / Laufen / Krafttraining) mit Akkordeon-Stepper
-  - Pill zeigt aktiv (brand-Farben) wenn Sportart in `sport_types` — unabhängig davon welcher Stepper gerade geöffnet ist
-  - Pill-Klick: Öffnet/schließt den Stepper; fügt Sportart mit 1 Tag hinzu wenn noch nicht vorhanden — aber nur wenn `totalDays < trainingDaysNum` (Overflow-Schutz in `toggleSport`)
-  - Stepper − bei 1 Tag: Sportart wird direkt aus `sport_types` entfernt, `focusedSport` → null, Stepper schließt, Pill wird inaktiv
-  - Stepper − niemals disabled solange Sportart aktiv ist
+  - Pill zeigt aktiv (brand-Farben) wenn Sportart in `sport_types`
+  - Pill-Klick: Öffnet/schließt den Stepper; fügt Sportart mit 1 Tag hinzu wenn noch nicht vorhanden — aber nur wenn `totalDays < trainingDaysNum`
+  - Stepper − bei 1 Tag: Sportart wird entfernt, `focusedSport` → null
   - Stepper + deaktiviert wenn `totalDays >= trainingDaysNum`; Tooltip: "Maximale Trainingstage erreicht"
-  - Trainingstage reduzieren → kein Auto-Clamp; wenn `totalDays > trainingDaysNum` entsteht:
-    - Amber-Warnung: "⚠ Deine Sporttage (X) übersteigen die Trainingstage (Y) — bitte anpassen"
-    - Kein Auto-Save solange Verletzung aktiv
-    - [+] Buttons bleiben disabled; [-] Buttons bleiben aktiv
-    - User entscheidet selbst welche Sportart reduziert oder entfernt wird
+  - Trainingstage reduzieren → Amber-Warnung wenn `totalDays > trainingDaysNum`; kein Auto-Save
+
+*LEISTUNGSDATEN:*
+- Max HF (bpm): immer sichtbar
+- Gewicht (kg): immer sichtbar
+- FTP (W): nur wenn cycling aktiv
+- 5k Bestzeit (MM:SS): nur wenn running aktiv — konvertiert zu/von `best_5k_seconds`
+  - Validierung live: Format MM:SS, Minuten 10–59, Sekunden 0–59
+- **"Zuletzt aktualisiert"** unter jedem Feld (NULL → kein Text; veraltet → amber ⚠)
+  - Schwellwerte: FTP > 60 Tage, Max HF > 365 Tage, Gewicht > 30 Tage, 5k > 90 Tage
+- **`_updated_at` Auto-Update:** `field_updated_at = NOW()` wenn Wert geändert und nicht null (`origFtp/origMaxHr/origWeight/origBest5k` Refs)
+
+*ZIEL & COACH:*
 - Ziele (Mehrfachauswahl): Event / Muskelaufbau / Gewicht reduzieren / Nackt gut ausschauen
 - Coach-Stil (Einfachauswahl): Motivierend / Analytisch / Direkt / Empathisch
 - Coach-Fokus: Freitext-Textarea
-- **Equipment** *(nur wenn `sportConfigs.some(s => s.type === 'strength')`)*:
-  - Einklappbares Akkordeon via `AccordionCard`-Komponente
-  - Standard: eingeklappt; Subtitle: "4 Geräte aktiv" / "1 Gerät aktiv" / "Kein Equipment gewählt" / "Gym (alles verfügbar)"
-  - Header klickbar mit Chevron (▲/▼); `maxHeight`-Transition 300ms
-  - Wenn Krafttraining neu aktiviert wird: automatisch aufklappen (`prevHasStrength` Ref verhindert Auto-Open bei initialem Laden)
-  - Inhalt: Kurzhanteln / Widerstandsbänder / Körpergewicht / Klimmzugstange + Gym (Mutex-Sonderrow)
-- **Körperziele (Priorität)** *(nur wenn `hasStrength && showAesthetic`)*:
-  - Einklappbares Akkordeon via `AccordionCard`-Komponente
-  - Standard: eingeklappt; Subtitle: erste 3 Prioritäten als Preview ("Schultern, Brust, Arme…")
-  - Gleiche Auto-Open-Logik wie Equipment (beim Aktivieren von Krafttraining)
-  - Inhalt: Drag & Drop Muskelgruppen-Ranking + Freitext-Notizen
 
-**Auto-Save:** 800ms Debounce nach jeder Änderung. Kein manueller Save-Button. Status-Indikator (Speichert… / ✓ Gespeichert).
-- `hasSportViolation`, `totalDays`, `trainingDaysNum` werden **vor** dem Auto-Save-`useEffect` deklariert, damit die Closure beim Timer-Check den korrekten Wert liest
-- `hasSportViolation` ist explizit in der Dep-Liste des `useEffect` — stellt sicher dass der Debounce-Timer neu startet wenn die Verletzung aufgelöst wird
+*TRAININGSPHASE:*
+- Auto-berechnete Phase anzeigen
+- Segmented Control: Auto | Readaptation | Grundlage | Wettkampf | Taper
+- Amber-Hinweis wenn Override aktiv
+
+*KRAFTTRAINING (nur wenn `hasStrength`):*
+- **Teil A — Equipment:** Checkboxen (Kurzhanteln / Bänder / Körpergewicht / Klimmzugstange + Gym als Mutex)
+  - Bei Kurzhanteln aktiv: Number-Input `bis X kg`
+  - Gym aktiv → alle anderen disabled + ausgegraut
+- **Teil B — Körperziele** (nur wenn `showAesthetic` = "Nackt gut ausschauen" in bodyGoals):
+  - Drag & Drop Muskelgruppen-Ranking (7 Gruppen, via @dnd-kit)
+  - Freitext-Feld für Besonderheiten
+- **Auto-Open:** Wenn Krafttraining neu aktiviert wird → `setStrengthOpen(true)` (`prevHasStrength` Ref verhindert Auto-Open bei initialem Laden)
+
+**Auto-Save:** 800ms Debounce. Kein manueller Save-Button. Status-Indikator (`fixed top-4 right-4 z-50`, Speichert… / ✓ Gespeichert).
+- `hasSportViolation`, `totalDays`, `trainingDaysNum` werden **vor** dem Auto-Save-`useEffect` deklariert
+- `hasSportViolation` in der Dep-Liste — Debounce-Timer startet neu wenn Verletzung aufgelöst wird
 
 ### Goals.tsx
 - Lädt alle `season_goals` mit `active = true`, sortiert nach `event_date`
@@ -716,25 +744,15 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 - Markdown-Renderer (h1-h3, Bullets, Blockquotes, bold)
 
 **Profil:**
-- Name, FTP, Max HF, Gewicht
-- Trainingstage-Auswahl (1–7)
-- Sportarten-Akkordeon mit Stepper (Pill aktiv = in sport_types; − bei 1 = entfernt Sportart; Trainingstage-Konflikt = Amber-Warnung + Save blockiert)
-- Körperziele (Mehrfachauswahl)
-- Coach-Stil + Coach-Fokus-Freitext
-- **Equipment-Sektion:** Checkboxen für Kurzhanteln / Bänder / Körpergewicht / Klimmzugstange / Gym
-  - Bei Kurzhanteln aktiv: Number-Input `bis X kg` (min 5, max 200, step 5)
-  - Gym aktiv → alle anderen Checkboxen disabled + ausgegraut (Gym = alles verfügbar)
-- **Ästhetik-Ziele-Sektion** (nur wenn `"Nackt gut ausschauen"` in `body_goals`):
-  - 7 Muskelgruppen als Drag-and-drop sortierbare Pills via `@dnd-kit/sortable`
-  - Reihenfolge = Priorität (1 = höchste); alle 7 immer sichtbar
-  - Freitext-Feld für Besonderheiten (z.B. Muskelimbalancen)
-  - Activation threshold 8px (verhindert versehentliche Drags beim Scrollen)
-- **Trainingsphase-Sektion:**
-  - Zeigt auto-berechnete Phase: *"Automatisch: Phase 2 — Grundlagenaufbau (8 Wochen bis Event)"*
-  - Segmented Control: Auto | Readaptation | Grundlage | Wettkampf | Taper
-  - Auto = `season_phase_override = NULL`; manuelle Wahl speichert den Override
-  - Amber-Hinweis wenn Override aktiv; grauer Hinweis-Text bei Auto
-- 800ms Auto-Save (equipment + aesthetic_goals + season_phase_override im Debounce)
+- Alle 6 Sektionen als einklappbares Akkordeon (`AccordionSection`-Komponente)
+- Reihenfolge: ALLGEMEIN → TRAINING → LEISTUNGSDATEN → ZIEL & COACH → TRAININGSPHASE → KRAFTTRAINING
+- ALLGEMEIN + TRAINING standardmäßig aufgeklappt; Rest eingeklappt
+- KRAFTTRAINING nur sichtbar wenn `strength` in sport_types; klappt automatisch auf wenn Krafttraining neu aktiviert
+- Subtitles zeigen Preview-Inhalt wenn Sektion eingeklappt
+- Status-Indikator (Speichert… / ✓ Gespeichert) fixed top-right
+- Smooth scrollIntoView beim Aufklappen auf kleinen Screens
+- Touch-Targets ≥ 48px (`min-h-[3rem]`)
+- 800ms Auto-Save für alle Felder inkl. equipment, aesthetic_goals, season_phase_override
 
 **Saison-Ziele:**
 - A/B/C-Priorität
