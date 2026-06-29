@@ -69,8 +69,8 @@ peakform/
 │       ├── strava.ts          # OAuth URL, Token Exchange/Refresh via /api/strava-token, Activities, Streams, Laps
 │       ├── coachContext.ts    # buildCoachContext(athleteId, threadId?) — 7 Abschnitte, alle parallel
 │       │                        buildSpecialistContext(athleteId, sport) — sportart-spezifische Historien
-│       └── coachPrompt.ts     # COACH_SYSTEM_PROMPT (Hauptcoach, hardcoded Markus)
-│                                LAUF_COACH_PROMPT | RAD_COACH_PROMPT | KRAFT_COACH_PROMPT (Spezialcoaches)
+│       └── coachPrompt.ts     # buildCoachSystemPrompt(athleteId): Promise<string> (Hauptcoach, dynamisch aus DB)
+│                                LAUF_COACH_PROMPT | RAD_COACH_PROMPT | KRAFT_COACH_PROMPT (Spezialcoaches, statisch)
 ├── vite.config.ts          # PWA-Config + /api/analyse + /api/strava-token Middleware für lokales Dev
 ├── vercel.json             # SPA Rewrites + SW Cache-Header
 └── .env                    # Credentials (nicht committen)
@@ -227,13 +227,14 @@ created_at               TIMESTAMPTZ
 
 ### coach_decisions
 ```sql
-id               UUID PRIMARY KEY
-athlete_id       UUID → athletes.id
-decision_type    TEXT    -- 'plan_generated' | 'weekly_review'
-decision_summary TEXT
-reasoning        TEXT
-related_plan_id  UUID nullable → weekly_plans.id
-created_at       TIMESTAMPTZ
+id                   UUID PRIMARY KEY
+athlete_id           UUID → athletes.id
+decision_type        TEXT    -- 'plan_generated' | 'weekly_review' | 'recovery_required'
+decision_summary     TEXT
+reasoning            TEXT
+related_plan_id      UUID nullable → weekly_plans.id
+related_activity_id  UUID nullable → activities.id   -- gesetzt bei 'recovery_required'
+created_at           TIMESTAMPTZ
 ```
 
 ---
@@ -350,17 +351,17 @@ Strava OAuth Token Exchange & Refresh — STRAVA_CLIENT_SECRET bleibt server-sei
 - Gesamtvolumen-Banner
 - Claude-Analyse: Volumen & Intensität / Übungsanalyse / Stärken / Empfehlung
 
-**Coach-Routing (`getCoachPrompts(type)`):**
-- Gibt `{ system, sport }` zurück
-- `system` = COACH_SYSTEM_PROMPT + sportspezifischer Spezialist-Prompt
+**Coach-Routing (`getSpecialistPrompt(activityType)`):**
+- Gibt `{ specialist: string|null, sport: string|null }` zurück
+- `specialist` = sportspezifischer Spezialist-Prompt (wird auf `buildCoachSystemPrompt()` aufgesattelt)
 - `sport` = `'running'` | `'cycling'` | `'strength'` | `null`
-- `runAnalysis()` lädt `buildCoachContext()` + `buildSpecialistContext()` parallel und schickt beide als User-Message
+- `runAnalysis()` lädt `buildCoachSystemPrompt(aId)` + `buildCoachContext()` + `buildSpecialistContext()` parallel
 
-**Recovery-Extraktion (fire-and-forget nach `runAnalysis()`):**
-- Läuft NUR wenn der User aktiv "Analysieren" / "Neu analysieren" klickt
+**Recovery-Extraktion (`triggerRecoveryExtraction(analysisText, athleteId, activityId)`):**
+- Fire-and-forget Helper — läuft nach `runAnalysis()` ODER beim Laden einer bestehenden Analyse
 - Mini-Claude-Call (`max_tokens: 150`): extrahiert `{has_restriction, restriction_until, description}` als JSON
-- Bei `has_restriction: true` → INSERT in `coach_decisions` (`decision_type = 'recovery_required'`)
-- **Bekannte Lücke:** Aktivitäten die bereits eine `claude_analysis` hatten bevor dieses Feature deployed wurde, generieren keinen Eintrag automatisch. Workaround: "Neu analysieren" klicken, oder Eintrag manuell via Supabase SQL einfügen (siehe unten).
+- Bei `has_restriction: true` → INSERT in `coach_decisions` (`decision_type = 'recovery_required'`, `related_activity_id = activityId`)
+- **On-load Recovery-Check:** Wenn `claude_analysis` existiert aber kein `coach_decisions`-Eintrag mit `related_activity_id = act.id` und `type = 'recovery_required'` → Extraction wird automatisch nachgeholt
 
 **Markdown-Renderer** (`renderMarkdown`): h1-h3, Bullet-Lists, Blockquotes, `**fett**`, HR, Skip-Tabellen und Code-Blöcke
 

@@ -10,6 +10,7 @@ Zielgruppe: persönlicher Einsatz (kein SaaS).
 | Frontend | React 18 + Vite + TypeScript + Tailwind CSS |
 | Charts | Recharts |
 | Routing | React Router v6 |
+| Drag & Drop | @dnd-kit/core + @dnd-kit/sortable |
 | Backend/DB | Supabase (PostgreSQL) |
 | KI | Claude Sonnet (claude-sonnet-4-6) via `/api/analyse` |
 | Hosting | Vercel — deployed auf `peakform-wheat.vercel.app` |
@@ -27,16 +28,18 @@ Zielgruppe: persönlicher Einsatz (kein SaaS).
 
 ## Datenbankschema
 ```sql
--- Phase 1
 athletes (id uuid PK, strava_athlete_id bigint UNIQUE, strava_access_token text,
           strava_refresh_token text, expires_at timestamptz,
-          -- Phase 2 Felder:
           name text,
           ftp_watts int, max_hr int, weight_kg numeric,
           training_days_per_week int,
-          sport_types jsonb,          ← SportConfig[] {type, days}; cycling/running/strength
-          body_goals text[],          ← Mehrfachauswahl: Event/Muskelaufbau/Gewicht reduzieren/Nackt gut ausschauen
-          coach_persona jsonb, 
+          sport_types jsonb,           ← SportConfig[] {type, days}; cycling/running/strength
+          body_goals text[],           ← Mehrfachauswahl: Event/Muskelaufbau/Gewicht reduzieren/Nackt gut ausschauen
+          coach_persona jsonb,         ← {style, focus}
+          equipment jsonb,             ← {dumbbells:{active,max_kg?},bands,bodyweight,pullup_bar,gym}
+          aesthetic_goals jsonb,       ← {priorities:string[],notes:string}
+          season_phase_override text,  ← NULL=Auto | 'readaptation'|'base'|'race'|'taper'
+          best_5k_seconds int,         ← 5k-Bestzeit in Sekunden (Basis für Pace-Berechnung)
           created_at timestamptz)
 
 activities (id uuid PK, athlete_id uuid FK→athletes, strava_id bigint UNIQUE,
@@ -46,7 +49,6 @@ activities (id uuid PK, athlete_id uuid FK→athletes, strava_id bigint UNIQUE,
             description text,       ← Strava description (Hevy-Daten); beim 1. Öffnen gecacht
             claude_analysis text, created_at timestamptz)
 
--- Phase 2
 season_goals (id uuid PK, athlete_id uuid FK→athletes, event_name text,
               event_date date, distance_km numeric, elevation_m int,
               priority goal_priority ENUM('A','B','C'), sport_type text,
@@ -60,7 +62,9 @@ weekly_plans (id uuid PK, athlete_id uuid FK→athletes, week_start date,
 
 coach_decisions (id uuid PK, athlete_id uuid FK→athletes, decision_type text,
                  decision_summary text, reasoning text,
-                 related_plan_id uuid FK→weekly_plans, created_at timestamptz)
+                 related_plan_id uuid FK→weekly_plans,
+                 related_activity_id uuid FK→activities,  ← gesetzt bei 'recovery_required'
+                 created_at timestamptz)
 
 chat_messages (id uuid PK, thread_id uuid, athlete_id uuid FK→athletes,
                role text CHECK('user','assistant'), content text,
@@ -81,20 +85,23 @@ peakform/
 │   ├── App.tsx             # Router: / | /auth/callback | /dashboard | /activity/:id
 │   │                       #         /profile | /goals | /plan | /chat
 │   ├── pages/
-│   │   ├── Home.tsx        # Strava-Connect-Button
+│   │   ├── Home.tsx        # Strava-Connect-Button; Auto-Redirect zu /dashboard
 │   │   ├── AuthCallback.tsx # OAuth Code → /api/strava-token → Supabase upsert
-│   │   ├── Dashboard.tsx   # 4 Nav-Kacheln (Coach/Plan/Ziele/Profil) + Letzte Aktivitäten + Filter (🏋️🚴🏃)
+│   │   ├── Dashboard.tsx   # 4 Nav-Kacheln + Letzte Aktivitäten + Filter (🏋️🚴🏃) + Echtzeit-Alert
 │   │   ├── ActivityDetail.tsx # Stats-Grid + Charts + Rundentabelle + Übungstabelle + Claude-Analyse
-│   │   ├── Profile.tsx     # "Profil" — Name, FTP/HF/Gewicht, Sportarten (JSONB accordion), Ziele, Coach; Auto-Save 800ms
-│   │   │                   # Sportarten-Stepper: − bei 1 Tag entfernt Sportart (days→0 = remove)
+│   │   ├── Profile.tsx     # Name, FTP/HF/Gewicht, Sportarten, Equipment, Ästhetik, Trainingsphase; Auto-Save 800ms
+│   │   │                   # Sportarten-Stepper: Invariante Σdays ≤ trainingDays technisch erzwungen
 │   │   ├── Goals.tsx       # Saisonziele A/B/C, Countdown in Tagen, Add/Edit-Modal
 │   │   ├── WeeklyPlan.tsx  # Wochenplan + Constraint-Prompt + Validation-Banner + Wochenreview
 │   │   └── Chat.tsx        # Globaler Coach-Chat mit Supabase-Persistenz
 │   ├── lib/
-│   │   ├── supabase.ts     # Supabase Client + Types (Athlete, Activity, SportConfig, SeasonGoal, WeeklyPlan, ...)
+│   │   ├── supabase.ts     # Supabase Client + Types (Athlete, Activity, SportConfig, SeasonGoal, WeeklyPlan, CoachDecision, ...)
 │   │   ├── strava.ts       # OAuth URL, Token Exchange via /api/strava-token, Activities, Streams, Laps
 │   │   ├── coachContext.ts # buildCoachContext(): 8 Abschnitte inkl. [HARTE TRAININGS-CONSTRAINTS]
-│   │   └── coachPrompt.ts  # COACH_SYSTEM_PROMPT — wird bei JEDEM Claude-Call als system-Parameter übergeben
+│   │   │                   # buildSpecialistContext(athleteId, sport): sportart-spezifische Historien
+│   │   │                   # calculateSeasonPhase(), calculateHRZones(), calculatePaceReference() (exportiert)
+│   │   └── coachPrompt.ts  # buildCoachSystemPrompt(athleteId): Promise<string> — dynamisch aus DB
+│   │                       # LAUF_COACH_PROMPT | RAD_COACH_PROMPT | KRAFT_COACH_PROMPT (statisch)
 │   └── vite-env.d.ts       # Env-Variable-Types
 ├── vite.config.ts          # PWA-Config + /api/analyse + /api/strava-token Middleware für lokales Dev
 ├── vercel.json             # SPA Rewrites + SW Cache-Header + Build-Config
@@ -119,56 +126,72 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 
 ## Was ist implementiert ✅
 
-### Phase 1
+### Foundation
 - [x] React + Vite + Tailwind + PWA (theme_color: #1D9E75)
 - [x] Supabase-Tabellen + RLS
 - [x] Strava OAuth 2.0 Flow (code → /api/strava-token server-side → Supabase)
 - [x] Strava Token-Refresh (automatisch, 60s Buffer, via /api/strava-token)
+
+### Dashboard & Aktivitäten
 - [x] Dashboard: letzte 10 Aktivitäten, in Supabase gecacht
 - [x] Dashboard: 4 quadratische Nav-Kacheln (💬 Coach / 📅 Plan / 🎯 Ziele / 👤 Profil)
 - [x] Dashboard: Filter nach Trainingsart (🏋️🚴🏃), Logout-Icon
+- [x] Home.tsx: Auto-Redirect zu `/dashboard` wenn `athlete_strava_id` in localStorage
+- [x] Dashboard: Echtzeit-Alert (Claude-Konflikt-Check nach Strava-Sync, sessionStorage-Gate, Amber-Banner + Modal)
 - [x] Aktivitäts-Detail: Stats-Grid, Charts, Rundentabelle, Claude-Analyse
 - [x] Markdown-Renderer
 
-### Krafttraining-Detailansicht (WeightTraining) ✅
-- Hevy → Strava description Parser (`parseHevyDescription`)
-- Übungskarten mit Volumen-Pill + Muskelgruppe-Pill
-- Claude-Prompt mit Athleten-Name, Übungen, Gesamtvolumen
+### Krafttraining-Detailansicht (WeightTraining)
+- [x] Hevy → Strava description Parser (`parseHevyDescription`)
+- [x] Übungskarten mit Volumen-Pill + Muskelgruppe-Pill
+- [x] activities.description: Cache-first (Supabase → Strava Detail-API Fallback)
 
-### Phase 2 — Coach Core + Memory Architecture ✅
-- [x] DB-Schema: 4 neue Tabellen + athletes-Profilfelder
-- [x] coachContext.ts: `buildCoachContext(athleteId, threadId)` — 8 Abschnitte parallel
-- [x] Profile.tsx: Name, FTP/HF/Gewicht, Sportarten-Akkordeon (Stepper, − bei 1 = entfernen), body_goals, Coach-Stil
-- [x] Goals.tsx: Saisonziele A/B/C, Countdown in Tagen
-- [x] WeeklyPlan.tsx: Constraint-Prompt + Frontend-Validation + Violation-Banner + Wochenreview
-- [x] Chat.tsx: Globaler Coach-Chat, Supabase-first Flow
-- [x] **COACH_SYSTEM_PROMPT** (`src/lib/coachPrompt.ts`): bei jedem Claude-Call als `system`-Parameter
-  - Athleten-Profil (Markus, 40+, Innsbruck, FTP 229W, Schulter beachten)
-  - Primärziel: 8k-Laufevent 1. Oktober 2026, Zielpace 5:08–5:22 min/km
-  - 14-Wochen-Periodisierung (Phase 1–4: Readaptation/Grundlage/Wettkampf/Taper)
-  - HF-Zonen (Max HF 182), Pace-Referenz, Coaching-Prinzipien
-  - buildCoachContext() bleibt als User-Message-Inhalt (nicht im system)
+### Coach-System
+- [x] `buildCoachSystemPrompt(athleteId): Promise<string>` — dynamisch aus DB (FTP, Max HF, Saison-Phase, HF-Zonen, Pace-Referenz, A-Event)
+- [x] `buildCoachContext(athleteId, threadId?)`: 8 Abschnitte parallel
+- [x] `buildSpecialistContext(athleteId, sport)`: Lauf/Rad/Kraft-spezifische Historien
+- [x] `LAUF_COACH_PROMPT` / `RAD_COACH_PROMPT` / `KRAFT_COACH_PROMPT`: statische Spezialcoaches
+- [x] Coach-Routing (`getSpecialistPrompt(activityType)`) in ActivityDetail.tsx
+- [x] `calculateSeasonPhase()`, `calculateHRZones()`, `calculatePaceReference()` in coachContext.ts
+- [x] Recovery-Extraktion: `triggerRecoveryExtraction(analysisText, athleteId, activityId)` — fire-and-forget nach Analyse ODER beim Laden bestehender Analyse (on-load check)
 
-### Sicherheit & Stabilität (nachträglich gepatcht) ✅
-- [x] Strava Client Secret aus Browser-Bundle entfernt → `/api/strava-token` (server-side)
-- [x] `/api/analyse`: Prompt-Size-Limit, max_tokens-Cap (4096), generische Fehler
-- [x] ActivityDetail: Null-Guard für fehlende Athlete/Activity-Daten
-- [x] WeeklyPlan: `parseReviewJson()` mit Markdown-Fallback statt rohem `JSON.parse()`
-- [x] WeeklyPlan: Constraint-Check auch für Review-generierten Folgewochenplan
-- [x] WeeklyPlan: training_days Default 0 + Fehlermeldung statt stillem Default 7
-- [x] Profile Stepper: Sportart-Tage können auf 0 (= Entfernen der Sportart)
+### Profil
+- [x] Name, FTP, Max HF, Gewicht, Trainingstage (1–7)
+- [x] Sportarten-Akkordeon mit Stepper — Invariante: `Σdays ≤ trainingDays` technisch erzwungen
+  - [x] Pill-Klick: Overflow-Schutz in `toggleSport` (fügt nur hinzu wenn Kapazität vorhanden)
+  - [x] Stepper − bei days=1: Sportart wird explizit entfernt, Stepper schließt
+  - [x] Stepper + disabled wenn `totalDays >= trainingDaysNum`
+  - [x] `clampSportDays(n)`: Training-Tage-Reduktion → Sport-Tage proportional reduzieren
+- [x] Körperziele (Mehrfachauswahl), Coach-Stil, Coach-Fokus Freitext
+- [x] Equipment-Sektion: Kurzhanteln/Bänder/Körpergewicht/Klimmzugstange/Gym (Gym = Mutex)
+- [x] Ästhetik-Ziele: Drag & Drop Ranking (via @dnd-kit) — nur wenn "Nackt gut ausschauen" aktiv
+- [x] Trainingsphase: Auto-Anzeige + Segmented Control (Auto/Override); `season_phase_override` in DB
+- [x] Auto-Save 800ms Debounce
 
-### UX & Feature-Updates (2026-06-27) ✅
-- [x] Home.tsx: Auto-Redirect zu `/dashboard` wenn `athlete_strava_id` in localStorage
-- [x] activities: Spalte `description text` — Strava/Hevy-Description wird beim ersten Öffnen gecacht
-- [x] ActivityDetail: Cache-first für description (Supabase → Strava-API Fallback)
-- [x] WeeklyPlan — Kraft-Rotation: Workout I → II → III → I, Prompt erzwingt Reihenfolge via Self-Check
-- [x] WeeklyPlan — DayCard: Kraft zeigt kein Freitext-Description; violettes Badge "Workout I/II/III"
+### Saison-Ziele
+- [x] A/B/C-Priorität, Countdown in Tagen, Add/Edit-Modal
+- [x] Deaktivieren (active = false, kein DELETE)
 
-### Deployment ✅
+### Wochenplan
+- [x] Plan-Generierung mit harten Constraints + sportwissenschaftlichen Regeln
+- [x] Krafttraining-Rotation: Workout I → II → III → I (Prompt erzwingt via Self-Check)
+- [x] DayCard: Kraft zeigt violettes Badge "Workout I/II/III" (kein Freitext), Laufen zeigt nie distance_km
+- [x] Frontend-Constraint-Validierung + Violation-Banner
+- [x] INSERT-only mit version++
+- [x] Wochen-Navigation (±1 Woche), Wochenreview mit Folgeplan
+
+### Chat
+- [x] Supabase-persistente Messages, Supabase-first Flow
+- [x] Thread-ID aus localStorage, Typing-Indicator, Auto-resize Textarea
+
+### Sicherheit
+- [x] STRAVA_CLIENT_SECRET und ANTHROPIC_API_KEY nie im Browser-Bundle
+- [x] `/api/analyse`: Prompt-Size-Limit (80k), max_tokens Cap (4096), generische Fehler
+- [x] Null-Guards für fehlende Athlete/Activity-Daten
+
+### Deployment
 - [x] Git-Repo: `abartmarkus-pixel/peakform` (privat), Branch `main`
 - [x] Vercel: `peakform-wheat.vercel.app`, Auto-Deploy bei Push auf main
-- [x] Strava Callback-Domain: `peakform-wheat.vercel.app`
 - [x] Git-Author-Email: `abart.markus@gmail.com` (global konfiguriert)
 
 ## Was fehlt noch (optional)
@@ -181,11 +204,12 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 - Streams-Cache: `streams_json` in Supabase — wird beim ersten Aufruf gecacht
 - Claude API wird **nie** direkt vom Browser aufgerufen — immer über `/api/analyse`
 - Strava Token-Exchange/-Refresh: **nie** direkt vom Browser — immer über `/api/strava-token`
-- `buildCoachContext()`: alle 8 Queries parallel, niemals raw streams_json
+- `buildCoachSystemPrompt(athleteId)`: async, lädt bei jedem Call Athleten+A-Event aus DB; bei JEDEM fetch zu `/api/analyse` als `system` mitgeschickt
+- `buildCoachContext()`: alle Queries parallel, niemals raw streams_json
 - `weekly_plans`: INSERT-only Pattern (version++), niemals UPDATE
-- `sport_types`: JSONB `[{type, days}]`, Stepper-Minimum ist 0 (entfernt Eintrag)
-- `COACH_SYSTEM_PROMPT`: importiert aus `src/lib/coachPrompt.ts`, bei jedem fetch zu `/api/analyse` als `system` mitgeschickt
+- `sport_types`: JSONB `[{type, days}]`; Invariante `Σdays ≤ training_days_per_week` technisch erzwungen
 - `parseReviewJson()` und `parsePlanJson()`: beide mit Markdown-Code-Block-Fallback
 - Postgres ENUM `goal_priority`: DO-Block-Pattern für idempotente Erstellung
-- `activities.description`: Cache-first — bei WeightTraining erst Supabase prüfen, nur bei null von Strava holen und speichern
-- WeeklyPlan Kraft-Einheiten: `description` = "Workout I" / "Workout II" / "Workout III" (nie Freitext); Rotation wird im Prompt mit Self-Check erzwungen; DayCard zeigt Badge statt Paragraph
+- `activities.description`: Cache-first — bei WeightTraining erst Supabase prüfen, nur bei null von Strava holen
+- WeeklyPlan Kraft-Einheiten: `description` = "Workout I/II/III" (nie Freitext); Laufen: `distance_km` immer null
+- `coach_decisions.related_activity_id`: FK→activities, gesetzt bei `decision_type = 'recovery_required'`
