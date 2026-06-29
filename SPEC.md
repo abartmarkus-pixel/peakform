@@ -66,8 +66,8 @@ peakform/
 │   └── splash-bg.jpg            # Home.tsx Hintergrundbild, max 1200px, JPEG 80%
 ├── src/
 │   ├── App.tsx             # Router (8 Routen) + Layout-Wrapper mit BottomNav
-│   │                       # Splash-Screen: splash-bg.jpg + Logo + 3 Dots während Session-Restore
-│   │                       # Fade-out 300ms bevor sessionReady → true
+│   │                       # Splash-Screen: IMMER auf geschützten Routen, mind. 1500ms
+│   │                       # Router im Hintergrund; Splash z-50 darüber; Fade-out 300ms
 │   ├── components/
 │   │   ├── AppHeader.tsx   # Fixierter Header (h-14); Props: rightAction?: React.ReactNode
 │   │                       # Logo links, rightAction rechts (justify-between); jede Page rendert ihn selbst
@@ -118,7 +118,7 @@ peakform/
 3. Beides leer → `restoreSessionFromSupabase()`: liest den einzigen Athletes-Eintrag aus Supabase, refresht Token falls abgelaufen, schreibt `athlete_strava_id` zurück in `localStorage` + `sessionStorage`
 4. Kein Eintrag in Supabase oder kein `refresh_token` → Redirect zu `/` (echter Strava-Login nötig)
 
-Während Schritt 3 läuft: Vollbild-Splash (splash-bg.jpg + 50% Dark Overlay + Logo + 3 springende Dots); Fade-out 300ms
+Splash-Screen: erscheint **immer** beim App-Start auf geschützten Routen, mindestens 1500ms, unabhängig vom Session-Status. Router rendert im Hintergrund; Splash liegt mit z-50 darüber. Nach max(Session-Check, 1500ms): Fade-out 300ms (opacity-0 + pointer-events-none). Auf PUBLIC_PATHS (/ und /auth/callback) kein Splash.
 
 **`restoreSessionFromSupabase()`** (in `src/lib/strava.ts`):
 - `SELECT id, strava_athlete_id, strava_access_token, strava_refresh_token, expires_at FROM athletes LIMIT 1`
@@ -772,7 +772,7 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 - PWA Manifest Icons: icon-192.png (standard + maskable), icon-512.png
 - Logo: public/peakform-logo.png (1x) + peakform-logo@2x.png (Retina) — im AppHeader + Splash + Home.tsx
 - Home-Hintergrund: public/splash-bg.jpg (JPEG 80%, max 1200px) — Vollbild in Home.tsx + App.tsx Splash mit 50% Dark Overlay
-- Splash-Screen: App.tsx zeigt splash-bg.jpg + Logo + 3 springende Dots während Session-Restore; Fade-out 300ms
+- Splash-Screen: App.tsx zeigt splash-bg.jpg IMMER beim App-Start (geschützte Routen), mind. 1500ms; Router läuft im Hintergrund; Splash z-50 darüber; Fade-out 300ms
 - Seitenüberschriften entfernt: Dashboard, Chat, Goals, Profile, WeeklyPlan — AppHeader ersetzt sie
 
 **AppHeader rightAction-Slots:**
