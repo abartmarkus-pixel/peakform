@@ -439,7 +439,7 @@ Strava OAuth Token Exchange & Refresh — STRAVA_CLIENT_SECRET bleibt server-sei
 - **Teil B — Körperziele** (nur wenn `showAesthetic` = "Nackt gut ausschauen" in bodyGoals):
   - Drag & Drop Muskelgruppen-Ranking (7 Gruppen, via @dnd-kit)
   - Freitext-Feld für Besonderheiten
-- **Auto-Open:** Wenn Krafttraining neu aktiviert wird → `setStrengthOpen(true)` (`prevHasStrength` Ref verhindert Auto-Open bei initialem Laden)
+- **Auto-Open:** Wenn Krafttraining neu aktiviert wird → `setStrengthOpen(true)` direkt in `toggleSport` (nicht via useEffect, damit kein ungewolltes Aufklappen beim initialen DB-Load)
 
 **Auto-Save:** 800ms Debounce. Kein manueller Save-Button. Status-Indikator (`fixed top-4 right-4 z-50`, Speichert… / ✓ Gespeichert).
 - `hasSportViolation`, `totalDays`, `trainingDaysNum` werden **vor** dem Auto-Save-`useEffect` deklariert
