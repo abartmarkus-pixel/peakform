@@ -352,6 +352,12 @@ Strava OAuth Token Exchange & Refresh — STRAVA_CLIENT_SECRET bleibt server-sei
 - `sport` = `'running'` | `'cycling'` | `'strength'` | `null`
 - `runAnalysis()` lädt `buildCoachContext()` + `buildSpecialistContext()` parallel und schickt beide als User-Message
 
+**Recovery-Extraktion (fire-and-forget nach `runAnalysis()`):**
+- Läuft NUR wenn der User aktiv "Analysieren" / "Neu analysieren" klickt
+- Mini-Claude-Call (`max_tokens: 150`): extrahiert `{has_restriction, restriction_until, description}` als JSON
+- Bei `has_restriction: true` → INSERT in `coach_decisions` (`decision_type = 'recovery_required'`)
+- **Bekannte Lücke:** Aktivitäten die bereits eine `claude_analysis` hatten bevor dieses Feature deployed wurde, generieren keinen Eintrag automatisch. Workaround: "Neu analysieren" klicken, oder Eintrag manuell via Supabase SQL einfügen (siehe unten).
+
 **Markdown-Renderer** (`renderMarkdown`): h1-h3, Bullet-Lists, Blockquotes, `**fett**`, HR, Skip-Tabellen und Code-Blöcke
 
 ### Profile.tsx
@@ -730,7 +736,11 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 - **Body Check-in** — kein Foto-Upload, keine Claude Vision, keine body_checkins-Tabelle, keine PWA-Erinnerung
 - **Kraftcoach-Ästhetik-Bewertung** — Equipment + aesthetic_goals werden zwar als Kontext mitgeschickt, aber es gibt kein automatisches Übungs-Matching / Lücken-Identifikation (Phase D aus Kap. 18)
 - **Aktivitäts-Matching** — DayCards zeigen kein Grün/Orange/Grau-Status ob eine Aktivität zum Plan-Tag passt
-- **Automatische Recovery-Extraktion** — beim Ausführen der Analyse wird `coach_decisions[recovery_required]` nur erstellt, wenn Claude eine echte Einschränkung erkennt; keine harte Garantie für jede Aktivität
+- **Recovery-Extraktion für bestehende Analysen** — Aktivitäten mit `claude_analysis` aus der Zeit vor dem Feature-Deploy haben keinen `recovery_required`-Eintrag. Entweder "Neu analysieren" klicken, oder manuell via SQL:
+  ```sql
+  INSERT INTO coach_decisions (athlete_id, decision_type, decision_summary, reasoning, created_at)
+  VALUES ('{athlete_id}', 'recovery_required', '{summary}', '{reasoning}', NOW());
+  ```
 - **Pagination** — nur immer die letzten 10 Aktivitäten (kein "Mehr laden")
 - **CTL/ATL/TSB Fitness-Kurve**
 - **Push Notifications**
