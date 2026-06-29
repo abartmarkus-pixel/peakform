@@ -64,7 +64,7 @@ export async function buildCoachContext(
 
     supabase
       .from('weekly_plans')
-      .select('version, plan_json, created_at')
+      .select('version, plan_json, review_notes, created_at')
       .eq('athlete_id', athleteId)
       .eq('week_start', thisWeek)
       .order('version', { ascending: false })
@@ -79,7 +79,7 @@ export async function buildCoachContext(
 
     supabase
       .from('weekly_plans')
-      .select('week_start, version, change_reason, plan_json, created_at')
+      .select('week_start, version, change_reason, plan_json, review_notes, created_at')
       .eq('athlete_id', athleteId)
       .order('created_at', { ascending: false })
       .limit(6),
@@ -128,8 +128,7 @@ export async function buildCoachContext(
   // ── 1b. HARTE TRAININGS-CONSTRAINTS ───────────────────────────────────
   const configuredSports = (athlete?.sport_types as SportConfig[] | null) ?? []
   const totalTrainingDays = athlete?.training_days_per_week ?? 0
-  const allocatedDays = configuredSports.reduce((s, c) => s + c.days, 0)
-  const restDays = Math.max(0, totalTrainingDays - allocatedDays)
+  const calendarRestDays = 7 - totalTrainingDays
   const sportConstraintLines = configuredSports.length
     ? configuredSports.map(s => {
         const label = sportLabels[s.type] ?? s.type
@@ -139,8 +138,8 @@ export async function buildCoachContext(
 
   sections.push([
     '[HARTE TRAININGS-CONSTRAINTS — MÜSSEN EINGEHALTEN WERDEN]',
-    `Gesamte Trainingstage diese Woche: ${totalTrainingDays}`,
-    `Ruhetage: ${restDays}`,
+    `Gesamte Trainingstage diese Woche: ${totalTrainingDays} (von 7 Wochentagen)`,
+    `Ruhetage: ${calendarRestDays}`,
     '',
     'Pflicht-Verteilung pro Sportart:',
     sportConstraintLines,
@@ -172,8 +171,12 @@ export async function buildCoachContext(
     ? JSON.stringify(currentPlan.plan_json, null, 2)
     : 'Kein Wochenplan vorhanden.'
 
+  const reviewNote = currentPlan?.review_notes
+    ? `\nReview der Vorwoche:\n${currentPlan.review_notes}`
+    : ''
+
   sections.push(
-    `[AKTUELLER WOCHENPLAN]\nWoche: ${thisWeek}${currentPlan ? ` | Version ${currentPlan.version}` : ' | Noch kein Plan'}\n${planBody}`
+    `[AKTUELLER WOCHENPLAN]\nWoche: ${thisWeek}${currentPlan ? ` | Version ${currentPlan.version}` : ' | Noch kein Plan'}${reviewNote}\n${planBody}`
   )
 
   // ── 4. TRAININGSHISTORIE — LETZTE 4 WOCHEN (~600 tokens) ──────────────
@@ -218,7 +221,8 @@ export async function buildCoachContext(
   const planHistLines = olderPlans.map(p => {
     const pj = p.plan_json as Record<string, unknown>
     const summary = typeof pj?.summary === 'string' ? pj.summary : `${Object.keys(pj ?? {}).length} Tage`
-    return `KW ${p.week_start} v${p.version}: ${p.change_reason ?? 'Erstplan'} — ${summary}`
+    return `KW ${p.week_start} v${p.version}: ${p.change_reason ?? 'Erstplan'} — ${summary}` +
+      (p.review_notes ? `\n  → Review: ${String(p.review_notes).slice(0, 250)}` : '')
   })
 
   sections.push(

@@ -137,6 +137,10 @@ function DayCard({ day, idx, monday, plan }: {
   const isRest = !plan || plan.type.toLowerCase().includes('ruhetag') ||
                  plan.type.toLowerCase().includes('erholung') ||
                  plan.type.toLowerCase().includes('regeneration')
+  const isKraft = plan ? SPORT_KEYWORDS.strength.some(k => plan.type.toLowerCase().includes(k)) : false
+  const workoutLabel = isKraft && plan?.description
+    ? (plan.description.match(/^Workout (III|II|I)$/i)?.[0] ?? null)
+    : null
 
   return (
     <div className={`rounded-xl p-3.5 ${isRest ? 'bg-slate-800/50' : 'bg-slate-800'}`}>
@@ -155,20 +159,27 @@ function DayCard({ day, idx, monday, plan }: {
 
       {plan ? (
         <>
-          <div className="flex items-center gap-1.5 mb-1.5">
+          <div className={`flex items-center gap-1.5 ${isKraft ? '' : 'mb-1.5'}`}>
             <span>{typeIcon(plan.type)}</span>
             <span className={`text-sm font-semibold ${isRest ? 'text-slate-500' : 'text-slate-100'}`}>
               {plan.type}
             </span>
+            {workoutLabel && (
+              <span className="text-xs font-semibold text-violet-400 bg-violet-400/10 px-1.5 py-0.5 rounded-full">
+                {workoutLabel}
+              </span>
+            )}
             {plan.intensity && (
               <span className="text-xs text-brand-400 bg-brand-500/10 px-1.5 py-0.5 rounded-full">
                 {plan.intensity}
               </span>
             )}
           </div>
-          <p className={`text-xs leading-relaxed ${isRest ? 'text-slate-600' : 'text-slate-400'}`}>
-            {plan.description}
-          </p>
+          {!isKraft && (
+            <p className={`text-xs leading-relaxed ${isRest ? 'text-slate-600' : 'text-slate-400'}`}>
+              {plan.description}
+            </p>
+          )}
         </>
       ) : (
         <p className="text-sm text-slate-600">—</p>
@@ -195,6 +206,8 @@ export default function WeeklyPlan() {
   const [reviewing, setReviewing]     = useState(false)
   const [reviewResult, setReviewResult] = useState<string | null>(null)
   const [reviewError, setReviewError] = useState<string | null>(null)
+  const [pendingReviewData, setPendingReviewData] = useState<ReviewJson | null>(null)
+  const [reviewViolationList, setReviewViolationList] = useState<string[]>([])
 
   const isCurrentWeek = toDateStr(monday) === toDateStr(mondayOf(new Date()))
   const weekStr = toDateStr(monday)
@@ -300,7 +313,7 @@ export default function WeeklyPlan() {
         setError('Bitte zuerst Trainingstage im Profil konfigurieren.')
         return
       }
-      const restDays = Math.max(0, trainingDays - sportConfigs.reduce((s, c) => s + c.days, 0))
+      const calendarRestDays = 7 - trainingDays
 
       const sportConstraintLines = sportConfigs.map(s =>
         `- ${SPORT_LABEL[s.type] ?? s.type}: exakt ${s.days} ${s.days === 1 ? 'Tag' : 'Tage'}`
@@ -317,7 +330,7 @@ export default function WeeklyPlan() {
 Erstelle den Wochenplan für die Woche vom ${monday8} bis ${sunday8}.
 
 HARTE REGELN (nicht verhandelbar):
-1. Gesamttage: Der Plan enthält exakt ${trainingDays} Trainingstage und ${restDays} Ruhetage.
+1. Gesamttage: Der Plan enthält exakt ${trainingDays} Trainingstage und ${calendarRestDays} Ruhetage (Mo–So = 7 Tage).
 2. Sportarten-Verteilung (exakt einhalten):
 ${sportConstraintLines}
 
@@ -327,18 +340,24 @@ SPORTWISSENSCHAFTLICHE REIHENFOLGE-REGELN:
 5. Krafttraining optimal: nach einem leichten Ausdauertag oder als eigenständiger Tag.
 6. Nach 2-3 belastenden Tagen folgt ein aktiver Erholungstag (Z1/Z2) oder Ruhetag.
 
+KRAFTTRAINING-ROTATION (zwingend):
+7. Krafteinheiten rotieren IMMER in der Reihenfolge Workout I → Workout II → Workout III → Workout I → …
+8. Das 'description'-Feld einer Kraft-Einheit enthält NUR exakt "Workout I", "Workout II" oder "Workout III" — keinen anderen Text.
+9. Schaue im Coach-Kontext nach dem zuletzt geplanten Kraft-Workout und setze die Rotation fort. Nie zweimal hintereinander das gleiche Workout.
+
 SELF-CHECK VOR AUSGABE — prüfe intern:
 - Gesamttage: stimmt die Anzahl mit ${trainingDays} überein?
 ${selfCheckLines}
 - Keine zwei intensiven Tage aufeinanderfolgend?
 - Kein Krafttraining vor intensiver Ausdauer?
+- Kraft-description exakt "Workout I", "Workout II" oder "Workout III" und korrekte Rotation?
 Wenn eine Prüfung fehlschlägt, korrigiere den Plan BEVOR du ihn ausgibst.
 
 Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, kein Markdown:
 {
   "summary": "Einzeiliger Wochen-Überblick (max 120 Zeichen)",
   "days": {
-    "Mo": { "type": "Ruhetag|Radfahren|Laufen|Krafttraining", "duration_min": 0, "distance_km": null, "intensity": null, "description": "Kurze Begründung/Beschreibung (1-2 Sätze)" },
+    "Mo": { "type": "Ruhetag|Radfahren|Laufen|Kraft", "duration_min": 0, "distance_km": null, "intensity": null, "description": "Kurze Beschreibung (oder 'Workout I' bei Kraft)" },
     "Di": { "type": "...", "duration_min": 0, "distance_km": null, "intensity": null, "description": "..." },
     "Mi": { "type": "...", "duration_min": 0, "distance_km": null, "intensity": null, "description": "..." },
     "Do": { "type": "...", "duration_min": 0, "distance_km": null, "intensity": null, "description": "..." },
@@ -374,11 +393,64 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, 
     }
   }
 
+  async function saveReviewData(data: ReviewJson, hasViolation: boolean) {
+    if (!athlete) return
+    const nextMonday = addWeeks(monday, 1)
+    const nextWeekStr = toDateStr(nextMonday)
+
+    const { data: existingNext } = await supabase
+      .from('weekly_plans')
+      .select('version')
+      .eq('athlete_id', athlete.id)
+      .eq('week_start', nextWeekStr)
+      .order('version', { ascending: false })
+      .limit(1)
+    const nextVersion = (existingNext?.[0]?.version ?? 0) + 1
+
+    const { data: newPlan } = await supabase
+      .from('weekly_plans')
+      .insert({
+        athlete_id:              athlete.id,
+        week_start:              nextWeekStr,
+        version:                 nextVersion,
+        plan_json:               data.next_week_plan,
+        review_notes:            data.review,
+        change_reason:           `Review KW ${weekStr}: ${data.coach_decision_reason}`,
+        ...(hasViolation && { plan_constraint_violation: true }),
+      })
+      .select()
+      .single()
+
+    await supabase.from('coach_decisions').insert({
+      athlete_id:       athlete.id,
+      decision_type:    'weekly_review',
+      decision_summary: `Review KW ${weekStr} → Plan für KW ${nextWeekStr} v${nextVersion}`,
+      reasoning:        data.coach_decision_reason,
+      related_plan_id:  (newPlan as WeeklyPlan)?.id ?? null,
+    })
+
+    setReviewResult(data.review)
+    setPendingReviewData(null)
+    setReviewViolationList([])
+  }
+
   async function startReview() {
     if (!athlete) return
     setReviewing(true)
     setReviewResult(null)
     setReviewError(null)
+    setPendingReviewData(null)
+    setReviewViolationList([])
+
+    const sportConfigs = (athlete.sport_types as SportConfig[] | null) ?? []
+    const trainingDaysRequired = athlete.training_days_per_week ?? 0
+    const calendarRestDays = 7 - trainingDaysRequired
+    const sportConstraintLines = sportConfigs.map(s =>
+      `- ${SPORT_LABEL[s.type] ?? s.type}: exakt ${s.days} ${s.days === 1 ? 'Tag' : 'Tage'}`
+    ).join('\n')
+    const selfCheckLines = sportConfigs.map(s =>
+      `- ${SPORT_LABEL[s.type] ?? s.type}: exakt ${s.days} ${s.days === 1 ? 'Tag' : 'Tage'} geplant?`
+    ).join('\n')
 
     try {
       const context = await buildCoachContext(athlete.id)
@@ -397,6 +469,20 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, 
 
       const currentPlanJson = plan?.plan_json as PlanJson | null
 
+      const constraintSection = trainingDaysRequired > 0 ? `
+
+HARTE REGELN für next_week_plan (nicht verhandelbar):
+1. Gesamttage: Der Plan enthält exakt ${trainingDaysRequired} Trainingstage und ${calendarRestDays} Ruhetage (Mo–So = 7 Tage).
+2. Sportarten-Verteilung (exakt einhalten):
+${sportConstraintLines}
+
+SELF-CHECK für next_week_plan vor Ausgabe — prüfe intern:
+- Gesamttage: stimmt mit ${trainingDaysRequired} Trainingstagen überein?
+${selfCheckLines}
+- Keine zwei intensiven Tage aufeinanderfolgend?
+- Kraft-description exakt "Workout I", "Workout II" oder "Workout III" und korrekte Rotation?
+Wenn eine Prüfung fehlschlägt, korrigiere den Plan BEVOR du ihn ausgibst.` : ''
+
       const prompt = `${context}
 
 ---
@@ -409,6 +495,7 @@ ${currentPlanJson ? `\nGeplant war: ${currentPlanJson.summary}` : ''}
 
 Feedback des Athleten:
 ${reviewFeedback.trim() || 'Kein Feedback angegeben.'}
+${constraintSection}
 
 Erstelle nun:
 1. Eine direkte Wochenbewertung (3-4 Sätze): Belastungssteuerung, Ausführung vs. Plan, was gut lief, was nicht
@@ -422,7 +509,7 @@ Antworte AUSSCHLIESSLICH mit diesem JSON (kein Text davor/danach, kein Markdown)
   "next_week_plan": {
     "summary": "Einzeiliger Überblick nächste Woche (max 120 Zeichen)",
     "days": {
-      "Mo": { "type": "Ruhetag|Ride|Run|Kraft|Schwimmen|Hike|Lockerung", "duration_min": 0, "distance_km": null, "intensity": null, "description": "..." },
+      "Mo": { "type": "Ruhetag|Ride|Run|Kraft|Schwimmen|Hike|Lockerung", "duration_min": 0, "distance_km": null, "intensity": null, "description": "Kurze Beschreibung (bei Kraft NUR 'Workout I', 'Workout II' oder 'Workout III')" },
       "Di": { "type": "...", "duration_min": 0, "distance_km": null, "intensity": null, "description": "..." },
       "Mi": { "type": "...", "duration_min": 0, "distance_km": null, "intensity": null, "description": "..." },
       "Do": { "type": "...", "duration_min": 0, "distance_km": null, "intensity": null, "description": "..." },
@@ -431,7 +518,9 @@ Antworte AUSSCHLIESSLICH mit diesem JSON (kein Text davor/danach, kein Markdown)
       "So": { "type": "...", "duration_min": 0, "distance_km": null, "intensity": null, "description": "..." }
     }
   }
-}`
+}
+
+WICHTIG für Krafttraining: Das 'description'-Feld bei Kraft-Einheiten enthält NUR "Workout I", "Workout II" oder "Workout III" (Rotation fortsetzen, nie dasselbe wie die letzte Kraft-Einheit).`
 
       const res = await fetch('/api/analyse', {
         method: 'POST',
@@ -442,47 +531,17 @@ Antworte AUSSCHLIESSLICH mit diesem JSON (kein Text davor/danach, kein Markdown)
       const { text } = await res.json() as { text: string }
 
       const parsed = parseReviewJson(text)
-      const sportConfigs = (athlete.sport_types as SportConfig[] | null) ?? []
-      const trainingDaysRequired = athlete.training_days_per_week ?? 0
-      const reviewViolations = trainingDaysRequired > 0
+      const violations = trainingDaysRequired > 0
         ? validateConstraints(parsed.next_week_plan, sportConfigs, trainingDaysRequired)
         : []
 
-      // Insert next week's plan (INSERT only — never UPDATE)
-      const nextWeekStr = toDateStr(nextMonday)
-      const { data: existingNext } = await supabase
-        .from('weekly_plans')
-        .select('version')
-        .eq('athlete_id', athlete.id)
-        .eq('week_start', nextWeekStr)
-        .order('version', { ascending: false })
-        .limit(1)
-      const nextVersion = (existingNext?.[0]?.version ?? 0) + 1
+      if (violations.length > 0) {
+        setPendingReviewData(parsed)
+        setReviewViolationList(violations)
+        return
+      }
 
-      const { data: newPlan } = await supabase
-        .from('weekly_plans')
-        .insert({
-          athlete_id:              athlete.id,
-          week_start:              nextWeekStr,
-          version:                 nextVersion,
-          plan_json:               parsed.next_week_plan,
-          review_notes:            parsed.review,
-          change_reason:           `Review KW ${weekStr}: ${parsed.coach_decision_reason}`,
-          ...(reviewViolations.length > 0 && { plan_constraint_violation: true }),
-        })
-        .select()
-        .single()
-
-      // Log coach decision
-      await supabase.from('coach_decisions').insert({
-        athlete_id:       athlete.id,
-        decision_type:    'weekly_review',
-        decision_summary: `Review KW ${weekStr} → Plan für KW ${nextWeekStr} v${nextVersion}`,
-        reasoning:        parsed.coach_decision_reason,
-        related_plan_id:  (newPlan as WeeklyPlan)?.id ?? null,
-      })
-
-      setReviewResult(parsed.review)
+      await saveReviewData(parsed, false)
     } catch (e) {
       console.error(e)
       setReviewError('Review fehlgeschlagen. Bitte erneut versuchen.')
@@ -626,7 +685,7 @@ Antworte AUSSCHLIESSLICH mit diesem JSON (kein Text davor/danach, kein Markdown)
             </div>
           )}
 
-          {/* Feedback-Textarea */}
+          {/* Feedback-Textarea + Review-Button / Violation-Banner */}
           {!reviewResult && (
             <>
               <textarea
@@ -637,16 +696,41 @@ Antworte AUSSCHLIESSLICH mit diesem JSON (kein Text davor/danach, kein Markdown)
                 className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none placeholder:text-slate-500 mb-3"
               />
               {reviewError && <p className="text-red-400 text-xs mb-2">{reviewError}</p>}
-              <button
-                onClick={startReview}
-                disabled={reviewing}
-                className="w-full py-3 rounded-xl text-sm font-semibold text-white bg-brand-500 hover:bg-brand-600 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
-              >
-                {reviewing && (
-                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                )}
-                {reviewing ? 'Review läuft…' : 'Wochenreview starten'}
-              </button>
+              {reviewViolationList.length > 0 && pendingReviewData ? (
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">
+                  <p className="text-amber-400 text-sm font-semibold mb-1">
+                    ⚠ Review-Plan weicht von deinen Einstellungen ab:
+                  </p>
+                  <ul className="text-xs text-amber-300/80 mb-3 space-y-0.5">
+                    {reviewViolationList.map((d, i) => <li key={i}>• {d}</li>)}
+                  </ul>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => { setPendingReviewData(null); setReviewViolationList([]); startReview() }}
+                      className="flex-1 py-2.5 text-sm font-semibold text-white bg-brand-500 hover:bg-brand-600 rounded-xl transition-colors"
+                    >
+                      Neu generieren
+                    </button>
+                    <button
+                      onClick={() => saveReviewData(pendingReviewData, true)}
+                      className="flex-1 py-2.5 text-sm font-semibold text-slate-300 bg-slate-700 hover:bg-slate-600 rounded-xl transition-colors"
+                    >
+                      Trotzdem speichern
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={startReview}
+                  disabled={reviewing}
+                  className="w-full py-3 rounded-xl text-sm font-semibold text-white bg-brand-500 hover:bg-brand-600 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+                >
+                  {reviewing && (
+                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  )}
+                  {reviewing ? 'Review läuft…' : 'Wochenreview starten'}
+                </button>
+              )}
             </>
           )}
 
