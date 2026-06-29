@@ -280,8 +280,6 @@ export default function Profile() {
   const [phaseOpen,       setPhaseOpen]        = useState(false)
   const [strengthOpen,    setStrengthOpen]     = useState(false)
 
-  // track previous hasStrength to detect activation (not initial load)
-  const prevHasStrength = useRef<boolean | null>(null)
 
   // dnd-kit sensors (8px threshold prevents accidental drags on scroll)
   const sensors = useSensors(
@@ -438,6 +436,7 @@ export default function Profile() {
   // ── sport helpers ───────────────────────────────────────────────────────
 
   function toggleSport(key: string) {
+    const isCurrentlyActive = sportConfigs.some(s => s.type === key)
     setFocusedSport(prev => prev === key ? null : key)
     setSportConfigs(prev => {
       if (prev.find(s => s.type === key)) return prev
@@ -445,6 +444,7 @@ export default function Profile() {
       if (trainingDaysNum > 0 && currentSum >= trainingDaysNum) return prev
       return [...prev, { type: key, days: 1 }]
     })
+    if (key === 'strength' && !isCurrentlyActive) setStrengthOpen(true)
   }
 
   function updateSportConfig(key: string, patch: Partial<SportConfig>) {
@@ -501,14 +501,6 @@ export default function Profile() {
 
   const showAesthetic = bodyGoals.includes('Nackt gut ausschauen')
   const hasStrength   = sportConfigs.some(s => s.type === 'strength')
-
-  // auto-open KRAFTTRAINING section when strength is newly activated
-  useEffect(() => {
-    if (prevHasStrength.current === false && hasStrength) {
-      setStrengthOpen(true)
-    }
-    prevHasStrength.current = hasStrength
-  }, [hasStrength])
 
   // ── subtitle computations ───────────────────────────────────────────────
 
