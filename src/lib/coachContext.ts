@@ -1,4 +1,4 @@
-import { supabase, type SportConfig } from './supabase'
+import { supabase, type SportConfig, type EquipmentConfig, type AestheticGoals } from './supabase'
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -250,4 +250,136 @@ export async function buildCoachContext(
   )
 
   return sections.join('\n\n')
+}
+
+// ── specialist context ─────────────────────────────────────────────────────
+
+/**
+ * Builds a sport-specific context for the specialist coach overlay.
+ * Fetches only the data relevant to the given sport type.
+ * Always appended to the general buildCoachContext() output, never standalone.
+ */
+export async function buildSpecialistContext(
+  athleteId: string,
+  sport: 'running' | 'cycling' | 'strength',
+): Promise<string> {
+  const twoMonthsAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString()
+
+  // ── Running ───────────────────────────────────────────────────────────────
+  if (sport === 'running') {
+    const { data: acts } = await supabase
+      .from('activities')
+      .select('date, distance_m, duration_s, avg_hr')
+      .eq('athlete_id', athleteId)
+      .in('type', ['Run', 'VirtualRun', 'TrailRun'])
+      .gte('date', twoMonthsAgo)
+      .order('date', { ascending: false })
+      .limit(10)
+
+    const lines = (acts ?? []).map(a => {
+      const distKm = a.distance_m != null ? (a.distance_m / 1000).toFixed(1) : '—'
+      const paceStr = (a.distance_m && a.duration_s)
+        ? (() => {
+            const sPerKm = a.duration_s / (a.distance_m / 1000)
+            return `${Math.floor(sPerKm / 60)}:${String(Math.round(sPerKm % 60)).padStart(2, '0')} min/km`
+          })()
+        : '—'
+      const hr = a.avg_hr != null ? `${Math.round(a.avg_hr)} bpm` : '—'
+      return `${a.date.slice(0, 10)}: ${distKm} km | ${paceStr} | Ø HF ${hr}`
+    })
+
+    return [
+      '[LAUF-KONTEXT — LETZTE 10 LÄUFE]',
+      lines.length ? lines.join('\n') : 'Keine Läufe in den letzten 60 Tagen.',
+    ].join('\n')
+  }
+
+  // ── Cycling ───────────────────────────────────────────────────────────────
+  if (sport === 'cycling') {
+    const [{ data: acts }, { data: athleteRow }] = await Promise.all([
+      supabase
+        .from('activities')
+        .select('date, distance_m, duration_s, np_watts, tss, avg_hr')
+        .eq('athlete_id', athleteId)
+        .in('type', ['Ride', 'VirtualRide', 'MountainBikeRide', 'GravelRide'])
+        .gte('date', twoMonthsAgo)
+        .order('date', { ascending: false })
+        .limit(10),
+      supabase
+        .from('athletes')
+        .select('ftp_watts')
+        .eq('id', athleteId)
+        .single(),
+    ])
+
+    const ftp = athleteRow?.ftp_watts ?? null
+
+    const lines = (acts ?? []).map(a => {
+      const distKm = a.distance_m != null ? (a.distance_m / 1000).toFixed(0) : '—'
+      const np = a.np_watts != null ? `NP ${Math.round(a.np_watts)}W` : '—'
+      const pct = (a.np_watts != null && ftp) ? ` (${Math.round((a.np_watts / ftp) * 100)}% FTP)` : ''
+      const tss = a.tss != null ? ` | TSS ${Math.round(a.tss)}` : ''
+      const hr = a.avg_hr != null ? ` | Ø ${Math.round(a.avg_hr)} bpm` : ''
+      return `${a.date.slice(0, 10)}: ${distKm} km | ${np}${pct}${tss}${hr}`
+    })
+
+    return [
+      '[RAD-KONTEXT — LETZTE 10 AUSFAHRTEN]',
+      ftp ? `FTP: ${ftp}W` : 'FTP: nicht gesetzt',
+      lines.length ? lines.join('\n') : 'Keine Ausfahrten in den letzten 60 Tagen.',
+    ].join('\n')
+  }
+
+  // ── Strength ──────────────────────────────────────────────────────────────
+  const [{ data: athleteRow }, { data: acts }] = await Promise.all([
+    supabase
+      .from('athletes')
+      .select('equipment, aesthetic_goals, body_goals')
+      .eq('id', athleteId)
+      .single(),
+    supabase
+      .from('activities')
+      .select('date, name, description')
+      .eq('athlete_id', athleteId)
+      .in('type', ['WeightTraining', 'Workout'])
+      .gte('date', twoMonthsAgo)
+      .order('date', { ascending: false })
+      .limit(5),
+  ])
+
+  const contextLines: string[] = []
+
+  const eq = athleteRow?.equipment as EquipmentConfig | null
+  if (eq) {
+    const active: string[] = []
+    if (eq.gym?.active) {
+      active.push('Gym (alles verfügbar)')
+    } else {
+      if (eq.dumbbells?.active) active.push(`Kurzhanteln bis ${eq.dumbbells.max_kg ?? '?'} kg`)
+      if (eq.bands?.active)     active.push('Bänder / Tubes')
+      if (eq.bodyweight?.active) active.push('Körpergewicht')
+      if (eq.pullup_bar?.active) active.push('Klimmzugstange')
+    }
+    contextLines.push(`Equipment: ${active.length ? active.join(', ') : 'nicht konfiguriert'}`)
+  }
+
+  const ag = athleteRow?.aesthetic_goals as AestheticGoals | null
+  const bodyGoals = athleteRow?.body_goals as string[] | null
+  if (bodyGoals?.includes('Nackt gut ausschauen') && ag?.priorities?.length) {
+    contextLines.push(`Körperziel-Prioritäten (1=höchste): ${ag.priorities.join(' > ')}`)
+    if (ag.notes) contextLines.push(`Besonderheiten: ${ag.notes}`)
+  }
+
+  const sessionLines = (acts ?? []).map(a => {
+    const snippet = a.description ? ` | ${a.description.slice(0, 200)}` : ''
+    return `${a.date.slice(0, 10)}: ${a.name}${snippet}`
+  })
+
+  return [
+    '[KRAFT-KONTEXT]',
+    ...contextLines,
+    '',
+    `Letzte ${sessionLines.length} Kraft-Sessions:`,
+    sessionLines.length ? sessionLines.join('\n') : 'Keine Sessions in den letzten 60 Tagen.',
+  ].join('\n')
 }

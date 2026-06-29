@@ -10,7 +10,13 @@ import {
   CartesianGrid,
 } from 'recharts'
 import { fetchActivityStreams, fetchActivityLaps, fetchActivityDetail, getValidAccessToken, type StravaLap } from '../lib/strava'
-import { COACH_SYSTEM_PROMPT } from '../lib/coachPrompt'
+import {
+  COACH_SYSTEM_PROMPT,
+  LAUF_COACH_PROMPT,
+  RAD_COACH_PROMPT,
+  KRAFT_COACH_PROMPT,
+} from '../lib/coachPrompt'
+import { buildCoachContext, buildSpecialistContext } from '../lib/coachContext'
 import { supabase, type Activity, type Athlete } from '../lib/supabase'
 
 // ── types ────────────────────────────────────────────────────────────────────
@@ -329,6 +335,7 @@ export default function ActivityDetail() {
   const [stats, setStats] = useState<ComputedStats>({})
   const [laps, setLaps] = useState<StravaLap[]>([])
   const [exercises, setExercises] = useState<Exercise[]>([])
+  const [athleteId, setAthleteId] = useState<string | null>(null)
   const [athleteName, setAthleteName] = useState<string | null>(null)
   const [analysing, setAnalysing] = useState(false)
   const [analysis, setAnalysis] = useState<string | null>(null)
@@ -348,6 +355,7 @@ export default function ActivityDetail() {
           .single()
         if (!athleteData) throw new Error('Athlete not found')
         const athlete = athleteData as Athlete
+        setAthleteId(athlete.id)
         setAthleteName(athlete.name ?? null)
 
         const { data: actData } = await supabase
@@ -361,7 +369,7 @@ export default function ActivityDetail() {
         setAnalysis(act.claude_analysis)
 
         const token = await getValidAccessToken(athlete)
-        const [streamsRaw, lapsData, detailData] = await Promise.all([
+        const [streamsRaw, lapsData, description] = await Promise.all([
           act.streams_json
             ? Promise.resolve(act.streams_json)
             : fetchActivityStreams(token, Number(id)).then(async (s) => {
@@ -370,12 +378,20 @@ export default function ActivityDetail() {
               }),
           fetchActivityLaps(token, Number(id)).catch(() => []),
           act.type === 'WeightTraining'
-            ? fetchActivityDetail(token, Number(id)).catch(() => ({}))
-            : Promise.resolve({}),
+            ? act.description
+              ? Promise.resolve(act.description)
+              : fetchActivityDetail(token, Number(id))
+                  .then(async (d) => {
+                    const desc = ('description' in d && d.description) ? String(d.description) : null
+                    if (desc) await supabase.from('activities').update({ description: desc }).eq('strava_id', Number(id))
+                    return desc
+                  })
+                  .catch(() => null)
+            : Promise.resolve(null),
         ])
 
-        if ('description' in detailData && detailData.description) {
-          setExercises(parseHevyDescription(detailData.description))
+        if (description) {
+          setExercises(parseHevyDescription(description))
         }
 
         const data = buildChartData(streamsRaw as Record<string, unknown>)
@@ -391,11 +407,33 @@ export default function ActivityDetail() {
     })()
   }, [id])
 
+  function getCoachPrompts(type: string): {
+    system: string
+    sport: 'running' | 'cycling' | 'strength' | null
+  } {
+    if (['Run', 'VirtualRun', 'TrailRun'].includes(type))
+      return { system: COACH_SYSTEM_PROMPT + '\n\n' + LAUF_COACH_PROMPT, sport: 'running' }
+    if (['Ride', 'VirtualRide', 'MountainBikeRide', 'GravelRide'].includes(type))
+      return { system: COACH_SYSTEM_PROMPT + '\n\n' + RAD_COACH_PROMPT, sport: 'cycling' }
+    if (['WeightTraining', 'Workout'].includes(type))
+      return { system: COACH_SYSTEM_PROMPT + '\n\n' + KRAFT_COACH_PROMPT, sport: 'strength' }
+    return { system: COACH_SYSTEM_PROMPT, sport: null }
+  }
+
   async function runAnalysis() {
-    if (!activity) return
+    if (!activity || !athleteId) return
     setAnalysing(true)
     try {
-      const prompt = `Analysiere diese Trainingsaktivität${athleteName ? ` von ${athleteName}` : ''}:
+      const { system, sport } = getCoachPrompts(activity.type)
+
+      const [generalContext, specialistContext] = await Promise.all([
+        buildCoachContext(athleteId),
+        sport ? buildSpecialistContext(athleteId, sport) : Promise.resolve(null),
+      ])
+
+      const contextBlock = [generalContext, specialistContext].filter(Boolean).join('\n\n')
+
+      const activityBlock = `Analysiere diese Trainingsaktivität${athleteName ? ` von ${athleteName}` : ''}:
 
 Name: ${activity.name}
 Typ: ${activity.type}
@@ -440,10 +478,12 @@ ${exercises.length > 0
     ? '1. **Intensitätsbewertung** – Gesamtbelastung und Intensitätsbereiche\n2. **Rundenanalyse** – Progression, Gleichmäßigkeit, Ausreißer\n3. **Stärken** – was gut lief\n4. **Empfehlung** – nächste Einheit'
     : '1. **Intensitätsbewertung** – Gesamtbelastung und Intensitätsbereiche\n2. **Stärken** – was gut lief\n3. **Verbesserungspotenzial** – was optimiert werden kann\n4. **Empfehlung** – nächste Einheit'}`
 
+      const prompt = contextBlock + '\n\n' + activityBlock
+
       const res = await fetch('/api/analyse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, system: COACH_SYSTEM_PROMPT }),
+        body: JSON.stringify({ prompt, system }),
       })
       if (!res.ok) throw new Error('Claude API Fehler')
       const json = await res.json() as { text: string }

@@ -1,6 +1,16 @@
+import { useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { STRAVA_AUTH_URL } from '../lib/strava'
 
 export default function Home() {
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    if (localStorage.getItem('athlete_strava_id')) {
+      navigate('/dashboard', { replace: true })
+    }
+  }, [navigate])
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center gap-8 px-4">
       <div className="text-center">
