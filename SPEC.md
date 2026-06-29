@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 29. Juni 2026 (Splash-Screen überarbeitet: NUR wenn eingeloggt, bg-slate-900, splash.png object-contain + Logo pulsierend, 2000ms+400ms; Home.tsx ohne splash-bg.jpg)
+> Letzte Aktualisierung: 29. Juni 2026 (Splash-Screen: Bär-Bild zentriert 80% Breite max-w-sm, CSS peakform-pulse Animation, kein PeakForm Logo)
 
 ---
 
@@ -67,7 +67,7 @@ peakform/
 ├── src/
 │   ├── App.tsx             # Router (8 Routen) + Layout-Wrapper mit BottomNav
 │   │                       # Splash-Screen: NUR wenn eingeloggt (athlete_strava_id in localStorage/sessionStorage)
-│   │                       # Dauer: 2000ms + 400ms Fade-out; bg-slate-900; splash.png object-contain + Logo pulsierend
+│   │                       # Dauer: 2000ms + 400ms Fade-out; bg-slate-900; splash.png zentriert 80% Breite, CSS peakform-pulse; kein Logo
 │   ├── components/
 │   │   ├── AppHeader.tsx   # Fixierter Header (h-14); Props: rightAction?: React.ReactNode
 │   │                       # Logo links, rightAction rechts (justify-between); jede Page rendert ihn selbst
@@ -118,7 +118,7 @@ peakform/
 3. Beides leer → `restoreSessionFromSupabase()`: liest den einzigen Athletes-Eintrag aus Supabase, refresht Token falls abgelaufen, schreibt `athlete_strava_id` zurück in `localStorage` + `sessionStorage`
 4. Kein Eintrag in Supabase oder kein `refresh_token` → Redirect zu `/` (echter Strava-Login nötig)
 
-Splash-Screen: erscheint **nur wenn eingeloggt** (`athlete_strava_id` in localStorage oder sessionStorage beim App-Start). Dauer: 2000ms sichtbar + 400ms Fade-out. Design: `bg-slate-900` + `splash.png` (`object-contain`, komplettes Bild sichtbar, Transparenz wirkt) + PeakForm Logo pulsierend (animate-pulse). Kein Overlay, kein Dots-Indicator. Auf PUBLIC_PATHS (/ und /auth/callback) kein Splash. Nicht eingeloggt auf geschützter Route → Session-Check läuft still, kein Splash.
+Splash-Screen: erscheint **nur wenn eingeloggt** (`athlete_strava_id` in localStorage oder sessionStorage beim App-Start). Dauer: 2000ms sichtbar + 400ms Fade-out. Design: `bg-slate-900` + `splash.png` zentriert (80% Breite, max-w-sm), sanft pulsierend via CSS `peakform-pulse` (scale 1→1.05, opacity 1→0.85, 1.5s). Kein PeakForm Logo. Kein Overlay, kein Dots-Indicator. Auf PUBLIC_PATHS (/ und /auth/callback) kein Splash. Nicht eingeloggt auf geschützter Route → Session-Check läuft still, kein Splash.
 
 **`restoreSessionFromSupabase()`** (in `src/lib/strava.ts`):
 - `SELECT id, strava_athlete_id, strava_access_token, strava_refresh_token, expires_at FROM athletes LIMIT 1`
@@ -772,7 +772,7 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 - PWA Manifest Icons: icon-192.png (standard + maskable), icon-512.png
 - Logo: public/peakform-logo.png (1x) + peakform-logo@2x.png (Retina) — im AppHeader + Splash + Home.tsx
 - Home-Hintergrund: keiner — Home.tsx nutzt bg-slate-900 (splash-bg.jpg entfernt)
-- Splash-Screen: App.tsx zeigt splash.png (object-contain, transparent) NUR wenn eingeloggt; bg-slate-900; Logo pulsierend; 2000ms + 400ms Fade-out
+- Splash-Screen: App.tsx zeigt splash.png zentriert (80% Breite, max-w-sm) NUR wenn eingeloggt; bg-slate-900; CSS peakform-pulse; kein Logo; 2000ms + 400ms Fade-out
 - Seitenüberschriften entfernt: Dashboard, Chat, Goals, Profile, WeeklyPlan — AppHeader ersetzt sie
 
 **AppHeader rightAction-Slots:**

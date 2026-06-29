@@ -77,13 +77,7 @@ function Layout() {
           <img
             src="/splash.png"
             alt=""
-            className="absolute inset-0 w-full h-full object-contain"
-          />
-          <img
-            src="/peakform-logo.png"
-            alt="PeakForm"
-            className="relative z-10 h-14 w-auto animate-pulse"
-            srcSet="/peakform-logo.png 1x, /peakform-logo@2x.png 2x"
+            className="relative z-10 w-4/5 max-w-sm object-contain splash-pulse"
           />
         </div>
       )}
