@@ -208,12 +208,14 @@ created_at               TIMESTAMPTZ
 {
   "summary": "Einzeiliger Wochen-Überblick (max 120 Zeichen)",
   "days": {
-    "Mo": { "type": "Laufen", "duration_min": 45, "distance_km": 7, "intensity": "Z2", "description": "Ruhiger Z2-Lauf" },
+    "Mo": { "type": "Laufen", "duration_min": 45, "distance_km": null, "intensity": "Z2", "description": "Ruhiger Z2-Lauf" },
     "Di": { "type": "Kraft",  "duration_min": 60, "distance_km": null, "intensity": null, "description": "Workout I" },
     "Mi": { "type": "Ruhetag","duration_min": 0,  "distance_km": null, "intensity": null, "description": "Regeneration" }
   }
 }
 ```
+
+**Lauf-Regel:** Bei type `"Laufen"` / `"Run"` ist `distance_km` immer `null`. Die HF-Zone ist die einzige Vorgabe — Distanz ergibt sich automatisch. DayCard zeigt für Laufeinheiten nur die Dauer, nie Kilometer.
 
 **Kraft-description:** NUR `"Workout I"`, `"Workout II"` oder `"Workout III"` — Rotation I→II→III→I
 

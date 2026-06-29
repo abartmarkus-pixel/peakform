@@ -152,7 +152,8 @@ function DayCard({ day, idx, monday, plan }: {
         {plan && !isRest && (
           <span className="text-xs text-slate-500">
             {plan.duration_min ? `${plan.duration_min} min` : ''}
-            {plan.distance_km  ? ` · ${plan.distance_km} km` : ''}
+            {plan.distance_km && !['laufen', 'run', 'running'].includes(plan.type.toLowerCase())
+              ? ` · ${plan.distance_km} km` : ''}
           </span>
         )}
       </div>
@@ -360,10 +361,13 @@ SPORTWISSENSCHAFTLICHE REIHENFOLGE-REGELN:
 5. Krafttraining optimal: nach einem leichten Ausdauertag oder als eigenständiger Tag.
 6. Nach 2-3 belastenden Tagen folgt ein aktiver Erholungstag (Z1/Z2) oder Ruhetag.
 
+LAUFEINHEITEN — PFLICHT:
+7. Für alle Einheiten mit type "Laufen" oder "Run": setze distance_km IMMER auf null. Gib NUR duration_min an. Die HF-Zone ist die einzige Vorgabe — die Distanz ergibt sich beim Training automatisch.
+
 KRAFTTRAINING-ROTATION (zwingend):
-7. Krafteinheiten rotieren IMMER in der Reihenfolge Workout I → Workout II → Workout III → Workout I → …
-8. Das 'description'-Feld einer Kraft-Einheit enthält NUR exakt "Workout I", "Workout II" oder "Workout III" — keinen anderen Text.
-9. Schaue im Coach-Kontext nach dem zuletzt geplanten Kraft-Workout und setze die Rotation fort. Nie zweimal hintereinander das gleiche Workout.
+8. Krafteinheiten rotieren IMMER in der Reihenfolge Workout I → Workout II → Workout III → Workout I → …
+9. Das 'description'-Feld einer Kraft-Einheit enthält NUR exakt "Workout I", "Workout II" oder "Workout III" — keinen anderen Text.
+10. Schaue im Coach-Kontext nach dem zuletzt geplanten Kraft-Workout und setze die Rotation fort. Nie zweimal hintereinander das gleiche Workout.
 
 SELF-CHECK VOR AUSGABE — prüfe intern:
 - Gesamttage: stimmt die Anzahl mit ${trainingDays} überein?
@@ -560,7 +564,8 @@ Antworte AUSSCHLIESSLICH mit diesem JSON (kein Text davor/danach, kein Markdown)
   }
 }
 
-WICHTIG für Krafttraining: Das 'description'-Feld bei Kraft-Einheiten enthält NUR "Workout I", "Workout II" oder "Workout III" (Rotation fortsetzen, nie dasselbe wie die letzte Kraft-Einheit).`
+WICHTIG für Krafttraining: Das 'description'-Feld bei Kraft-Einheiten enthält NUR "Workout I", "Workout II" oder "Workout III" (Rotation fortsetzen, nie dasselbe wie die letzte Kraft-Einheit).
+WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER null. Nur duration_min angeben.`
 
       const res = await fetch('/api/analyse', {
         method: 'POST',
