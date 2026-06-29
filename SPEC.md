@@ -372,7 +372,9 @@ Strava OAuth Token Exchange & Refresh — STRAVA_CLIENT_SECRET bleibt server-sei
 - Sportarten: Pills (Radfahren / Laufen / Krafttraining) mit Akkordeon-Stepper
   - Pill-Klick: Öffnet Stepper für die gewählte Sportart
   - Stepper − bei 1 Tag: Sportart wird aus `sport_types` entfernt (days→0 = remove)
-  - Stepper + deaktiviert wenn `totalDays >= trainingDaysNum`
+  - Stepper + deaktiviert wenn `totalDays >= trainingDaysNum`; Tooltip: "Maximale Trainingstage erreicht"
+  - Trainingstage reduzieren → `clampSportDays()` reduziert automatisch Sporttage proportional (Sportart mit den meisten Tagen zuerst); Einträge mit 0 Tagen werden entfernt
+  - Invariante: `Σ sport_types[].days ≤ training_days_per_week` ist technisch erzwungen
   - Warnung wenn `totalDays > trainingDaysNum`
 - Ziele (Mehrfachauswahl): Event / Muskelaufbau / Gewicht reduzieren / Nackt gut ausschauen
 - Coach-Stil (Einfachauswahl): Motivierend / Analytisch / Direkt / Empathisch

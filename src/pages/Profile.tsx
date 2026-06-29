@@ -120,9 +120,9 @@ function NumberField({
   )
 }
 
-function Stepper({ value, onDec, onInc, disableDec, disableInc }: {
+function Stepper({ value, onDec, onInc, disableDec, disableInc, titleInc }: {
   value: number; onDec: () => void; onInc: () => void
-  disableDec?: boolean; disableInc?: boolean
+  disableDec?: boolean; disableInc?: boolean; titleInc?: string
 }) {
   return (
     <div className="flex items-center gap-2">
@@ -135,6 +135,7 @@ function Stepper({ value, onDec, onInc, disableDec, disableInc }: {
       <button
         onClick={onInc}
         disabled={disableInc}
+        title={disableInc ? titleInc : undefined}
         className="w-9 h-9 flex items-center justify-center rounded-full bg-slate-600 hover:bg-slate-500 disabled:opacity-30 text-slate-200 text-xl font-bold transition-colors shrink-0"
       >+</button>
     </div>
@@ -315,6 +316,23 @@ export default function Profile() {
     }
   }
 
+  function clampSportDays(newTrainingDays: number) {
+    setTrainingDays(String(newTrainingDays))
+    setSportConfigs(prev => {
+      const sum = prev.reduce((s, c) => s + c.days, 0)
+      if (sum <= newTrainingDays) return prev
+      // Reduce from the sport with the most days first, until sum fits
+      let configs = prev.map(c => ({ ...c }))
+      let remaining = sum - newTrainingDays
+      while (remaining > 0) {
+        configs.sort((a, b) => b.days - a.days)
+        configs[0].days -= 1
+        remaining--
+      }
+      return configs.filter(c => c.days > 0)
+    })
+  }
+
   function toggleGoal(goal: string) {
     setBodyGoals(prev =>
       prev.includes(goal) ? prev.filter(g => g !== goal) : [...prev, goal]
@@ -417,7 +435,7 @@ export default function Profile() {
               {[1,2,3,4,5,6,7].map(n => (
                 <button
                   key={n}
-                  onClick={() => setTrainingDays(trainingDays === String(n) ? '' : String(n))}
+                  onClick={() => trainingDays === String(n) ? setTrainingDays('') : clampSportDays(n)}
                   className={`w-9 h-9 rounded-xl text-sm font-semibold transition-colors ${
                     trainingDays === String(n)
                       ? 'bg-brand-500 text-white'
@@ -469,6 +487,7 @@ export default function Profile() {
                           onInc={() => updateSportConfig(focusedSport!, { days: config.days + 1 })}
                           disableDec={false}
                           disableInc={trainingDaysNum > 0 && totalDays >= trainingDaysNum}
+                          titleInc="Maximale Trainingstage erreicht"
                         />
                         <span className="text-xs text-slate-500">
                           {config.days === 1 ? 'Tag' : 'Tage'}
