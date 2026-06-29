@@ -78,6 +78,7 @@ export type CoachDecision = {
   decision_summary: string
   reasoning: string | null
   related_plan_id: string | null
+  related_activity_id: string | null
   created_at: string
 }
 

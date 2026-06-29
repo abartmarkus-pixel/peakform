@@ -718,6 +718,9 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 - buildSpecialistContext(athleteId, sport) in coachContext.ts
 - Coach-Routing in ActivityDetail.tsx (getCoachPrompts, parallel context build)
 - Echtzeit-Alert in Dashboard.tsx (Claude-Konfliktcheck, sessionStorage-Gate, Amber-Banner + Modal)
+- `coach_decisions.related_activity_id UUID` (FK→activities) — DB-Migration angewendet
+- `triggerRecoveryExtraction(analysisText, athleteId, activityId)` Helper in ActivityDetail
+- On-load Recovery-Check: fehlende Extractions für bestehende Analysen werden nachgeholt
 
 **Sicherheit:**
 - STRAVA_CLIENT_SECRET nie im Browser-Bundle
@@ -736,11 +739,7 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 - **Body Check-in** — kein Foto-Upload, keine Claude Vision, keine body_checkins-Tabelle, keine PWA-Erinnerung
 - **Kraftcoach-Ästhetik-Bewertung** — Equipment + aesthetic_goals werden zwar als Kontext mitgeschickt, aber es gibt kein automatisches Übungs-Matching / Lücken-Identifikation (Phase D aus Kap. 18)
 - **Aktivitäts-Matching** — DayCards zeigen kein Grün/Orange/Grau-Status ob eine Aktivität zum Plan-Tag passt
-- **Recovery-Extraktion für bestehende Analysen** — Aktivitäten mit `claude_analysis` aus der Zeit vor dem Feature-Deploy haben keinen `recovery_required`-Eintrag. Entweder "Neu analysieren" klicken, oder manuell via SQL:
-  ```sql
-  INSERT INTO coach_decisions (athlete_id, decision_type, decision_summary, reasoning, created_at)
-  VALUES ('{athlete_id}', 'recovery_required', '{summary}', '{reasoning}', NOW());
-  ```
+- **Recovery-Extraktion für bestehende Analysen** — ✅ Behoben: ActivityDetail prüft beim Laden einer bestehenden `claude_analysis` ob bereits ein `coach_decisions`-Eintrag mit `related_activity_id = act.id` und `decision_type = 'recovery_required'` existiert. Falls nicht → fire-and-forget Extraction wird nachträglich getriggert.
 - **Pagination** — nur immer die letzten 10 Aktivitäten (kein "Mehr laden")
 - **CTL/ATL/TSB Fitness-Kurve**
 - **Push Notifications**
