@@ -24,6 +24,7 @@ import {
   type EquipmentConfig,
   type AestheticGoals,
 } from '../lib/supabase'
+import { calculateSeasonPhase } from '../lib/coachContext'
 
 // ── constants ──────────────────────────────────────────────────────────────
 
@@ -62,6 +63,14 @@ const MUSCLE_GROUPS = [
   { key: 'chest',     label: 'Brust' },
   { key: 'back',      label: 'Rücken' },
   { key: 'legs',      label: 'Beine' },
+]
+
+const PHASE_OPTIONS: { key: 'readaptation' | 'base' | 'race' | 'taper' | null; label: string }[] = [
+  { key: null,            label: 'Auto' },
+  { key: 'readaptation',  label: 'Readaptation' },
+  { key: 'base',          label: 'Grundlage' },
+  { key: 'race',          label: 'Wettkampf' },
+  { key: 'taper',         label: 'Taper' },
 ]
 
 const DEFAULT_EQUIPMENT: EquipmentConfig = {
@@ -186,8 +195,10 @@ export default function Profile() {
   const [bodyGoals,      setBodyGoals]     = useState<string[]>([])
   const [personaStyle,   setPersonaStyle]  = useState('')
   const [personaFocus,   setPersonaFocus]  = useState('')
-  const [equipment,      setEquipment]     = useState<EquipmentConfig>(DEFAULT_EQUIPMENT)
-  const [aestheticGoals, setAestheticGoals] = useState<AestheticGoals>(DEFAULT_AESTHETIC)
+  const [equipment,           setEquipment]           = useState<EquipmentConfig>(DEFAULT_EQUIPMENT)
+  const [aestheticGoals,      setAestheticGoals]      = useState<AestheticGoals>(DEFAULT_AESTHETIC)
+  const [seasonPhaseOverride, setSeasonPhaseOverride] = useState<'readaptation' | 'base' | 'race' | 'taper' | null>(null)
+  const [primaryEventDate,    setPrimaryEventDate]    = useState<string | null>(null)
 
   // dnd-kit sensors (8px threshold prevents accidental drags on scroll)
   const sensors = useSensors(
@@ -200,42 +211,55 @@ export default function Profile() {
     const stravaId = localStorage.getItem('athlete_strava_id')
     if (!stravaId) { navigate('/'); return }
 
-    supabase
-      .from('athletes')
-      .select('*')
-      .eq('strava_athlete_id', Number(stravaId))
-      .single()
-      .then(({ data }) => {
-        if (!data) return
-        const a = data as Athlete
-        setAthlete(a)
-        setName(a.name ?? '')
-        setFtpWatts(a.ftp_watts?.toString() ?? '')
-        setMaxHr(a.max_hr?.toString() ?? '')
-        setWeightKg(a.weight_kg?.toString() ?? '')
-        setTrainingDays(a.training_days_per_week?.toString() ?? '')
+    ;(async () => {
+      const { data } = await supabase
+        .from('athletes')
+        .select('*')
+        .eq('strava_athlete_id', Number(stravaId))
+        .single()
+      if (!data) return
+      const a = data as Athlete
+      setAthlete(a)
+      setName(a.name ?? '')
+      setFtpWatts(a.ftp_watts?.toString() ?? '')
+      setMaxHr(a.max_hr?.toString() ?? '')
+      setWeightKg(a.weight_kg?.toString() ?? '')
+      setTrainingDays(a.training_days_per_week?.toString() ?? '')
 
-        const raw = a.sport_types as unknown
-        const isNewFormat = Array.isArray(raw) && raw.length > 0 &&
-          typeof (raw as unknown[])[0] === 'object' && 'days' in ((raw as unknown[])[0] as object)
-        setSportConfigs(isNewFormat ? (raw as SportConfig[]) : [])
+      const raw = a.sport_types as unknown
+      const isNewFormat = Array.isArray(raw) && raw.length > 0 &&
+        typeof (raw as unknown[])[0] === 'object' && 'days' in ((raw as unknown[])[0] as object)
+      setSportConfigs(isNewFormat ? (raw as SportConfig[]) : [])
 
-        setBodyGoals(a.body_goals ?? [])
+      setBodyGoals(a.body_goals ?? [])
 
-        const persona = a.coach_persona as Record<string, string> | null
-        setPersonaStyle(persona?.style ?? '')
-        setPersonaFocus(persona?.focus ?? '')
+      const persona = a.coach_persona as Record<string, string> | null
+      setPersonaStyle(persona?.style ?? '')
+      setPersonaFocus(persona?.focus ?? '')
 
-        setEquipment(a.equipment ?? DEFAULT_EQUIPMENT)
+      setEquipment(a.equipment ?? DEFAULT_EQUIPMENT)
 
-        const ag = a.aesthetic_goals
-        setAestheticGoals({
-          priorities: ag?.priorities?.length ? ag.priorities : DEFAULT_AESTHETIC.priorities,
-          notes: ag?.notes ?? '',
-        })
-
-        initialized.current = true
+      const ag = a.aesthetic_goals
+      setAestheticGoals({
+        priorities: ag?.priorities?.length ? ag.priorities : DEFAULT_AESTHETIC.priorities,
+        notes: ag?.notes ?? '',
       })
+
+      setSeasonPhaseOverride(a.season_phase_override ?? null)
+
+      // Load primary A-event for auto-phase display
+      const { data: goalData } = await supabase
+        .from('season_goals')
+        .select('event_date')
+        .eq('athlete_id', a.id)
+        .eq('priority', 'A')
+        .eq('active', true)
+        .order('event_date', { ascending: true })
+        .limit(1)
+      setPrimaryEventDate(goalData?.[0]?.event_date ?? null)
+
+      initialized.current = true
+    })()
   }, [navigate])
 
   // debounced auto-save — fires 800ms after any field change
@@ -260,6 +284,7 @@ export default function Profile() {
                                      : null,
           equipment,
           aesthetic_goals:         aestheticGoals,
+          season_phase_override:   seasonPhaseOverride,
         })
         .eq('id', athlete.id)
 
@@ -267,7 +292,7 @@ export default function Profile() {
       setTimeout(() => setSaveState('idle'), 2000)
     }, 800)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name, ftpWatts, maxHr, weightKg, trainingDays, sportConfigs, bodyGoals, personaStyle, personaFocus, equipment, aestheticGoals])
+  }, [name, ftpWatts, maxHr, weightKg, trainingDays, sportConfigs, bodyGoals, personaStyle, personaFocus, equipment, aestheticGoals, seasonPhaseOverride])
 
   // ── sport helpers ───────────────────────────────────────────────────────
 
@@ -458,6 +483,50 @@ export default function Profile() {
               )
             })()}
           </div>
+        </SectionCard>
+
+        {/* ── Trainingsphase ─────────────────────────────────── */}
+        <SectionCard title="Trainingsphase">
+          {(() => {
+            const weeksUntilEvent = primaryEventDate
+              ? Math.round((new Date(primaryEventDate).getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000))
+              : 99
+            const autoPhase = calculateSeasonPhase(weeksUntilEvent, null)
+            const autoLabel = primaryEventDate
+              ? `Automatisch: ${autoPhase.label} (${weeksUntilEvent} Wochen bis Event)`
+              : `Automatisch: ${autoPhase.label} (kein A-Event gesetzt)`
+            return (
+              <>
+                <p className="text-xs text-slate-400 mb-3">{autoLabel}</p>
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {PHASE_OPTIONS.map(opt => (
+                    <button
+                      key={String(opt.key)}
+                      onClick={() => setSeasonPhaseOverride(opt.key)}
+                      className={`px-3 py-1.5 rounded-xl text-sm font-medium transition-colors ${
+                        seasonPhaseOverride === opt.key
+                          ? 'bg-brand-500/20 text-brand-400 ring-1 ring-brand-500'
+                          : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                {seasonPhaseOverride && (
+                  <p className="text-xs text-amber-400/80">
+                    Manuell überschrieben — aktiv bis du wieder "Auto" wählst.
+                    Sinnvoll nach Krankheit oder Verletzung.
+                  </p>
+                )}
+                {!seasonPhaseOverride && (
+                  <p className="text-xs text-slate-600">
+                    Überschreibe die automatische Phase wenn du nach Krankheit oder Verletzung zurückgeworfen wurdest.
+                  </p>
+                )}
+              </>
+            )
+          })()}
         </SectionCard>
 
         {/* ── Ziel & Coach ───────────────────────────────────── */}
