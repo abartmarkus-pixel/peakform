@@ -84,9 +84,11 @@ peakform/
 ├── src/
 │   ├── App.tsx             # Router: / | /auth/callback | /dashboard | /activity/:id
 │   │                       #         /profile | /goals | /plan | /chat
+│   │                       # Session-Guard in Layout: localStorage → sessionStorage → restoreSessionFromSupabase()
+│   │                       # Loading-Splash "PeakForm wird geladen…" während Supabase-Check
 │   ├── pages/
-│   │   ├── Home.tsx        # Strava-Connect-Button; Auto-Redirect zu /dashboard
-│   │   ├── AuthCallback.tsx # OAuth Code → /api/strava-token → Supabase upsert
+│   │   ├── Home.tsx        # Strava-Connect-Button; Auto-Redirect zu /dashboard (prüft localStorage + sessionStorage)
+│   │   ├── AuthCallback.tsx # OAuth Code → /api/strava-token → Supabase upsert → localStorage + sessionStorage
 │   │   ├── Dashboard.tsx   # 4 Nav-Kacheln + Letzte Aktivitäten + Filter (🏋️🚴🏃) + Echtzeit-Alert
 │   │   ├── ActivityDetail.tsx # Stats-Grid + Charts + Rundentabelle + Übungstabelle + Claude-Analyse
 │   │   ├── Profile.tsx     # Name, FTP/HF/Gewicht, Sportarten, Equipment, Ästhetik, Trainingsphase; Auto-Save 800ms
@@ -97,6 +99,7 @@ peakform/
 │   ├── lib/
 │   │   ├── supabase.ts     # Supabase Client + Types (Athlete, Activity, SportConfig, SeasonGoal, WeeklyPlan, CoachDecision, ...)
 │   │   ├── strava.ts       # OAuth URL, Token Exchange via /api/strava-token, Activities, Streams, Laps
+│   │   │                   # restoreSessionFromSupabase(): Session-Wiederherstellung aus Supabase (Single-User)
 │   │   ├── coachContext.ts # buildCoachContext(): 8 Abschnitte inkl. [HARTE TRAININGS-CONSTRAINTS]
 │   │   │                   # buildSpecialistContext(athleteId, sport): sportart-spezifische Historien
 │   │   │                   # calculateSeasonPhase(), calculateHRZones(), calculatePaceReference() (exportiert)
@@ -131,6 +134,7 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 - [x] Supabase-Tabellen + RLS
 - [x] Strava OAuth 2.0 Flow (code → /api/strava-token server-side → Supabase)
 - [x] Strava Token-Refresh (automatisch, 60s Buffer, via /api/strava-token)
+- [x] Persistente Session: `restoreSessionFromSupabase()` — kein erneuter Strava-Login bei leerem localStorage
 
 ### Dashboard & Aktivitäten
 - [x] Dashboard: letzte 10 Aktivitäten, in Supabase gecacht
@@ -200,7 +204,9 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 - P3/P4 Code-Qualität: `select('*')` einschränken, OAuth State-Parameter
 
 ## Wichtige Implementierungsdetails
-- Auth-State: `athlete_strava_id` in `localStorage` (kein Supabase Auth)
+- Auth-State: `athlete_strava_id` in `localStorage` + `sessionStorage` (kein Supabase Auth)
+- Session-Wiederherstellung: App.tsx prüft beim Start localStorage → sessionStorage → `restoreSessionFromSupabase()` (Supabase-Fallback, Single-User LIMIT 1); Loading-Splash während Supabase-Check
+- Logout: `localStorage.clear()` + `sessionStorage.clear()` → Redirect zu `/`
 - Streams-Cache: `streams_json` in Supabase — wird beim ersten Aufruf gecacht
 - Claude API wird **nie** direkt vom Browser aufgerufen — immer über `/api/analyse`
 - Strava Token-Exchange/-Refresh: **nie** direkt vom Browser — immer über `/api/strava-token`

@@ -4,7 +4,7 @@ KI-Trainingscoach als Progressive Web App — verbindet Strava und Hevy mit Clau
 
 ## Features
 
-- Strava OAuth + automatischer Token-Refresh
+- Strava OAuth + automatischer Token-Refresh + persistente Session (kein Re-Login nötig)
 - Aktivitäts-Analyse via Claude (Ausdauer + Krafttraining)
 - Wochenplan-Generierung mit Constraint-Validierung
 - Saisonziele (A/B/C-Priorität) mit Countdown
@@ -47,7 +47,7 @@ Siehe `.env.example` für alle benötigten Variablen:
 | `VITE_SUPABASE_URL` | Supabase Projekt-URL |
 | `VITE_SUPABASE_ANON_KEY` | Supabase Anon/Public Key |
 | `VITE_STRAVA_CLIENT_ID` | Strava API Client ID |
-| `VITE_STRAVA_CLIENT_SECRET` | Strava API Client Secret |
+| `STRAVA_CLIENT_SECRET` | Strava API Client Secret (kein `VITE_`-Prefix — nur serverseitig) |
 | `VITE_STRAVA_REDIRECT_URI` | OAuth Callback URL (lokal: `http://localhost:5173/auth/callback`) |
 | `ANTHROPIC_API_KEY` | Anthropic API Key (kein `VITE_`-Prefix — nur serverseitig) |
 

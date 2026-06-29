@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 29. Juni 2026 (Bottom-Navigation, FA6 Icon-System, Dashboard Nav-Kacheln entfernt)
+> Letzte Aktualisierung: 29. Juni 2026 (Persistente Session: restoreSessionFromSupabase, sessionStorage-Fallback, Splash-Screen)
 
 ---
 
