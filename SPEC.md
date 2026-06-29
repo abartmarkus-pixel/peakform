@@ -1,8 +1,10 @@
 # PeakForm — Produktspezifikation
 
-> Verbindliche Spezifikation der PeakForm App.
-> Beschreibt ausschließlich den tatsächlich implementierten Stand.
-> Letzte Aktualisierung: 29. Juni 2026
+> **Für Claude Code:** Halte diese Datei nach jeder Session aktuell.
+> SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
+> Committe SPEC.md zusammen mit dem Feature-Code.
+
+> Letzte Aktualisierung: 29. Juni 2026 (Coach-System Kap. 18, Steps 2–6)
 
 ---
 
@@ -29,6 +31,7 @@ PeakForm ist eine PWA (Progressive Web App) die als KI-Trainingscoach fungiert. 
 | Styling | Tailwind CSS | 3.4 |
 | Routing | React Router v6 | 6.24 |
 | Charts | Recharts | 2.12 |
+| Drag & Drop | @dnd-kit/core + @dnd-kit/sortable + @dnd-kit/utilities | 6.3 / 10.0 / 3.2 |
 | Sprache | TypeScript | 5.2 |
 | Backend/DB | Supabase (PostgreSQL) | @supabase/supabase-js 2.43 |
 | Hosting | Vercel (Fluid Compute) | — |
@@ -65,7 +68,9 @@ peakform/
 │       ├── supabase.ts        # Supabase Client + TypeScript-Types
 │       ├── strava.ts          # OAuth URL, Token Exchange/Refresh via /api/strava-token, Activities, Streams, Laps
 │       ├── coachContext.ts    # buildCoachContext(athleteId, threadId?) — 7 Abschnitte, alle parallel
-│       └── coachPrompt.ts     # COACH_SYSTEM_PROMPT — statischer Export, aktuell hardcoded für Markus
+│       │                        buildSpecialistContext(athleteId, sport) — sportart-spezifische Historien
+│       └── coachPrompt.ts     # COACH_SYSTEM_PROMPT (Hauptcoach, hardcoded Markus)
+│                                LAUF_COACH_PROMPT | RAD_COACH_PROMPT | KRAFT_COACH_PROMPT (Spezialcoaches)
 ├── vite.config.ts          # PWA-Config + /api/analyse + /api/strava-token Middleware für lokales Dev
 ├── vercel.json             # SPA Rewrites + SW Cache-Header
 └── .env                    # Credentials (nicht committen)
@@ -112,6 +117,8 @@ training_days_per_week INTEGER             -- Gesamtzahl Trainingstage/Woche (1�
 sport_types           JSONB                -- Format: [{type, days}]
 coach_persona         JSONB                -- Format: {style, focus}
 body_goals            TEXT[]               -- Mehrfachauswahl-Array
+equipment             JSONB                -- Format: {dumbbells:{active,max_kg?},bands:{active},bodyweight:{active},pullup_bar:{active},gym:{active}}
+aesthetic_goals       JSONB                -- Format: {priorities:string[],notes:string}
 created_at            TIMESTAMPTZ
 ```
 
@@ -317,6 +324,14 @@ Strava OAuth Token Exchange & Refresh — STRAVA_CLIENT_SECRET bleibt server-sei
 - Filter-Buttons: WeightTraining 🏋️, Ride 🚴, Run 🏃 (VirtualRide/VirtualRun werden mitgefiltert)
 - Logout-Icon: `localStorage.clear()` + Redirect
 
+**Echtzeit-Alert nach Strava-Sync:**
+- Einmal pro Session (via `sessionStorage`, Key: `peakform_alert_{weekStart}`)
+- Lädt aktuellen Wochenplan + neueste Aktivität dieser Woche parallel aus Supabase
+- Claude-Call (`max_tokens: 150`) zur Konflikt-Erkennung — antwortet ausschließlich JSON: `{"conflict": bool, "message": string|null}`
+- Bei Konflikt: Amber-Banner mit Claude-generierter Erklärung
+- Banner-Buttons: "Plan anpassen" (→ Claude-Call + Modal) / "Verwerfen"
+- "Plan anpassen": Claude-Call mit Plan-JSON + Konflikt-Beschreibung → Text-Modal
+
 ### ActivityDetail.tsx
 **Ausdauer (Ride/Run):**
 - Stats-Grid: Dauer, Ø HF, Distanz, Höhenmeter, Ø/Max Tempo, Max HF, NP, Ø/Max Watt, Trittfrequenz (kontextabhängig)
@@ -330,6 +345,12 @@ Strava OAuth Token Exchange & Refresh — STRAVA_CLIENT_SECRET bleibt server-sei
 - Übungskarten: Name, Muskelgruppe-Pill (aus 50+ Keyword-Lookup), Volumen-Pill, Set-Tags
 - Gesamtvolumen-Banner
 - Claude-Analyse: Volumen & Intensität / Übungsanalyse / Stärken / Empfehlung
+
+**Coach-Routing (`getCoachPrompts(type)`):**
+- Gibt `{ system, sport }` zurück
+- `system` = COACH_SYSTEM_PROMPT + sportspezifischer Spezialist-Prompt
+- `sport` = `'running'` | `'cycling'` | `'strength'` | `null`
+- `runAnalysis()` lädt `buildCoachContext()` + `buildSpecialistContext()` parallel und schickt beide als User-Message
 
 **Markdown-Renderer** (`renderMarkdown`): h1-h3, Bullet-Lists, Blockquotes, `**fett**`, HR, Skip-Tabellen und Code-Blöcke
 
@@ -529,17 +550,46 @@ Funktion in `src/lib/coachContext.ts`. Wird bei JEDEM Claude-Call als User-Messa
 
 **Ziel: unter ~2.700 tokens, immer gleiche Struktur.**
 
+### `buildSpecialistContext(athleteId, sport)`
+
+Ergänzende Funktion, die sportart-spezifische Historien-Daten liefert. Wird parallel zu `buildCoachContext()` geladen und als zweiter Block in die User-Message eingefügt.
+
+```
+sport = 'running':
+  Letzte 10 Run/VirtualRun/TrailRun Aktivitäten (60 Tage)
+  Datum | km | Pace (min/km) | Ø HF
+
+sport = 'cycling':
+  FTP aus athletes-Tabelle
+  Letzte 10 Ride/VirtualRide/MountainBikeRide/GravelRide (60 Tage)
+  Datum | km | NP (W + % FTP) | TSS | Ø HF
+
+sport = 'strength':
+  Equipment aus athletes.equipment (aktive Geräte)
+  Ästhetik-Prioritäten aus athletes.aesthetic_goals (nur wenn "Nackt gut ausschauen" in body_goals)
+  Letzte 5 WeightTraining/Workout Aktivitäten (60 Tage)
+  Datum | Name | Description-Snippet (max 200 Zeichen)
+```
+
 ---
 
-## 12. Coach-System-Prompt (`COACH_SYSTEM_PROMPT`)
+## 12. Coach-Prompts (`coachPrompt.ts`)
 
-Siehe Kapitel 18 — Coach-System.
+Siehe Kapitel 18 für Details zur Coach-Architektur.
 
-**Aktueller Implementierungsstand (Kurzfassung):**
-- Statischer Export in `src/lib/coachPrompt.ts`, hardcoded für Markus
-- Übermittlung: jeder Claude-Call via `/api/analyse` erhält `system: COACH_SYSTEM_PROMPT`
-- Nicht dynamisch — spiegelt nicht die `athletes`-Tabellen-Felder wider
-- Geplante Weiterentwicklung zu Haupt- + Spezialcoach-Architektur: Kapitel 18
+**Implementierter Stand:**
+
+**`COACH_SYSTEM_PROMPT`** (Hauptcoach):
+- Statischer Export, hardcoded für Markus (FTP 229W, Max HF 182, 8k-Event 1. Oktober 2026)
+- Enthält: Athletenprofil, Saisonziel, Periodisierungsplan (4 Phasen), HF-Zonen, Pace-Referenz, Coaching-Prinzipien
+- Wird bei JEDEM Claude-Call als `system`-Parameter übergeben
+
+**`LAUF_COACH_PROMPT`** / **`RAD_COACH_PROMPT`** / **`KRAFT_COACH_PROMPT`** (Spezialcoaches):
+- Werden auf `COACH_SYSTEM_PROMPT` aufgesattelt (`COACH_SYSTEM_PROMPT + '\n\n' + SPECIALIST_PROMPT`)
+- Routing über `getCoachPrompts(activityType)` in `ActivityDetail.tsx`
+- Lauf: Zonen-Audit, Pace-Konsistenz, HF-Drift, Verletzungssignale
+- Rad: Power-Zonen (FTP-basiert), NP/VI-Analyse, TSS/IF-Einordnung
+- Kraft: Hevy-Volumen-Analyse, Schulter-Check, Laufsynergie, Equipment- + Ästhetik-Kontext
 
 ---
 
@@ -610,7 +660,15 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 - Sportarten-Akkordeon mit Stepper (− bei 1 = entfernt Sportart)
 - Körperziele (Mehrfachauswahl)
 - Coach-Stil + Coach-Fokus-Freitext
-- 800ms Auto-Save
+- **Equipment-Sektion:** Checkboxen für Kurzhanteln / Bänder / Körpergewicht / Klimmzugstange / Gym
+  - Bei Kurzhanteln aktiv: Number-Input `bis X kg` (min 5, max 200, step 5)
+  - Gym aktiv → alle anderen Checkboxen disabled + ausgegraut (Gym = alles verfügbar)
+- **Ästhetik-Ziele-Sektion** (nur wenn `"Nackt gut ausschauen"` in `body_goals`):
+  - 7 Muskelgruppen als Drag-and-drop sortierbare Pills via `@dnd-kit/sortable`
+  - Reihenfolge = Priorität (1 = höchste); alle 7 immer sichtbar
+  - Freitext-Feld für Besonderheiten (z.B. Muskelimbalancen)
+  - Activation threshold 8px (verhindert versehentliche Drags beim Scrollen)
+- 800ms Auto-Save (equipment + aesthetic_goals ebenfalls im Debounce)
 
 **Saison-Ziele:**
 - A/B/C-Priorität
@@ -638,6 +696,15 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 - Neue-Gespräch-Button
 - Auto-resize Textarea
 
+**Coach-System (Kapitel 18):**
+- Equipment-Sektion in Profile.tsx (Checkboxen + max_kg für Kurzhanteln, Gym-Mutex-Logik)
+- Ästhetik-Ziele in Profile.tsx (Drag-and-drop Ranking via @dnd-kit, nur bei "Nackt gut ausschauen")
+- athletes-Schema: `equipment JSONB` + `aesthetic_goals JSONB`
+- LAUF_COACH_PROMPT, RAD_COACH_PROMPT, KRAFT_COACH_PROMPT in coachPrompt.ts
+- buildSpecialistContext(athleteId, sport) in coachContext.ts
+- Coach-Routing in ActivityDetail.tsx (getCoachPrompts, parallel context build)
+- Echtzeit-Alert in Dashboard.tsx (Claude-Konfliktcheck, sessionStorage-Gate, Amber-Banner + Modal)
+
 **Sicherheit:**
 - STRAVA_CLIENT_SECRET nie im Browser-Bundle
 - ANTHROPIC_API_KEY nie im Browser-Bundle
@@ -650,16 +717,16 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 ### Nicht implementiert ❌
 
 - **Supabase Auth / Multi-User-Login** — kein Registrierungsformular, kein E-Mail/Passwort-Login; nur Strava OAuth
-- **Dynamischer System-Prompt** — `COACH_SYSTEM_PROMPT` ist hardcoded (nicht aus athletes-Tabelle generiert)
+- **Dynamischer System-Prompt** — `COACH_SYSTEM_PROMPT` ist hardcoded für Markus; spiegelt nicht live die athletes-Felder wider
 - **Hevy API-Integration** — Hevy-Daten kommen ausschließlich via Strava description; kein `hevy_api_key`, keine eigene `strength_workouts`-Tabelle
 - **Body Check-in** — kein Foto-Upload, keine Claude Vision, keine body_checkins-Tabelle, keine PWA-Erinnerung
+- **Kraftcoach-Ästhetik-Bewertung** — Equipment + aesthetic_goals werden zwar als Kontext mitgeschickt, aber es gibt kein automatisches Übungs-Matching / Lücken-Identifikation (Phase D aus Kap. 18)
 - **Aktivitäts-Matching** — DayCards zeigen kein Grün/Orange/Grau-Status ob eine Aktivität zum Plan-Tag passt
 - **Pagination** — nur immer die letzten 10 Aktivitäten (kein "Mehr laden")
 - **CTL/ATL/TSB Fitness-Kurve**
 - **Push Notifications**
 - **Bottom-Navigation Mobile**
 - **Aktivitäts-spezifischer Chat-Thread**
-- **Coach-Persönlichkeiten pro Sportart**
 - **OAuth State-Parameter** (CSRF-Schutz bei OAuth-Flow)
 
 ---
@@ -723,20 +790,24 @@ Alle anderen Typen          → Hauptcoach (generisch)
 
 ### 18.3 Echtzeit-Alert Logik
 
-Nach jedem Strava-Sync wird geprüft:
+Nach jedem Strava-Sync in `Dashboard.tsx`:
 
-**Kritische Konflikte (Alert wird ausgelöst):**
-- Zwei intensive Einheiten (Z3+, schweres Krafttraining) an aufeinanderfolgenden Tagen
-- HF-Drift: Durchschnitts-HF bei gleicher Pace/Watt steigt über 3 Tage
-- Laufvolumen-Sprung: mehr als 10% Steigerung gegenüber Vorwoche
-- Geplante intensive Einheit am nächsten Tag nach heutigem Z4/Z5-Training
+**Ablauf (einmal pro Session via `sessionStorage`):**
+1. `sessionStorage.getItem('peakform_alert_{weekStart}')` prüfen
+2. Wenn nicht gesetzt: aktuellen Wochenplan (`weekly_plans`) + neueste Aktivität dieser Woche aus Supabase laden (parallel)
+3. Claude-Call (`max_tokens: 150`): Prompt enthält Plan-JSON + Aktivitätsdaten; Claude antwortet AUSSCHLIESSLICH mit `{"conflict": bool, "message": string|null}`
+4. `sessionStorage` als gecheckt markieren (verhindert wiederholten Call bei Reload)
+5. Bei `conflict: true`: Amber-Banner mit Claude-Message anzeigen
 
-**Alert-Format (im Dashboard als Banner):**
+**Alert-Format (Amber-Banner):**
 ```
-⚠ Coach-Hinweis: Du hast heute Z4 gelaufen — morgen ist
-schweres Krafttraining geplant. Soll ich den Plan anpassen?
-[Plan anpassen] [Ignorieren]
+⚠  [Claude-generierte Konflikterklärung — max 20 Wörter]
+   [Plan anpassen]   [Verwerfen]
 ```
+
+**"Plan anpassen":**
+- Claude-Call (`max_tokens: 600`) mit Plan-JSON + Konflikt-Beschreibung
+- Ergebnis in Bottom-Sheet Modal — "Schließen" Button
 
 **Nicht-kritische Abweichungen:** Kein Alert — wird beim wöchentlichen Review besprochen.
 
@@ -865,67 +936,61 @@ Plus Freitext-Feld für Nuancen.
 
 ### 18.6 Technische Implementierung
 
-#### Neue Funktion: `buildSpecialistContext(athleteId, sport)`
+#### `buildSpecialistContext(athleteId, sport)` — implementiert ✅
 
-Ergänzt `buildCoachContext()` um sportart-spezifische Daten:
-
-```
-Für 'running':
-  + Alle Run/VirtualRun Aktivitäten letzte 8 Wochen aggregiert
-  + Pace-Trend, HF-Effizienz-Trend
-  + 5k/10k Bestzeiten aus activities
-
-Für 'cycling':
-  + Alle Ride/VirtualRide Aktivitäten letzte 8 Wochen aggregiert
-  + NP-Trend, TSS-Verlauf, FTP-Vergleich
-
-Für 'strength':
-  + Alle WeightTraining Aktivitäten letzte 8 Wochen
-  + Übungen aus description (Hevy-Parser)
-  + Volumen-Trend pro Muskelgruppe (soweit aus description extrahierbar)
-  + Equipment aus athletes.equipment
-  + Ästhetik-Ziele aus athletes.aesthetic_goals
-```
-
-#### Claude-Call Struktur pro Coach
+Lädt sportart-spezifische Historien (letzte 60 Tage). Wird parallel zu `buildCoachContext()` aufgerufen.
 
 ```
-system:  COACH_SYSTEM_PROMPT (Hauptcoach-Basis)
-         + SPECIALIST_PROMPT[sport] (Spezialcoach-Expertise + Blindheit)
-
-user:    buildCoachContext(athleteId)               (Gesamtkontext — Hauptcoach-Schicht)
-         + buildSpecialistContext(athleteId, sport)  (Sportart-spezifisch)
-         + "Analysiere folgende Aktivität: [activity data]"
+'running'  → Letzte 10 Läufe: Datum | km | Pace min/km | Ø HF
+'cycling'  → FTP + Letzte 10 Ausfahrten: Datum | km | NP W (% FTP) | TSS | Ø HF
+'strength' → Equipment (aktive Geräte) + Ästhetik-Prioritäten (wenn relevant)
+             + Letzte 5 Kraft-Sessions: Datum | Name | Description-Snippet
 ```
 
-#### Echtzeit-Alert Implementierung
+#### Claude-Call Struktur pro Coach — implementiert ✅
 
-Nach jedem erfolgreichen Strava-Sync in Dashboard.tsx:
-1. Letzte Aktivität + nächsten Plantag aus Supabase laden
-2. Konflikt-Check (JavaScript, kein Claude-Call)
-3. Bei Konflikt: Alert-Banner im Dashboard anzeigen
-4. Bei "Plan anpassen": Claude-Call an Hauptcoach mit Konflikt-Beschreibung
+```
+system:  COACH_SYSTEM_PROMPT + '\n\n' + LAUF/RAD/KRAFT_COACH_PROMPT
+
+user:    buildCoachContext(athleteId)               [7-Abschnitte Hauptkontext]
+         + buildSpecialistContext(athleteId, sport)  [sportart-spezifische Historien]
+         + Aktivitätsdaten (Stats, Laps, Hevy-Übungen)
+```
+
+Routing in `ActivityDetail.tsx` via `getCoachPrompts(activityType)`:
+```
+'Run'|'VirtualRun'|'TrailRun'                         → LAUF_COACH_PROMPT, sport:'running'
+'Ride'|'VirtualRide'|'MountainBikeRide'|'GravelRide'  → RAD_COACH_PROMPT,  sport:'cycling'
+'WeightTraining'|'Workout'                             → KRAFT_COACH_PROMPT, sport:'strength'
+Alle anderen                                           → nur COACH_SYSTEM_PROMPT, sport:null
+```
+
+#### Echtzeit-Alert — implementiert ✅
+
+Beschreibung: siehe 18.3. Claude-basierter Check (nicht heuristisch-JS), einmal pro Session via sessionStorage.
 
 ---
 
-### 18.7 Implementierungs-Reihenfolge
+### 18.7 Implementierungs-Status
 
-**Phase A — Profil-Erweiterungen**
-- Equipment-Sektion in Profile.tsx (Checkboxen + Kurzhantel-Gewicht)
-- Ästhetik-Ziele in Profile.tsx (Drag & Drop Ranking + Freitext)
-- Supabase Schema: `equipment JSONB` + `aesthetic_goals JSONB` zu athletes
+**Phase A — Profil-Erweiterungen ✅ DONE**
+- Equipment-Sektion in Profile.tsx (Checkboxen + Kurzhantel-Gewicht, Gym-Mutex)
+- Ästhetik-Ziele in Profile.tsx (Drag & Drop Ranking via @dnd-kit + Freitext)
+- Supabase Schema: `equipment JSONB` + `aesthetic_goals JSONB` in athletes
+- TypeScript-Types: `EquipmentConfig`, `AestheticGoals` in supabase.ts
 
-**Phase B — Specialist Prompts**
-- `LAUF_COACH_PROMPT`, `RAD_COACH_PROMPT`, `KRAFT_COACH_PROMPT` als Konstanten in `coachPrompt.ts`
-- `buildSpecialistContext()` in `coachContext.ts`
-- Coach-Routing in `ActivityDetail.tsx` (Aktivitätstyp → richtiger Prompt)
+**Phase B — Specialist Prompts ✅ DONE**
+- `LAUF_COACH_PROMPT`, `RAD_COACH_PROMPT`, `KRAFT_COACH_PROMPT` in `coachPrompt.ts`
+- `buildSpecialistContext(athleteId, sport)` in `coachContext.ts`
+- `getCoachPrompts(type)` + Coach-Routing in `ActivityDetail.tsx`
 
-**Phase C — Echtzeit-Alerts**
-- Konflikt-Check Logik nach Strava-Sync
-- Alert-Banner Komponente im Dashboard
-- "Plan anpassen" → Claude-Call an Hauptcoach
+**Phase C — Echtzeit-Alerts ✅ DONE**
+- Claude-basierter Konflikt-Check nach Strava-Sync
+- sessionStorage-Gate (einmal pro Woche)
+- Amber-Banner + "Plan anpassen"-Modal in Dashboard.tsx
 
-**Phase D — Kraftcoach Vollintegration**
-- Ästhetik-Bewertung in Krafttraining-Analyse
-- Übungsempfehlungen mit Equipment-Filter
+**Phase D — Kraftcoach Vollintegration ❌ OFFEN**
+- Automatisches Übungs-Matching zu Ästhetik-Prioritäten
 - Lücken-Identifikation (Muskelgruppen die in Workout I/II/III fehlen)
+- Konkrete Ersetzungsvorschläge mit Equipment-Filter
+- (Foto-Check-in / Claude Vision: Langfrist-Feature)
