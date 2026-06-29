@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 29. Juni 2026 (Aktivitäts-Matching in WeeklyPlan implementiert)
+> Letzte Aktualisierung: 29. Juni 2026 (Leistungsdaten: sportartabhängige Sichtbarkeit, MM:SS 5k-Eingabe, _updated_at Timestamps)
 
 ---
 
@@ -121,6 +121,10 @@ equipment             JSONB                -- Format: {dumbbells:{active,max_kg?
 aesthetic_goals       JSONB                -- Format: {priorities:string[],notes:string}
 season_phase_override TEXT DEFAULT NULL   -- 'readaptation'|'base'|'race'|'taper'|NULL (NULL = automatisch aus event_date)
 best_5k_seconds       INTEGER DEFAULT NULL -- 5k-Bestzeit in Sekunden; Basis für Pace-Berechnung
+ftp_updated_at        TIMESTAMPTZ DEFAULT NULL -- Zeitpunkt der letzten FTP-Eingabe
+max_hr_updated_at     TIMESTAMPTZ DEFAULT NULL -- Zeitpunkt der letzten Max HF-Eingabe
+weight_updated_at     TIMESTAMPTZ DEFAULT NULL -- Zeitpunkt der letzten Gewicht-Eingabe
+best_5k_updated_at    TIMESTAMPTZ DEFAULT NULL -- Zeitpunkt der letzten 5k-Bestzeit-Eingabe
 created_at            TIMESTAMPTZ
 ```
 
@@ -368,7 +372,20 @@ Strava OAuth Token Exchange & Refresh — STRAVA_CLIENT_SECRET bleibt server-sei
 ### Profile.tsx
 **Felder:**
 - Name (Text)
-- Leistungsdaten: FTP (W), Max HF (bpm), Gewicht (kg)
+- Leistungsdaten: sportartabhängige Sichtbarkeit
+  - Max HF (bpm): immer sichtbar
+  - Gewicht (kg): immer sichtbar
+  - FTP (W): nur wenn `sportConfigs.some(s => s.type === 'cycling')` — Reihenfolge: nach Gewicht
+  - 5k Bestzeit: nur wenn `sportConfigs.some(s => s.type === 'running')` — Reihenfolge: nach FTP
+  - **5k Eingabeformat:** MM:SS Textfeld (z.B. "25:51") — konvertiert automatisch zu/von `best_5k_seconds` (Sekunden)
+    - Validierung live (onChange): Format MM:SS, Minuten 10–59, Sekunden 0–59 → roter Fehlerhinweis
+    - Ungültiger Input → `best_5k_seconds` wird als null gespeichert (andere Felder nicht blockiert)
+  - **"Zuletzt aktualisiert"** unter jedem Feld:
+    - NULL → kein Text
+    - Aktuell → grau: "Zuletzt aktualisiert: 15. März 2026" (de-AT Locale)
+    - Veraltet → amber: "⚠ Zuletzt aktualisiert: … — Retest empfohlen"
+    - Schwellwerte: FTP > 60 Tage, Max HF > 365 Tage, Gewicht > 30 Tage, 5k > 90 Tage
+  - **`_updated_at` Auto-Update:** beim Speichern wird `field_updated_at = NOW()` gesetzt wenn sich der Wert gegenüber dem ursprünglich geladenen DB-Wert geändert hat und nicht null ist (via `origFtp/origMaxHr/origWeight/origBest5k` Refs)
 - Trainingstage pro Woche: Button-Grid 1–7
 - Sportarten: Pills (Radfahren / Laufen / Krafttraining) mit Akkordeon-Stepper
   - Pill zeigt aktiv (brand-Farben) wenn Sportart in `sport_types` — unabhängig davon welcher Stepper gerade geöffnet ist

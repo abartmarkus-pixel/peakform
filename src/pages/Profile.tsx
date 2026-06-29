@@ -150,6 +150,17 @@ function Checkmark() {
   )
 }
 
+function UpdatedAt({ updatedAt, staleDays }: { updatedAt: string | null; staleDays: number }) {
+  if (!updatedAt) return null
+  const date = new Date(updatedAt)
+  const daysSince = Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24))
+  const formatted = new Intl.DateTimeFormat('de-AT', { day: 'numeric', month: 'long', year: 'numeric' }).format(date)
+  if (daysSince > staleDays) {
+    return <p className="text-xs text-amber-400 mt-1">⚠ Zuletzt aktualisiert: {formatted} — Retest empfohlen</p>
+  }
+  return <p className="text-xs text-slate-500 mt-1">Zuletzt aktualisiert: {formatted}</p>
+}
+
 function SortableMuscleItem({ id, label, rank }: { id: string; label: string; rank: number }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
   return (
@@ -190,6 +201,8 @@ export default function Profile() {
   const [ftpWatts,       setFtpWatts]      = useState('')
   const [maxHr,          setMaxHr]         = useState('')
   const [weightKg,       setWeightKg]      = useState('')
+  const [best5kInput,    setBest5kInput]   = useState('')
+  const [best5kError,    setBest5kError]   = useState<string | null>(null)
   const [trainingDays,   setTrainingDays]  = useState('')
   const [sportConfigs,   setSportConfigs]  = useState<SportConfig[]>([])
   const [focusedSport,   setFocusedSport]  = useState<string | null>(null)
@@ -200,6 +213,18 @@ export default function Profile() {
   const [aestheticGoals,      setAestheticGoals]      = useState<AestheticGoals>(DEFAULT_AESTHETIC)
   const [seasonPhaseOverride, setSeasonPhaseOverride] = useState<'readaptation' | 'base' | 'race' | 'taper' | null>(null)
   const [primaryEventDate,    setPrimaryEventDate]    = useState<string | null>(null)
+
+  // _updated_at state
+  const [ftpUpdatedAt,    setFtpUpdatedAt]    = useState<string | null>(null)
+  const [maxHrUpdatedAt,  setMaxHrUpdatedAt]  = useState<string | null>(null)
+  const [weightUpdatedAt, setWeightUpdatedAt] = useState<string | null>(null)
+  const [best5kUpdatedAt, setBest5kUpdatedAt] = useState<string | null>(null)
+
+  // track original DB values to detect changes for _updated_at
+  const origFtp    = useRef('')
+  const origMaxHr  = useRef('')
+  const origWeight = useRef('')
+  const origBest5k = useRef<number | null>(null)
 
   // dnd-kit sensors (8px threshold prevents accidental drags on scroll)
   const sensors = useSensors(
@@ -225,6 +250,19 @@ export default function Profile() {
       setFtpWatts(a.ftp_watts?.toString() ?? '')
       setMaxHr(a.max_hr?.toString() ?? '')
       setWeightKg(a.weight_kg?.toString() ?? '')
+      if (a.best_5k_seconds) {
+        const m = Math.floor(a.best_5k_seconds / 60)
+        const s = a.best_5k_seconds % 60
+        setBest5kInput(`${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`)
+      }
+      setFtpUpdatedAt(a.ftp_updated_at ?? null)
+      setMaxHrUpdatedAt(a.max_hr_updated_at ?? null)
+      setWeightUpdatedAt(a.weight_updated_at ?? null)
+      setBest5kUpdatedAt(a.best_5k_updated_at ?? null)
+      origFtp.current    = a.ftp_watts?.toString() ?? ''
+      origMaxHr.current  = a.max_hr?.toString() ?? ''
+      origWeight.current = a.weight_kg?.toString() ?? ''
+      origBest5k.current = a.best_5k_seconds ?? null
       setTrainingDays(a.training_days_per_week?.toString() ?? '')
 
       const raw = a.sport_types as unknown
@@ -281,30 +319,66 @@ export default function Profile() {
 
     setSaveState('saving')
     debounce.current = setTimeout(async () => {
-      await supabase
-        .from('athletes')
-        .update({
-          name:                    name.trim() || null,
-          ftp_watts:               ftpWatts     ? parseInt(ftpWatts)     : null,
-          max_hr:                  maxHr        ? parseInt(maxHr)        : null,
-          weight_kg:               weightKg     ? parseFloat(weightKg)  : null,
-          training_days_per_week:  trainingDays ? parseInt(trainingDays) : null,
-          sport_types:             sportConfigs.length ? sportConfigs : null,
-          body_goals:              bodyGoals.length ? bodyGoals : null,
-          coach_persona:           (personaStyle || personaFocus)
-                                     ? { style: personaStyle, focus: personaFocus }
-                                     : null,
-          equipment,
-          aesthetic_goals:         aestheticGoals,
-          season_phase_override:   seasonPhaseOverride,
-        })
-        .eq('id', athlete.id)
+      const now = new Date().toISOString()
+      const newFtp    = ftpWatts  ? parseInt(ftpWatts)    : null
+      const newMaxHr  = maxHr     ? parseInt(maxHr)       : null
+      const newWeight = weightKg  ? parseFloat(weightKg)  : null
+
+      // Parse MM:SS → seconds (null if empty or invalid)
+      let newBest5k: number | null = null
+      if (best5kInput.trim()) {
+        const m5k = best5kInput.match(/^(\d{1,2}):(\d{2})$/)
+        if (m5k) {
+          const mins = parseInt(m5k[1])
+          const secs = parseInt(m5k[2])
+          if (mins >= 10 && mins <= 59 && secs <= 59) newBest5k = mins * 60 + secs
+        }
+      }
+
+      const ftpChanged    = ftpWatts  !== origFtp.current
+      const maxHrChanged  = maxHr     !== origMaxHr.current
+      const weightChanged = weightKg  !== origWeight.current
+      const best5kChanged = newBest5k !== origBest5k.current
+
+      const updatePayload: Record<string, unknown> = {
+        name:                   name.trim() || null,
+        ftp_watts:              newFtp,
+        max_hr:                 newMaxHr,
+        weight_kg:              newWeight,
+        best_5k_seconds:        newBest5k,
+        training_days_per_week: trainingDays ? parseInt(trainingDays) : null,
+        sport_types:            sportConfigs.length ? sportConfigs : null,
+        body_goals:             bodyGoals.length ? bodyGoals : null,
+        coach_persona:          (personaStyle || personaFocus)
+                                  ? { style: personaStyle, focus: personaFocus }
+                                  : null,
+        equipment,
+        aesthetic_goals:        aestheticGoals,
+        season_phase_override:  seasonPhaseOverride,
+      }
+
+      if (ftpChanged    && newFtp    !== null) updatePayload.ftp_updated_at    = now
+      if (maxHrChanged  && newMaxHr  !== null) updatePayload.max_hr_updated_at  = now
+      if (weightChanged && newWeight !== null) updatePayload.weight_updated_at  = now
+      if (best5kChanged && newBest5k !== null) updatePayload.best_5k_updated_at = now
+
+      await supabase.from('athletes').update(updatePayload).eq('id', athlete.id)
+
+      if (ftpChanged    && newFtp    !== null) setFtpUpdatedAt(now)
+      if (maxHrChanged  && newMaxHr  !== null) setMaxHrUpdatedAt(now)
+      if (weightChanged && newWeight !== null) setWeightUpdatedAt(now)
+      if (best5kChanged && newBest5k !== null) setBest5kUpdatedAt(now)
+
+      origFtp.current    = ftpWatts
+      origMaxHr.current  = maxHr
+      origWeight.current = weightKg
+      origBest5k.current = newBest5k
 
       setSaveState('saved')
       setTimeout(() => setSaveState('idle'), 2000)
     }, 800)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name, ftpWatts, maxHr, weightKg, trainingDays, sportConfigs, hasSportViolation, bodyGoals, personaStyle, personaFocus, equipment, aestheticGoals, seasonPhaseOverride])
+  }, [name, ftpWatts, maxHr, weightKg, best5kInput, trainingDays, sportConfigs, hasSportViolation, bodyGoals, personaStyle, personaFocus, equipment, aestheticGoals, seasonPhaseOverride])
 
   function toggleSport(key: string) {
     setFocusedSport(prev => prev === key ? null : key)
@@ -411,10 +485,53 @@ export default function Profile() {
 
         {/* ── Leistungsdaten ─────────────────────────────────── */}
         <SectionCard title="Leistungsdaten">
-          <div className="grid grid-cols-3 gap-3">
-            <NumberField label="FTP"     value={ftpWatts} onChange={setFtpWatts} unit="W"   placeholder="250" />
-            <NumberField label="Max HF"  value={maxHr}    onChange={setMaxHr}    unit="bpm" placeholder="185" />
-            <NumberField label="Gewicht" value={weightKg} onChange={setWeightKg} unit="kg"  placeholder="70" />
+          <div className="flex flex-col gap-4">
+            {/* Max HF — always visible */}
+            <div>
+              <NumberField label="Max HF" value={maxHr} onChange={setMaxHr} unit="bpm" placeholder="185" />
+              <UpdatedAt updatedAt={maxHrUpdatedAt} staleDays={365} />
+            </div>
+            {/* Gewicht — always visible */}
+            <div>
+              <NumberField label="Gewicht" value={weightKg} onChange={setWeightKg} unit="kg" placeholder="70" />
+              <UpdatedAt updatedAt={weightUpdatedAt} staleDays={30} />
+            </div>
+            {/* FTP — only when cycling active */}
+            {sportConfigs.some(s => s.type === 'cycling') && (
+              <div>
+                <NumberField label="FTP" value={ftpWatts} onChange={setFtpWatts} unit="W" placeholder="250" />
+                <UpdatedAt updatedAt={ftpUpdatedAt} staleDays={60} />
+              </div>
+            )}
+            {/* 5k Bestzeit — only when running active */}
+            {sportConfigs.some(s => s.type === 'running') && (
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">5k Bestzeit</label>
+                <input
+                  type="text"
+                  value={best5kInput}
+                  onChange={e => {
+                    const val = e.target.value
+                    setBest5kInput(val)
+                    if (!val.trim()) { setBest5kError(null); return }
+                    const m = val.match(/^(\d{1,2}):(\d{2})$/)
+                    if (!m) { setBest5kError('Format: MM:SS (z.B. 25:51)'); return }
+                    const mins = parseInt(m[1])
+                    const secs = parseInt(m[2])
+                    if (mins < 10 || mins > 59) { setBest5kError('Minuten: 10–59'); return }
+                    if (secs > 59) { setBest5kError('Sekunden: 0–59'); return }
+                    setBest5kError(null)
+                  }}
+                  placeholder="25:51"
+                  className="bg-slate-700 text-slate-100 rounded-xl px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-brand-500"
+                />
+                {best5kError
+                  ? <p className="text-xs text-red-400 mt-1">{best5kError}</p>
+                  : <p className="text-xs text-slate-500 mt-1">Wird für Pace-Berechnungen verwendet</p>
+                }
+                <UpdatedAt updatedAt={best5kUpdatedAt} staleDays={90} />
+              </div>
+            )}
           </div>
         </SectionCard>
 

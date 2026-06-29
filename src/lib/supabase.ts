@@ -46,6 +46,11 @@ export type Athlete = {
   // Phase 4 dynamic prompt fields
   season_phase_override: 'readaptation' | 'base' | 'race' | 'taper' | null
   best_5k_seconds: number | null
+  // Performance timestamps (SCHRITT 1 migration)
+  ftp_updated_at: string | null
+  max_hr_updated_at: string | null
+  weight_updated_at: string | null
+  best_5k_updated_at: string | null
 }
 
 export type SeasonGoal = {
