@@ -533,20 +533,13 @@ Funktion in `src/lib/coachContext.ts`. Wird bei JEDEM Claude-Call als User-Messa
 
 ## 12. Coach-System-Prompt (`COACH_SYSTEM_PROMPT`)
 
-Statischer Export in `src/lib/coachPrompt.ts`. Aktuell hardcoded für Markus.
+Siehe Kapitel 18 — Coach-System.
 
-**Inhalt:**
-- Athlet: Markus, 40+, Innsbruck, FTP ~229W, Max HF 182, Laufreconvalescent
-- Primärziel: 8k-Laufevent 1. Oktober 2026, Zielpace 5:08–5:22 min/km
-- 14-Wochen-Periodisierung (Phase 1–4: Readaptation/Grundlage/Wettkampf/Taper)
-- HF-Zonen (basierend auf Max HF 182)
-- Laufpace-Referenz
-- Coaching-Prinzipien (Verletzungsprävention, Schulter berücksichtigen)
-- Antwortformat: Deutsch, datengetrieben, kein leeres Motivationsgeschwätz
-
-**Übermittlung:** Jeder Claude-Call via `/api/analyse` erhält `system: COACH_SYSTEM_PROMPT`.
-
-**Wichtig:** Der System-Prompt ist nicht dynamisch — er spiegelt nicht die `athletes`-Tabellen-Felder wider. Saisonziel, Periodisierung, HF-Zonen sind hardcoded, nicht aus DB generiert.
+**Aktueller Implementierungsstand (Kurzfassung):**
+- Statischer Export in `src/lib/coachPrompt.ts`, hardcoded für Markus
+- Übermittlung: jeder Claude-Call via `/api/analyse` erhält `system: COACH_SYSTEM_PROMPT`
+- Nicht dynamisch — spiegelt nicht die `athletes`-Tabellen-Felder wider
+- Geplante Weiterentwicklung zu Haupt- + Spezialcoach-Architektur: Kapitel 18
 
 ---
 
@@ -678,3 +671,261 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 - **URL:** `https://thjihbyyelqrrvdinzti.supabase.co`
 - **Region:** eu-central-1
 - **RLS:** Aktiv auf allen Tabellen, aktuell offene Policy (kein auth.uid()-Binding)
+
+---
+
+## 18. Coach-System
+
+### 18.1 Architektur-Überblick
+
+PeakForm verwendet ein zweistufiges Coach-System:
+
+**Hauptcoach (immer aktiv)**
+- Kennt alle Athleten-Daten: FTP, Lauf-PB, Kraftvolumen, Gewichte, Ästhetik-Ziele
+- Kennt alle aktiven Saison-Ziele (A/B/C-Priorität, alle Sportarten)
+- Kennt die gesamte Trainingshistorie (letzte 8 Wochen, alle Sportarten)
+- Kennt den aktuellen und geplanten Wochenplan
+- Überwacht Übertraining, fehlende Variation, Konflikte zwischen Sportarten
+- Greift aktiv ein bei kritischen Konflikten (Echtzeit-Alert)
+- Gibt vollständige Gesamtbewertung beim wöchentlichen Review
+- Delegiert Aktivitätsanalysen unsichtbar an den jeweiligen Spezialcoach
+
+**Spezialcoaches (dynamisch, an aktive Sportarten gebunden)**
+- Nur für aktive Sportarten im Athleten-Profil vorhanden
+- Aktuell möglich: Laufcoach, Radcoach, Kraftcoach
+- Jeder Coach hat tiefes domänenspezifisches Wissen
+- Kontextuelle Blindheit: jeder Coach wertet NUR seine Sportart
+- Kennt den Gesamtkontext (via Hauptcoach-Kontext-Schicht) aber interpretiert ihn nur aus seiner Sportart-Perspektive
+- Analyse-Output ist eine einzige kohärente Antwort (nicht zwei separate Blöcke)
+
+---
+
+### 18.2 Coach-Routing
+
+**Aktivitätsanalyse:**
+```
+Aktivitätstyp → Spezialcoach
+'Run' | 'VirtualRun'        → Laufcoach
+'Ride' | 'VirtualRide'      → Radcoach
+'WeightTraining'            → Kraftcoach
+Alle anderen Typen          → Hauptcoach (generisch)
+```
+
+**Chat (global):** Immer Hauptcoach
+
+**Wochenplan-Generierung:** Hauptcoach koordiniert, kennt alle Sportarten-Constraints
+
+**Wochenreview:** Hauptcoach — vollständige Gesamtbewertung aller Sportarten
+
+**Echtzeit-Alerts:** Hauptcoach — bei kritischen Konflikten nach neuer Aktivität
+
+---
+
+### 18.3 Echtzeit-Alert Logik
+
+Nach jedem Strava-Sync wird geprüft:
+
+**Kritische Konflikte (Alert wird ausgelöst):**
+- Zwei intensive Einheiten (Z3+, schweres Krafttraining) an aufeinanderfolgenden Tagen
+- HF-Drift: Durchschnitts-HF bei gleicher Pace/Watt steigt über 3 Tage
+- Laufvolumen-Sprung: mehr als 10% Steigerung gegenüber Vorwoche
+- Geplante intensive Einheit am nächsten Tag nach heutigem Z4/Z5-Training
+
+**Alert-Format (im Dashboard als Banner):**
+```
+⚠ Coach-Hinweis: Du hast heute Z4 gelaufen — morgen ist
+schweres Krafttraining geplant. Soll ich den Plan anpassen?
+[Plan anpassen] [Ignorieren]
+```
+
+**Nicht-kritische Abweichungen:** Kein Alert — wird beim wöchentlichen Review besprochen.
+
+---
+
+### 18.4 Spezialcoach-Prompts
+
+#### Laufcoach
+
+**Expertise:**
+- Periodisierungsmodelle für Laufen (Daniels Running Formula, Lydiard-Methode)
+- HF-Zonen-basiertes Training, Pace-Entwicklung
+- Laufökonomie, Kadenz, Technik
+- Verletzungsprävention: Achillessehne, Knie, Hüftbeuger, IT-Band
+- Readaptation nach Laufpause
+
+**Kontextuelle Blindheit:**
+- Wertet niemals FTP oder Wattwerte direkt
+- Erwähnt Radausdauer nur aus Laufperspektive: "Deine aerobe Basis vom Radfahren hilft dir beim Z2-Laufen"
+- Kommentiert kein Krafttraining direkt — nur wie es die Laufleistung beeinflusst
+
+**Analyse-Fokus:**
+- Pace vs. HF-Relation (Effizienz)
+- HF-Zonen-Verteilung der Einheit
+- Vergleich mit Zielpace (8k-Event)
+- Wochenkm-Trend
+- Gesamtkontext: Wo steht diese Einheit im 14-Wochen-Plan?
+
+---
+
+#### Radcoach
+
+**Expertise:**
+- Trainingszonen nach Coggan (FTP-basiert)
+- Normalized Power (NP), Intensity Factor (IF), Training Stress Score (TSS)
+- Periodisierung für Granfondos und Rennradrennen
+- Zwift-Training vs. Outdoor-Training
+- Höhenmeter-spezifische Belastungssteuerung
+
+**Kontextuelle Blindheit:**
+- Kommentiert keine Laufpace oder Lauf-HF direkt
+- Erwähnt Lauftraining nur aus Rad-Perspektive: "Die Laufeinheiten belasten die Beine zusätzlich — halte den NP heute unter 75% FTP"
+- Bewertet kein Krafttraining direkt
+
+**Analyse-Fokus:**
+- NP vs. FTP (Intensity Factor)
+- TSS und kumulativer Stress
+- HF-Drift über die Einheit
+- Watt-Kurve: Peaks, Einbrüche, Gleichmäßigkeit
+- Vergleich mit letzten vergleichbaren Rides
+
+---
+
+#### Kraftcoach
+
+**Expertise:**
+- Hypertrophie-Protokolle (Progressive Overload, RPE-basiertes Training)
+- Laufunterstützung durch Krafttraining (Hüftstabilität, Core, Beinkraft)
+- Ästhetik-orientiertes Training (Muskelgruppen-spezifisch)
+- Home-Gym Übungsalternativen basierend auf verfügbarem Equipment
+- Workout-Progression über Wochen (Workout I / II / III Rotation)
+
+**Kontextuelle Blindheit:**
+- Bewertet keine Lauf-Pace oder Rad-Watt
+- Erwähnt Ausdauertraining nur aus Kraftperspektive: "Nach dem gestrigen langen Ride empfehle ich heute leichteres Gewicht — Muskelermüdung beeinflusst die Kraftleistung"
+- Kennt aktuelle Saison-Phase und gewichtet automatisch:
+  - Phase 1–2 (Readaptation/Grundlage): Laufstabilität dominiert
+  - Phase 3–4 (Wettkampf/Taper): Erhaltung, kein neues Volumen
+  - Off-Season: Hypertrophie dominiert
+
+**Ästhetik-Integration:**
+- Kennt die Ästhetik-Ziele des Athleten (Muskelgruppen-Prioritäten + Freitext)
+- Bewertet jede Einheit: "Workout II hatte 3 Übungen für Po/Hüfte — das zahlt auf dein primäres Ästhetik-Ziel ein"
+- Identifiziert Lücken: welche priorisierten Muskelgruppen werden in Workout I/II/III zu wenig trainiert
+- Gibt konkrete Ersetzungsvorschläge (nicht komplette Workout-Umschreibungen):
+  "Ersetze in Workout II die Beinpresse durch Hip Thrusts 4×10 — direkterer Po-Fokus, gleiche Belastung"
+- Berücksichtigt verfügbares Equipment bei jedem Vorschlag
+
+**Foto-Check-in Integration (zukünftig):**
+- Wertet wöchentliche Fortschrittsfotos aus (Claude Vision)
+- Vergleicht aktuell vs. Vorwoche
+- Bezieht Ästhetik-Ziele in die Bewertung ein
+- Gibt konkretes visuelles Feedback zu Fortschritt der priorisierten Muskelgruppen
+
+---
+
+### 18.5 Athleten-Profil Erweiterungen
+
+#### Equipment (neues Feld: `equipment` JSONB in athletes-Tabelle)
+
+```json
+{
+  "dumbbells": { "active": true, "max_kg": 32 },
+  "bands": { "active": true },
+  "bodyweight": { "active": true },
+  "pullup_bar": { "active": true },
+  "gym": { "active": false }
+}
+```
+
+**UI:** Checkbox-Liste mit Gewichtsangabe nur bei Kurzhanteln.  
+Wenn "Gym" aktiv → alle anderen Felder werden deaktiviert (Gym = alles verfügbar).
+
+#### Ästhetik-Ziele (neues Feld: `aesthetic_goals` JSONB in athletes-Tabelle)
+
+```json
+{
+  "priorities": ["glutes", "shoulders", "arms", "core", "chest", "back", "legs"],
+  "notes": "Linker Bizeps schwächer als rechter — ausgleichen"
+}
+```
+
+**Muskelgruppen (Mehrfachauswahl + Drag & Drop Ranking):**
+- Po / Hüfte (glutes)
+- Schultern (shoulders)
+- Arme (arms)
+- Core / Bauch (core)
+- Brust (chest)
+- Rücken (back)
+- Beine (legs)
+
+**Reihenfolge = Priorität** — erste Position = höchste Priorität für Kraftcoach.  
+Plus Freitext-Feld für Nuancen.
+
+---
+
+### 18.6 Technische Implementierung
+
+#### Neue Funktion: `buildSpecialistContext(athleteId, sport)`
+
+Ergänzt `buildCoachContext()` um sportart-spezifische Daten:
+
+```
+Für 'running':
+  + Alle Run/VirtualRun Aktivitäten letzte 8 Wochen aggregiert
+  + Pace-Trend, HF-Effizienz-Trend
+  + 5k/10k Bestzeiten aus activities
+
+Für 'cycling':
+  + Alle Ride/VirtualRide Aktivitäten letzte 8 Wochen aggregiert
+  + NP-Trend, TSS-Verlauf, FTP-Vergleich
+
+Für 'strength':
+  + Alle WeightTraining Aktivitäten letzte 8 Wochen
+  + Übungen aus description (Hevy-Parser)
+  + Volumen-Trend pro Muskelgruppe (soweit aus description extrahierbar)
+  + Equipment aus athletes.equipment
+  + Ästhetik-Ziele aus athletes.aesthetic_goals
+```
+
+#### Claude-Call Struktur pro Coach
+
+```
+system:  COACH_SYSTEM_PROMPT (Hauptcoach-Basis)
+         + SPECIALIST_PROMPT[sport] (Spezialcoach-Expertise + Blindheit)
+
+user:    buildCoachContext(athleteId)               (Gesamtkontext — Hauptcoach-Schicht)
+         + buildSpecialistContext(athleteId, sport)  (Sportart-spezifisch)
+         + "Analysiere folgende Aktivität: [activity data]"
+```
+
+#### Echtzeit-Alert Implementierung
+
+Nach jedem erfolgreichen Strava-Sync in Dashboard.tsx:
+1. Letzte Aktivität + nächsten Plantag aus Supabase laden
+2. Konflikt-Check (JavaScript, kein Claude-Call)
+3. Bei Konflikt: Alert-Banner im Dashboard anzeigen
+4. Bei "Plan anpassen": Claude-Call an Hauptcoach mit Konflikt-Beschreibung
+
+---
+
+### 18.7 Implementierungs-Reihenfolge
+
+**Phase A — Profil-Erweiterungen**
+- Equipment-Sektion in Profile.tsx (Checkboxen + Kurzhantel-Gewicht)
+- Ästhetik-Ziele in Profile.tsx (Drag & Drop Ranking + Freitext)
+- Supabase Schema: `equipment JSONB` + `aesthetic_goals JSONB` zu athletes
+
+**Phase B — Specialist Prompts**
+- `LAUF_COACH_PROMPT`, `RAD_COACH_PROMPT`, `KRAFT_COACH_PROMPT` als Konstanten in `coachPrompt.ts`
+- `buildSpecialistContext()` in `coachContext.ts`
+- Coach-Routing in `ActivityDetail.tsx` (Aktivitätstyp → richtiger Prompt)
+
+**Phase C — Echtzeit-Alerts**
+- Konflikt-Check Logik nach Strava-Sync
+- Alert-Banner Komponente im Dashboard
+- "Plan anpassen" → Claude-Call an Hauptcoach
+
+**Phase D — Kraftcoach Vollintegration**
+- Ästhetik-Bewertung in Krafttraining-Analyse
+- Übungsempfehlungen mit Equipment-Filter
+- Lücken-Identifikation (Muskelgruppen die in Workout I/II/III fehlen)
