@@ -302,9 +302,12 @@ export default function Profile() {
 
   function toggleSport(key: string) {
     setFocusedSport(prev => prev === key ? null : key)
-    setSportConfigs(prev =>
-      prev.find(s => s.type === key) ? prev : [...prev, { type: key, days: 1 }]
-    )
+    setSportConfigs(prev => {
+      if (prev.find(s => s.type === key)) return prev
+      const currentSum = prev.reduce((s, c) => s + c.days, 0)
+      if (trainingDaysNum > 0 && currentSum >= trainingDaysNum) return prev // at capacity
+      return [...prev, { type: key, days: 1 }]
+    })
   }
 
   function updateSportConfig(key: string, patch: Partial<SportConfig>) {
@@ -483,7 +486,14 @@ export default function Profile() {
                       <div className="flex items-center gap-2">
                         <Stepper
                           value={config.days}
-                          onDec={() => updateSportConfig(focusedSport!, { days: config.days - 1 })}
+                          onDec={() => {
+                            if (config.days <= 1) {
+                              setSportConfigs(prev => prev.filter(s => s.type !== focusedSport))
+                              setFocusedSport(null)
+                            } else {
+                              updateSportConfig(focusedSport!, { days: config.days - 1 })
+                            }
+                          }}
                           onInc={() => updateSportConfig(focusedSport!, { days: config.days + 1 })}
                           disableDec={false}
                           disableInc={trainingDaysNum > 0 && totalDays >= trainingDaysNum}

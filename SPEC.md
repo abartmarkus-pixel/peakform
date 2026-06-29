@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 29. Juni 2026 (Dynamischer COACH_SYSTEM_PROMPT via buildCoachSystemPrompt())
+> Letzte Aktualisierung: 29. Juni 2026 (Bugfixes Sportarten-Stepper-Logik)
 
 ---
 
@@ -370,12 +370,12 @@ Strava OAuth Token Exchange & Refresh — STRAVA_CLIENT_SECRET bleibt server-sei
 - Leistungsdaten: FTP (W), Max HF (bpm), Gewicht (kg)
 - Trainingstage pro Woche: Button-Grid 1–7
 - Sportarten: Pills (Radfahren / Laufen / Krafttraining) mit Akkordeon-Stepper
-  - Pill-Klick: Öffnet Stepper für die gewählte Sportart
-  - Stepper − bei 1 Tag: Sportart wird aus `sport_types` entfernt (days→0 = remove)
+  - Pill-Klick: Öffnet Stepper für die gewählte Sportart; fügt Sportart mit 1 Tag hinzu wenn noch nicht vorhanden — aber nur wenn `totalDays < trainingDaysNum` (Overflow-Schutz in `toggleSport`)
+  - Stepper − bei 1 Tag: Sportart wird direkt und explizit aus `sport_types` entfernt, `focusedSport` → null, Stepper schließt
   - Stepper + deaktiviert wenn `totalDays >= trainingDaysNum`; Tooltip: "Maximale Trainingstage erreicht"
   - Trainingstage reduzieren → `clampSportDays()` reduziert automatisch Sporttage proportional (Sportart mit den meisten Tagen zuerst); Einträge mit 0 Tagen werden entfernt
-  - Invariante: `Σ sport_types[].days ≤ training_days_per_week` ist technisch erzwungen
-  - Warnung wenn `totalDays > trainingDaysNum`
+  - Invariante: `Σ sport_types[].days ≤ training_days_per_week` ist technisch erzwungen (kein Overflow möglich)
+  - Amber-Warnung `totalDays > trainingDaysNum` bleibt als letzter Sicherheitsgurt, ist aber durch die Invariante nicht mehr erreichbar
 - Ziele (Mehrfachauswahl): Event / Muskelaufbau / Gewicht reduzieren / Nackt gut ausschauen
 - Coach-Stil (Einfachauswahl): Motivierend / Analytisch / Direkt / Empathisch
 - Coach-Fokus: Freitext-Textarea
