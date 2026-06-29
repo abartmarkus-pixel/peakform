@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 29. Juni 2026 (Bugfix: Aktivitäts-Analyse in Wochenplan-Generierung)
+> Letzte Aktualisierung: 29. Juni 2026 (Dynamischer COACH_SYSTEM_PROMPT via buildCoachSystemPrompt())
 
 ---
 
@@ -119,6 +119,8 @@ coach_persona         JSONB                -- Format: {style, focus}
 body_goals            TEXT[]               -- Mehrfachauswahl-Array
 equipment             JSONB                -- Format: {dumbbells:{active,max_kg?},bands:{active},bodyweight:{active},pullup_bar:{active},gym:{active}}
 aesthetic_goals       JSONB                -- Format: {priorities:string[],notes:string}
+season_phase_override TEXT DEFAULT NULL   -- 'readaptation'|'base'|'race'|'taper'|NULL (NULL = automatisch aus event_date)
+best_5k_seconds       INTEGER DEFAULT NULL -- 5k-Bestzeit in Sekunden; Basis für Pace-Berechnung
 created_at            TIMESTAMPTZ
 ```
 
@@ -595,14 +597,20 @@ Siehe Kapitel 18 für Details zur Coach-Architektur.
 
 **Implementierter Stand:**
 
-**`COACH_SYSTEM_PROMPT`** (Hauptcoach):
-- Statischer Export, hardcoded für Markus (FTP 229W, Max HF 182, 8k-Event 1. Oktober 2026)
-- Enthält: Athletenprofil, Saisonziel, Periodisierungsplan (4 Phasen), HF-Zonen, Pace-Referenz, Coaching-Prinzipien
-- Wird bei JEDEM Claude-Call als `system`-Parameter übergeben
+**`buildCoachSystemPrompt(athleteId)`** (Hauptcoach — async, dynamisch):
+- Lädt bei jedem Aufruf Athleten-Profil + A-Event aus Supabase
+- Dynamische Abschnitte: Name, FTP, Max HF, Gewicht, Sportarten, Equipment, Ästhetik-Ziele, Coach-Stil/Fokus, Saisonziel, Wochen-Countdown, aktuelle Phase, HF-Zonen, Pace-Referenz
+- Statische Abschnitte: Coaching-Prinzipien (8 Regeln), Datennutzung, Review-Format, Antwortformat
+- Hilfsfunktionen in `coachContext.ts` (exportiert):
+  - `calculateSeasonPhase(weeksUntilEvent, override)` — Phase aus Wochen-Countdown oder manuellem Override
+  - `calculateHRZones(maxHR)` — Z1–Z5 aus Max HF berechnet
+  - `calculatePaceReference(best5kSeconds, targetEventKm)` — Zielpace, Z2-Tempo, Schwellenpace aus 5k-PB
+- Wird bei JEDEM Claude-Call als `system`-Parameter übergeben (alle 4 Consumer: ActivityDetail, Chat, WeeklyPlan, Dashboard)
 
-**`LAUF_COACH_PROMPT`** / **`RAD_COACH_PROMPT`** / **`KRAFT_COACH_PROMPT`** (Spezialcoaches):
-- Werden auf `COACH_SYSTEM_PROMPT` aufgesattelt (`COACH_SYSTEM_PROMPT + '\n\n' + SPECIALIST_PROMPT`)
-- Routing über `getCoachPrompts(activityType)` in `ActivityDetail.tsx`
+**`LAUF_COACH_PROMPT`** / **`RAD_COACH_PROMPT`** / **`KRAFT_COACH_PROMPT`** (Spezialcoaches — statisch):
+- Sportart-spezifisch, nicht athleten-spezifisch → bleiben statische Exports
+- Werden auf `buildCoachSystemPrompt()` aufgesattelt (`basePrompt + '\n\n' + SPECIALIST_PROMPT`)
+- Routing über `getSpecialistPrompt(activityType)` in `ActivityDetail.tsx`
 - Lauf: Zonen-Audit, Pace-Konsistenz, HF-Drift, Verletzungssignale
 - Rad: Power-Zonen (FTP-basiert), NP/VI-Analyse, TSS/IF-Einordnung
 - Kraft: Hevy-Volumen-Analyse, Schulter-Check, Laufsynergie, Equipment- + Ästhetik-Kontext
@@ -684,7 +692,12 @@ npm run dev     # Vite Dev-Server auf localhost:5173
   - Reihenfolge = Priorität (1 = höchste); alle 7 immer sichtbar
   - Freitext-Feld für Besonderheiten (z.B. Muskelimbalancen)
   - Activation threshold 8px (verhindert versehentliche Drags beim Scrollen)
-- 800ms Auto-Save (equipment + aesthetic_goals ebenfalls im Debounce)
+- **Trainingsphase-Sektion:**
+  - Zeigt auto-berechnete Phase: *"Automatisch: Phase 2 — Grundlagenaufbau (8 Wochen bis Event)"*
+  - Segmented Control: Auto | Readaptation | Grundlage | Wettkampf | Taper
+  - Auto = `season_phase_override = NULL`; manuelle Wahl speichert den Override
+  - Amber-Hinweis wenn Override aktiv; grauer Hinweis-Text bei Auto
+- 800ms Auto-Save (equipment + aesthetic_goals + season_phase_override im Debounce)
 
 **Saison-Ziele:**
 - A/B/C-Priorität
@@ -723,6 +736,10 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 - `coach_decisions.related_activity_id UUID` (FK→activities) — DB-Migration angewendet
 - `triggerRecoveryExtraction(analysisText, athleteId, activityId)` Helper in ActivityDetail
 - On-load Recovery-Check: fehlende Extractions für bestehende Analysen werden nachgeholt
+- `buildCoachSystemPrompt(athleteId): Promise<string>` — dynamischer Hauptcoach-Prompt
+- `calculateSeasonPhase()`, `calculateHRZones()`, `calculatePaceReference()` — exportierte Helpers in coachContext.ts
+- `athletes.season_phase_override` + `athletes.best_5k_seconds` — neue DB-Felder (Migration angewendet)
+- Trainingsphase-Sektion in Profile.tsx mit Segmented Control (Auto/Override)
 
 **Sicherheit:**
 - STRAVA_CLIENT_SECRET nie im Browser-Bundle
@@ -736,7 +753,7 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 ### Nicht implementiert ❌
 
 - **Supabase Auth / Multi-User-Login** — kein Registrierungsformular, kein E-Mail/Passwort-Login; nur Strava OAuth
-- **Dynamischer System-Prompt** — `COACH_SYSTEM_PROMPT` ist hardcoded für Markus; spiegelt nicht live die athletes-Felder wider
+- **Dynamischer System-Prompt** — ✅ Implementiert: `buildCoachSystemPrompt(athleteId)` lädt Athleten-Daten + A-Event aus Supabase; HF-Zonen, Pace-Referenz und Saison-Phase werden dynamisch berechnet
 - **Hevy API-Integration** — Hevy-Daten kommen ausschließlich via Strava description; kein `hevy_api_key`, keine eigene `strength_workouts`-Tabelle
 - **Body Check-in** — kein Foto-Upload, keine Claude Vision, keine body_checkins-Tabelle, keine PWA-Erinnerung
 - **Kraftcoach-Ästhetik-Bewertung** — Equipment + aesthetic_goals werden zwar als Kontext mitgeschickt, aber es gibt kein automatisches Übungs-Matching / Lücken-Identifikation (Phase D aus Kap. 18)
@@ -970,19 +987,22 @@ Lädt sportart-spezifische Historien (letzte 60 Tage). Wird parallel zu `buildCo
 #### Claude-Call Struktur pro Coach — implementiert ✅
 
 ```
-system:  COACH_SYSTEM_PROMPT + '\n\n' + LAUF/RAD/KRAFT_COACH_PROMPT
+system:  await buildCoachSystemPrompt(athleteId)      [dynamisch aus DB]
+         + '\n\n' + LAUF/RAD/KRAFT_COACH_PROMPT       [statisch, sportart-spezifisch]
 
-user:    buildCoachContext(athleteId)               [7-Abschnitte Hauptkontext]
-         + buildSpecialistContext(athleteId, sport)  [sportart-spezifische Historien]
+user:    buildCoachContext(athleteId)                  [8-Abschnitte Hauptkontext]
+         + buildSpecialistContext(athleteId, sport)    [sportart-spezifische Historien]
          + Aktivitätsdaten (Stats, Laps, Hevy-Übungen)
 ```
 
-Routing in `ActivityDetail.tsx` via `getCoachPrompts(activityType)`:
+Alle drei Promises werden parallel aufgelöst in `runAnalysis()`.
+
+Routing in `ActivityDetail.tsx` via `getSpecialistPrompt(activityType)`:
 ```
 'Run'|'VirtualRun'|'TrailRun'                         → LAUF_COACH_PROMPT, sport:'running'
 'Ride'|'VirtualRide'|'MountainBikeRide'|'GravelRide'  → RAD_COACH_PROMPT,  sport:'cycling'
 'WeightTraining'|'Workout'                             → KRAFT_COACH_PROMPT, sport:'strength'
-Alle anderen                                           → nur COACH_SYSTEM_PROMPT, sport:null
+Alle anderen                                           → kein Specialist, sport:null
 ```
 
 #### Echtzeit-Alert — implementiert ✅
