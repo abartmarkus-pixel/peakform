@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 30. Juni 2026 (Nutzerdaten: gender, birth_year, resting_hr; Feature-Flags; Karvonen HF-Zonen; RLS Multi-User-Vorbereitung)
+> Letzte Aktualisierung: 30. Juni 2026 (Lauf-Aktivitätsdetail: sportartabhängige Darstellung, Pace statt km/h, Km-Splits-Tabelle, laps_json-Cache)
 
 ---
 
@@ -207,6 +207,7 @@ max_hr          NUMERIC
 np_watts        NUMERIC            -- Normalized Power (nur Rad)
 tss             NUMERIC            -- Training Stress Score (selten befüllt)
 streams_json    JSONB              -- Cache: time,heartrate,altitude,velocity_smooth,watts,cadence
+laps_json       JSONB DEFAULT NULL -- Cache: Strava Laps Array (StravaLap[]), beim ersten Öffnen gecacht
 description     TEXT               -- Cache: Strava-Description (für WeightTraining / Hevy)
 claude_analysis TEXT               -- gespeichert nach erstem Analyse-Run
 created_at      TIMESTAMPTZ
@@ -214,6 +215,7 @@ created_at      TIMESTAMPTZ
 
 **Cache-first Logik:**
 - `streams_json`: beim ersten Öffnen von ActivityDetail von Strava geholt + in Supabase gespeichert; danach immer aus Supabase
+- `laps_json`: beim ersten Öffnen parallel zu `streams_json` von Strava Laps-Endpoint geholt + gespeichert; danach immer aus Supabase
 - `description`: bei WeightTraining beim ersten Öffnen von Strava Detail-Endpoint geholt + gespeichert; danach immer aus Supabase
 
 ---
@@ -383,10 +385,24 @@ Strava OAuth Token Exchange & Refresh — STRAVA_CLIENT_SECRET bleibt server-sei
 - "Plan anpassen": Claude-Call mit Plan-JSON + Konflikt-Beschreibung → Text-Modal
 
 ### ActivityDetail.tsx
-**Ausdauer (Ride/Run):**
-- Stats-Grid: Dauer, Ø HF, Distanz, Höhenmeter, Ø/Max Tempo, Max HF, NP, Ø/Max Watt, Trittfrequenz (kontextabhängig)
-- Charts (Recharts AreaChart): Watt, Herzfrequenz, Höhenprofil
-- Rundentabelle: Dauer, Distanz, Ø Watt, Ø HF, Ø RPM
+
+**Sportartabhängige Darstellung** (`isRun` = `['Run', 'VirtualRun', 'TrailRun']`):
+
+**Lauf (Run / VirtualRun / TrailRun):**
+- Stats-Grid: Dauer, Ø HF, Distanz, **Ø Pace** (min/km), **Max Pace** (min/km), Max HF — *kein* Höhenmeter, *kein* NP
+  - Pace-Formel: `paceMinKm = 60 / speedKmh`; Anzeige: `"6:58 min/km"`
+- Charts: **Herzfrequenz** (rot), **Pace-Verlauf** (violett, optional — nur wenn `velocity_smooth` Stream vorhanden, Y-Achse invertiert: schneller = oben) — *kein* Watt-Chart, *kein* Höhenprofil
+- **Kilometer-Splits-Tabelle** (unterhalb Charts, oberhalb KI-Analyse): `laps_json` aus Supabase (Cache-first)
+  - Spalten: KM | ZEIT | Ø HF
+  - Ganze Kilometer: `"km 1"`, `"km 2"` etc.; Letzter Lap < 1000m: tatsächliche Distanz `"0.13 km"`
+  - ZEIT: MM:SS via `formatDuration`; Ø HF: `"{wert} bpm"` oder `"—"`
+  - Card-Design: `bg-slate-800 rounded-xl`, abwechselnd `bg-slate-700/20`
+- Claude-Analyse-Button → `/api/analyse` → gespeichert in `activities.claude_analysis`
+
+**Rad (Ride / VirtualRide / MountainBikeRide / GravelRide):**
+- Stats-Grid: Dauer, Ø HF, Distanz, Höhenmeter, Ø/Max Tempo (km/h), Max HF, NP, Ø/Max Watt, Trittfrequenz (kontextabhängig)
+- Charts: Watt (amber), Herzfrequenz (rot), Höhenprofil (grün)
+- Rundentabelle: #, Dauer, Distanz, Ø Watt, Ø HF, Ø RPM
 - Claude-Analyse-Button → `/api/analyse` → gespeichert in `activities.claude_analysis`
 
 **Krafttraining (WeightTraining):**
@@ -808,12 +824,14 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 - Logout
 
 **ActivityDetail:**
-- Stats-Grid (kontextabhängig je Aktivitätstyp)
-- Recharts: Watt-Chart, HF-Chart, Höhenprofil
-- Strava Rundentabelle (Dauer, Distanz, Ø Watt, Ø HF, Ø RPM)
+- **Sportartabhängige Darstellung** (Lauf vs. Rad vs. Kraft)
+- Lauf: Pace statt km/h, kein NP, kein Höhenmeter, kein Watt-Chart
+- Lauf: Pace-Chart (violett, Y-Achse invertiert, optional wenn velocity_smooth vorhanden)
+- Lauf: Kilometer-Splits-Tabelle (KM | ZEIT | Ø HF, aus `laps_json`)
+- Rad: Watt-Chart, HF-Chart, Höhenprofil, Rundentabelle unverändert
+- Cache-first für streams_json, laps_json und description
 - Hevy-Workout-Parser (aus Strava description)
 - Übungskarten mit Muskelgruppe-Pill und Volumen-Pill
-- Cache-first für streams_json und description
 - Claude-Analyse (gespeichert in activities.claude_analysis)
 - Markdown-Renderer (h1-h3, Bullets, Blockquotes, bold)
 

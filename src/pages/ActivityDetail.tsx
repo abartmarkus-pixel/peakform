@@ -226,6 +226,19 @@ function formatDuration(s: number) {
     : `${m}:${String(sec).padStart(2, '0')}`
 }
 
+function speedToPace(speedKmh: number): string {
+  const paceMinKm = 60 / speedKmh
+  const min = Math.floor(paceMinKm)
+  const sec = Math.round((paceMinKm - min) * 60)
+  return `${min}:${String(sec).padStart(2, '0')} min/km`
+}
+
+function formatPaceAxis(val: number): string {
+  const min = Math.floor(val)
+  const sec = Math.round((val - min) * 60)
+  return `${min}:${String(sec).padStart(2, '0')}`
+}
+
 function renderBold(line: string, keyPrefix: string) {
   return line.split(/(\*\*[^*]+\*\*)/).map((part, j) =>
     part.startsWith('**') && part.endsWith('**')
@@ -391,7 +404,12 @@ export default function ActivityDetail() {
                 await supabase.from('activities').update({ streams_json: s }).eq('strava_id', Number(id))
                 return s
               }),
-          fetchActivityLaps(token, Number(id)).catch(() => []),
+          act.laps_json
+            ? Promise.resolve(act.laps_json as unknown as StravaLap[])
+            : fetchActivityLaps(token, Number(id)).then(async (l) => {
+                if (l.length > 0) await supabase.from('activities').update({ laps_json: l }).eq('strava_id', Number(id))
+                return l
+              }).catch(() => []),
           act.type === 'WeightTraining'
             ? act.description
               ? Promise.resolve(act.description)
@@ -566,11 +584,12 @@ ${exercises.length > 0
   }
 
   const isRide = activity?.type === 'Ride' || activity?.type === 'VirtualRide'
-  const isRun = activity?.type === 'Run' || activity?.type === 'VirtualRun'
+  const isRun = ['Run', 'VirtualRun', 'TrailRun'].includes(activity?.type ?? '')
   const isWeightTraining = activity?.type === 'WeightTraining'
   const hasHr = chartData.some(d => d.hr !== undefined)
   const hasAlt = !isWeightTraining && chartData.some(d => d.alt !== undefined)
   const hasWatts = chartData.some(d => d.watts !== undefined)
+  const hasSpeed = chartData.some(d => (d.speed ?? 0) > 0)
 
   return (
     <>
@@ -606,19 +625,25 @@ ${exercises.length > 0
         {!isWeightTraining && activity?.distance_m != null && activity.distance_m > 0 && (
           <StatCard label="Distanz" value={`${(activity.distance_m / 1000).toFixed(2)} km`} />
         )}
-        {!isWeightTraining && stats.elevationGain != null && (
+        {!isWeightTraining && !isRun && stats.elevationGain != null && (
           <StatCard label="Höhenmeter" value={`${stats.elevationGain} m`} />
         )}
         {!isWeightTraining && (isRide || isRun) && stats.avgSpeed != null && (
-          <StatCard label="Ø Tempo" value={`${stats.avgSpeed} km/h`} />
+          <StatCard
+            label={isRun ? 'Ø Pace' : 'Ø Tempo'}
+            value={isRun ? speedToPace(stats.avgSpeed) : `${stats.avgSpeed} km/h`}
+          />
         )}
         {!isWeightTraining && (isRide || isRun) && stats.maxSpeed != null && (
-          <StatCard label="Max Tempo" value={`${stats.maxSpeed} km/h`} />
+          <StatCard
+            label={isRun ? 'Max Pace' : 'Max Tempo'}
+            value={isRun ? speedToPace(stats.maxSpeed) : `${stats.maxSpeed} km/h`}
+          />
         )}
         {!isWeightTraining && activity?.max_hr != null && (
           <StatCard label="Max HF" value={`${Math.round(activity.max_hr)} bpm`} />
         )}
-        {!isWeightTraining && activity?.np_watts != null && (
+        {!isWeightTraining && !isRun && activity?.np_watts != null && (
           <StatCard label="Norm. Power" value={`${Math.round(activity.np_watts)} W`} />
         )}
         {isRide && stats.avgWatts != null && (
@@ -685,7 +710,7 @@ ${exercises.length > 0
       )}
 
       {/* ── Watt-Chart ─────────────────────────────────────────── */}
-      {hasWatts && (
+      {hasWatts && !isRun && (
         <div className="mb-6">
           <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-2">Watt</h2>
           <ResponsiveContainer width="100%" height={160}>
@@ -736,8 +761,51 @@ ${exercises.length > 0
         </div>
       )}
 
+      {/* ── Pace-Chart (nur Lauf) ──────────────────────────────── */}
+      {isRun && hasSpeed && (() => {
+        const paceData = chartData.map(d => ({
+          t: d.t,
+          pace: d.speed && d.speed > 0 ? 60 / d.speed : undefined,
+        }))
+        return (
+          <div className="mb-6">
+            <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-2">Pace</h2>
+            <ResponsiveContainer width="100%" height={160}>
+              <AreaChart data={paceData}>
+                <defs>
+                  <linearGradient id="paceGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#a78bfa" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#a78bfa" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                <XAxis dataKey="t" hide />
+                <YAxis
+                  reversed
+                  domain={['auto', 'auto']}
+                  stroke="#64748b"
+                  tick={{ fontSize: 11 }}
+                  tickFormatter={formatPaceAxis}
+                />
+                <Tooltip
+                  contentStyle={{ background: '#1e293b', border: 'none', borderRadius: 8 }}
+                  labelFormatter={(v) => `${Math.round(Number(v) / 60)} min`}
+                  formatter={(v: unknown) => {
+                    const num = Number(v)
+                    const min = Math.floor(num)
+                    const sec = Math.round((num - min) * 60)
+                    return [`${min}:${String(sec).padStart(2, '0')} min/km`, 'Pace']
+                  }}
+                />
+                <Area type="monotone" dataKey="pace" stroke="#a78bfa" fill="url(#paceGrad)" dot={false} strokeWidth={1.5} connectNulls={false} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        )
+      })()}
+
       {/* ── Höhenprofil ────────────────────────────────────────── */}
-      {hasAlt && (
+      {hasAlt && !isRun && (
         <div className="mb-6">
           <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-2">Höhenprofil</h2>
           <ResponsiveContainer width="100%" height={130}>
@@ -762,8 +830,41 @@ ${exercises.length > 0
         </div>
       )}
 
-      {/* ── Rundentabelle ──────────────────────────────────────── */}
-      {laps.length > 1 && (
+      {/* ── Kilometer-Splits (nur Lauf) ────────────────────────── */}
+      {isRun && laps.length > 0 && (
+        <div className="mb-6">
+          <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-2">Kilometer-Splits</h2>
+          <div className="bg-slate-800 rounded-xl overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-slate-500 uppercase border-b border-slate-700">
+                  <th className="px-4 py-2.5 text-left">KM</th>
+                  <th className="px-4 py-2.5 text-left">ZEIT</th>
+                  <th className="px-4 py-2.5 text-left">Ø HF</th>
+                </tr>
+              </thead>
+              <tbody>
+                {laps.map((lap, i) => (
+                  <tr key={lap.lap_index} className={`border-b border-slate-700/40 last:border-0 ${i % 2 === 1 ? 'bg-slate-700/20' : ''}`}>
+                    <td className="px-4 py-2.5 text-slate-300">
+                      {lap.distance < 1000
+                        ? `${(lap.distance / 1000).toFixed(2)} km`
+                        : `km ${lap.lap_index}`}
+                    </td>
+                    <td className="px-4 py-2.5 text-slate-300">{formatDuration(lap.elapsed_time)}</td>
+                    <td className="px-4 py-2.5 text-slate-300">
+                      {lap.average_heartrate != null ? `${Math.round(lap.average_heartrate)} bpm` : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── Rundentabelle (nicht Lauf) ─────────────────────────── */}
+      {!isRun && laps.length > 1 && (
         <div className="mb-6 overflow-x-auto">
           <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-2">Runden</h2>
           <table className="w-full text-sm text-left">
