@@ -5,10 +5,11 @@ KI-Trainingscoach als Progressive Web App — verbindet Strava und Hevy mit Clau
 ## Features
 
 - Strava OAuth + automatischer Token-Refresh + persistente Session (kein Re-Login nötig)
-- Aktivitäts-Analyse via Claude (Ausdauer + Krafttraining)
-- Wochenplan-Generierung mit Constraint-Validierung
+- Aktivitäts-Analyse via Claude (Ausdauer + Krafttraining via Hevy-Description)
+- Wochenplan-Generierung mit harten Constraints + sportwissenschaftlichen Regeln + Review
 - Saisonziele (A/B/C-Priorität) mit Countdown
 - Globaler Coach-Chat mit Gesprächshistorie
+- Athleten-Profil: Sportarten, Equipment, Ästhetik-Ranking (Drag & Drop), Trainingsphase
 - PWA (installierbar, Offline-fähig)
 
 ## Tech-Stack
@@ -18,8 +19,9 @@ KI-Trainingscoach als Progressive Web App — verbindet Strava und Hevy mit Clau
 | Frontend | React 18 + Vite + TypeScript + Tailwind CSS |
 | Charts | Recharts |
 | Routing | React Router v6 |
+| Drag & Drop | @dnd-kit/core + @dnd-kit/sortable |
 | Backend/DB | Supabase (PostgreSQL) |
-| KI | Claude Sonnet via Vercel Serverless Function |
+| KI | Claude Sonnet (claude-sonnet-4-6) via Vercel Serverless Function |
 | Hosting | Vercel |
 | PWA | vite-plugin-pwa |
 

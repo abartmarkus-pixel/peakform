@@ -100,6 +100,8 @@ peakform/
 │   │   ├── supabase.ts     # Supabase Client + Types (Athlete, Activity, SportConfig, SeasonGoal, WeeklyPlan, CoachDecision, ...)
 │   │   ├── strava.ts       # OAuth URL, Token Exchange via /api/strava-token, Activities, Streams, Laps
 │   │   │                   # restoreSessionFromSupabase(): Session-Wiederherstellung aus Supabase (Single-User)
+│   │   ├── dateUtils.ts    # ISO 8601 Datums-Helpers: getISOMonday(date), getISOSunday(monday), formatWeekRange(monday)
+│   │   │                   # Woche beginnt Montag; toDateStr nutzt Lokalzeit (nicht UTC) — kritisch für CET/CEST
 │   │   ├── coachContext.ts # buildCoachContext(): 8 Abschnitte inkl. [HARTE TRAININGS-CONSTRAINTS]
 │   │   │                   # buildSpecialistContext(athleteId, sport): sportart-spezifische Historien
 │   │   │                   # calculateSeasonPhase(), calculateHRZones(), calculatePaceReference() (exportiert)
@@ -183,6 +185,8 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 - [x] Frontend-Constraint-Validierung + Violation-Banner
 - [x] INSERT-only mit version++
 - [x] Wochen-Navigation (±1 Woche), Wochenreview mit Folgeplan
+- [x] ISO 8601 Wochengrenzen: getISOMonday/getISOSunday in dateUtils.ts; Lokalzeit statt UTC für week_start
+- [x] Activity-Query mit vollen ISO-Timestamps (gte/lte) statt Datums-Strings — Sonntage korrekt der Vorwoche zugeordnet
 
 ### Chat
 - [x] Supabase-persistente Messages, Supabase-first Flow
@@ -213,6 +217,8 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 - `buildCoachSystemPrompt(athleteId)`: async, lädt bei jedem Call Athleten+A-Event aus DB; bei JEDEM fetch zu `/api/analyse` als `system` mitgeschickt
 - `buildCoachContext()`: alle Queries parallel, niemals raw streams_json
 - `weekly_plans`: INSERT-only Pattern (version++), niemals UPDATE
+- `weekly_plans.week_start`: YYYY-MM-DD in Lokalzeit — NIEMALS `toISOString().slice(0,10)` verwenden (gibt UTC zurück, -1 Tag in CET/CEST). Stattdessen `getFullYear()/getMonth()/getDate()` nutzen (siehe `toDateStr` in WeeklyPlan.tsx und `mondayOf` in coachContext.ts)
+- `weekly_plans` Activity-Query: `gte('date', monday.toISOString())` + `lte('date', getISOSunday(monday).toISOString())` — volle ISO-Timestamps, keine Datums-Strings
 - `sport_types`: JSONB `[{type, days}]`; Invariante `Σdays ≤ training_days_per_week` technisch erzwungen
 - `parseReviewJson()` und `parsePlanJson()`: beide mit Markdown-Code-Block-Fallback
 - Postgres ENUM `goal_priority`: DO-Block-Pattern für idempotente Erstellung
