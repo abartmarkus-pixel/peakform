@@ -10,7 +10,7 @@ import {
   Tooltip,
   CartesianGrid,
 } from 'recharts'
-import { fetchActivityStreams, fetchActivityLaps, fetchActivityDetail, getValidAccessToken, type StravaLap } from '../lib/strava'
+import { fetchActivityStreams, fetchActivityLaps, fetchActivityDetail, getValidAccessToken, type StravaLap, type StravaSplitMetric } from '../lib/strava'
 import {
   buildCoachSystemPrompt,
   LAUF_COACH_PROMPT,
@@ -246,64 +246,16 @@ function formatPace(secPerKm: number): string {
   return `${min}:${String(sec).padStart(2, '0')} min/km`
 }
 
-function calculateSplitsFromStreams(streams: Record<string, unknown>): RunSplit[] {
-  type Stream = { data: number[] }
-  const timeArr = (streams.time as Stream)?.data ?? []
-  const velArr = (streams.velocity_smooth as Stream)?.data ?? []
-  const hrArr = (streams.heartrate as Stream)?.data
-
-  if (timeArr.length === 0 || velArr.length === 0) return []
-
-  // Build cumulative distance by integrating velocity_smooth
-  const distArr: number[] = [0]
-  for (let i = 1; i < velArr.length; i++) {
-    const dt = timeArr[i] - timeArr[i - 1]
-    distArr.push(distArr[i - 1] + velArr[i] * dt)
-  }
-
-  const splits: RunSplit[] = []
-  let splitStart = 0
-  let kmTarget = 1000
-
-  for (let i = 1; i < distArr.length; i++) {
-    if (distArr[i] >= kmTarget) {
-      const duration = timeArr[i] - timeArr[splitStart]
-      const segDist = distArr[i] - distArr[splitStart]
-      const paceSecPerKm = duration / (segDist / 1000)
-      let avgHr: number | null = null
-      if (hrArr) {
-        const slice = hrArr.slice(splitStart, i)
-        avgHr = Math.round(slice.reduce((a, b) => a + b, 0) / slice.length)
-      }
-      splits.push({
-        km: splits.length + 1,
-        duration: `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, '0')}`,
-        pace: formatPace(paceSecPerKm),
-        avgHr,
-      })
-      splitStart = i
-      kmTarget += 1000
+function splitsFromMetric(splitsMetric: StravaSplitMetric[]): RunSplit[] {
+  return splitsMetric.map((s, i) => {
+    const isPartial = s.distance < 900
+    return {
+      km: isPartial ? `${(s.distance / 1000).toFixed(2)} km` : `km ${i + 1}`,
+      duration: formatDuration(s.moving_time),
+      pace: isPartial ? '—' : formatPace(s.moving_time / (s.distance / 1000)),
+      avgHr: s.average_heartrate != null ? Math.round(s.average_heartrate) : null,
     }
-  }
-
-  // Last incomplete km (>50m)
-  const remaining = distArr[distArr.length - 1] - distArr[splitStart]
-  if (remaining > 50 && splitStart < distArr.length - 1) {
-    const duration = timeArr[timeArr.length - 1] - timeArr[splitStart]
-    let avgHr: number | null = null
-    if (hrArr) {
-      const slice = hrArr.slice(splitStart)
-      avgHr = Math.round(slice.reduce((a, b) => a + b, 0) / slice.length)
-    }
-    splits.push({
-      km: `${(remaining / 1000).toFixed(2)} km`,
-      duration: `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, '0')}`,
-      pace: '—',
-      avgHr,
-    })
-  }
-
-  return splits
+  })
 }
 
 function renderBold(line: string, keyPrefix: string) {
@@ -465,7 +417,8 @@ export default function ActivityDetail() {
         }
 
         const token = await getValidAccessToken(athlete)
-        const [streamsRaw, lapsData, description] = await Promise.all([
+        const actIsRun = ['Run', 'VirtualRun', 'TrailRun'].includes(act.type)
+        const [streamsRaw, lapsData, splitsMetric, description] = await Promise.all([
           act.streams_json
             ? Promise.resolve(act.streams_json)
             : fetchActivityStreams(token, Number(id)).then(async (s) => {
@@ -478,6 +431,17 @@ export default function ActivityDetail() {
                 if (l.length > 0) await supabase.from('activities').update({ laps_json: l }).eq('strava_id', Number(id))
                 return l
               }).catch(() => []),
+          actIsRun
+            ? act.splits_metric_json
+              ? Promise.resolve(act.splits_metric_json as StravaSplitMetric[])
+              : fetchActivityDetail(token, Number(id))
+                  .then(async (d) => {
+                    const sm = d.splits_metric ?? []
+                    if (sm.length > 0) await supabase.from('activities').update({ splits_metric_json: sm }).eq('strava_id', Number(id))
+                    return sm
+                  })
+                  .catch(() => [] as StravaSplitMetric[])
+            : Promise.resolve([] as StravaSplitMetric[]),
           act.type === 'WeightTraining'
             ? act.description
               ? Promise.resolve(act.description)
@@ -500,17 +464,8 @@ export default function ActivityDetail() {
         setStats(computeStats(data))
         setLaps(lapsData)
 
-        if (['Run', 'VirtualRun', 'TrailRun'].includes(act.type)) {
-          if (lapsData.length > 1) {
-            setRunSplits(lapsData.map(lap => ({
-              km: lap.distance < 1000 ? `${(lap.distance / 1000).toFixed(2)} km` : lap.lap_index,
-              duration: formatDuration(lap.elapsed_time),
-              pace: lap.distance > 0 ? formatPace(lap.elapsed_time / (lap.distance / 1000)) : '—',
-              avgHr: lap.average_heartrate != null ? Math.round(lap.average_heartrate) : null,
-            })))
-          } else {
-            setRunSplits(calculateSplitsFromStreams(streamsRaw as Record<string, unknown>))
-          }
+        if (actIsRun && splitsMetric.length > 0) {
+          setRunSplits(splitsFromMetric(splitsMetric))
         }
       } catch (e) {
         console.error(e)

@@ -122,6 +122,7 @@ export type Activity = {
   tss: number | null
   streams_json: Record<string, unknown> | null
   laps_json: unknown | null
+  splits_metric_json: unknown | null
   description: string | null
   claude_analysis: string | null
   created_at: string

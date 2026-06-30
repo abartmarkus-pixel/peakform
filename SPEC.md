@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 30. Juni 2026 (ActivityDetail: kein Pace-Chart, Splits stream-basiert)
+> Letzte Aktualisierung: 30. Juni 2026 (ActivityDetail: kein Pace-Chart, Splits via splits_metric_json)
 
 ---
 
@@ -206,16 +206,18 @@ avg_hr          NUMERIC
 max_hr          NUMERIC
 np_watts        NUMERIC            -- Normalized Power (nur Rad)
 tss             NUMERIC            -- Training Stress Score (selten befüllt)
-streams_json    JSONB              -- Cache: time,heartrate,altitude,velocity_smooth,watts,cadence
-laps_json       JSONB DEFAULT NULL -- Cache: Strava Laps Array (StravaLap[]), beim ersten Öffnen gecacht
-description     TEXT               -- Cache: Strava-Description (für WeightTraining / Hevy)
-claude_analysis TEXT               -- gespeichert nach erstem Analyse-Run
+streams_json         JSONB              -- Cache: time,heartrate,altitude,velocity_smooth,watts,cadence
+laps_json            JSONB DEFAULT NULL -- Cache: Strava Laps Array (StravaLap[]), beim ersten Öffnen gecacht
+splits_metric_json   JSONB DEFAULT NULL -- Cache: Strava splits_metric (StravaSplitMetric[]), nur Runs
+description          TEXT               -- Cache: Strava-Description (für WeightTraining / Hevy)
+claude_analysis      TEXT               -- gespeichert nach erstem Analyse-Run
 created_at      TIMESTAMPTZ
 ```
 
 **Cache-first Logik:**
 - `streams_json`: beim ersten Öffnen von ActivityDetail von Strava geholt + in Supabase gespeichert; danach immer aus Supabase
 - `laps_json`: beim ersten Öffnen parallel zu `streams_json` von Strava Laps-Endpoint geholt + gespeichert; danach immer aus Supabase
+- `splits_metric_json`: bei Lauf-Aktivitäten beim ersten Öffnen via `GET /activities/{id}` → `splits_metric` Feld geholt + gespeichert; danach immer aus Supabase
 - `description`: bei WeightTraining beim ersten Öffnen von Strava Detail-Endpoint geholt + gespeichert; danach immer aus Supabase
 
 ---
@@ -394,10 +396,11 @@ Strava OAuth Token Exchange & Refresh — STRAVA_CLIENT_SECRET bleibt server-sei
 - Charts: **Herzfrequenz** (rot) — *kein* Pace-Chart, *kein* Watt-Chart, *kein* Höhenprofil
 - **Kilometer-Splits-Tabelle** (unterhalb Charts, oberhalb KI-Analyse)
   - Spalten: KM | ZEIT | PACE | Ø HF
-  - Ganze Kilometer: `"km 1"`, `"km 2"` etc.; Letzter unvollständiger Split: tatsächliche Distanz `"0.13 km"`, PACE = `"—"`
-  - ZEIT: MM:SS via `formatDuration`; PACE: `"M:SS min/km"` via `formatPace(secPerKm)`; Ø HF: `"{wert} bpm"` oder `"—"`
-  - Datenquelle: **`laps_json` (Strava-Laps) wenn `laps.length > 1`** — sonst **`calculateSplitsFromStreams()`** (integriert `velocity_smooth` zu kumulativer Distanz, teilt in 1-km-Abschnitte)
-  - State: `runSplits: RunSplit[]` (wird in useEffect befüllt, nach Laden von streams + laps)
+  - Ganze Kilometer: `"km 1"`, `"km 2"` etc.; Letzter unvollständiger Split (`distance < 900m`): tatsächliche Distanz `"0.13 km"`, PACE = `"—"`
+  - ZEIT: `moving_time` via `formatDuration`; PACE: `"M:SS min/km"` via `formatPace(moving_time / (distance/1000))`; Ø HF: `"{wert} bpm"` oder `"—"`
+  - Datenquelle: **`splits_metric_json`** (Cache-first aus Supabase; beim ersten Öffnen via `GET /activities/{id}` → `splits_metric` Feld → in Supabase gecacht)
+  - `moving_time` statt `elapsed_time` → Pausen korrekt ausgeblendet, identisch zur Strava-Anzeige
+  - State: `runSplits: RunSplit[]` (wird in useEffect befüllt)
   - Card-Design: `bg-slate-800 rounded-xl`, abwechselnd `bg-slate-700/20`
 - Claude-Analyse-Button → `/api/analyse` → gespeichert in `activities.claude_analysis`
 
@@ -828,7 +831,7 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 **ActivityDetail:**
 - **Sportartabhängige Darstellung** (Lauf vs. Rad vs. Kraft)
 - Lauf: Pace statt km/h, kein NP, kein Höhenmeter, kein Watt-Chart, kein Pace-Chart
-- Lauf: Kilometer-Splits-Tabelle (KM | ZEIT | PACE | Ø HF); stream-basierte Berechnung wenn Strava nur 1 Lap liefert
+- Lauf: Kilometer-Splits-Tabelle (KM | ZEIT | PACE | Ø HF); Datenquelle: `splits_metric_json` (Strava `GET /activities/{id}` → `splits_metric`), Cache-first in Supabase
 - Rad: Watt-Chart, HF-Chart, Höhenprofil, Rundentabelle unverändert
 - Cache-first für streams_json, laps_json und description
 - Hevy-Workout-Parser (aus Strava description)

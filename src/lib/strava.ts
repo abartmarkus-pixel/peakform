@@ -49,6 +49,16 @@ export async function fetchRecentActivities(accessToken: string): Promise<Strava
   return res.json()
 }
 
+export type StravaSplitMetric = {
+  split: number
+  distance: number
+  moving_time: number
+  elapsed_time: number
+  average_speed: number
+  average_heartrate?: number
+  pace_zone?: number
+}
+
 export type StravaLap = {
   lap_index: number
   name: string
@@ -76,7 +86,7 @@ export async function fetchActivityLaps(
 export async function fetchActivityDetail(
   accessToken: string,
   activityId: number,
-): Promise<{ description?: string }> {
+): Promise<{ description?: string; splits_metric?: StravaSplitMetric[] }> {
   const res = await fetch(
     `https://www.strava.com/api/v3/activities/${activityId}`,
     { headers: { Authorization: `Bearer ${accessToken}` } },
