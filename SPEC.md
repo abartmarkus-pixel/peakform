@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 30. Juni 2026 (ActivityDetail: kein Pace-Chart, Splits via splits_metric_json)
+> Letzte Aktualisierung: 30. Juni 2026 (ActivityDetail: Lauf-Kacheln Reihenfolge + Kadenz statt Max Pace)
 
 ---
 
@@ -391,8 +391,11 @@ Strava OAuth Token Exchange & Refresh — STRAVA_CLIENT_SECRET bleibt server-sei
 **Sportartabhängige Darstellung** (`isRun` = `['Run', 'VirtualRun', 'TrailRun']`):
 
 **Lauf (Run / VirtualRun / TrailRun):**
-- Stats-Grid: Dauer, Ø HF, Distanz, **Ø Pace** (min/km), **Max Pace** (min/km), Max HF — *kein* Höhenmeter, *kein* NP
+- Stats-Grid Zeile 1: **Distanz** | **Dauer** | **Ø Pace** (min/km)
+- Stats-Grid Zeile 2: **Ø HF** | **Max HF** | **Ø Kadenz** (wenn cadence-Stream vorhanden, sonst 5 Kacheln)
+  - Ø Kadenz: `stats.avgCadence * 2` spm (Strava-Stream gibt einseitige Schritte → mal 2 = Schritte/min); Format: `"172 spm"`
   - Pace-Formel: `paceMinKm = 60 / speedKmh`; Anzeige: `"6:58 min/km"`
+  - Kein Max Pace (velocity_smooth-Stream unzuverlässig), *kein* Höhenmeter, *kein* NP
 - Charts: **Herzfrequenz** (rot) — *kein* Pace-Chart, *kein* Watt-Chart, *kein* Höhenprofil
 - **Kilometer-Splits-Tabelle** (unterhalb Charts, oberhalb KI-Analyse)
   - Spalten: KM | ZEIT | PACE | Ø HF

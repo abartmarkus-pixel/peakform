@@ -644,53 +644,70 @@ ${exercises.length > 0
       {error && <p className="text-red-400 mb-4">{error}</p>}
 
       {/* ── Stats Grid ─────────────────────────────────────────── */}
-      <div className="grid grid-cols-3 gap-2 mb-6">
-        {activity?.duration_s != null && (
-          <StatCard label="Dauer" value={formatDuration(activity.duration_s)} />
-        )}
-        {activity?.avg_hr != null && (
-          <StatCard label="Ø HF" value={`${Math.round(activity.avg_hr)} bpm`} />
-        )}
-        {isWeightTraining && exercises.length > 0 && (() => {
-          const total = exercises.reduce((s, ex) => s + ex.totalVolume, 0)
-          return total > 0
-            ? <StatCard label="Volumen" value={`${total.toLocaleString('de-DE', { maximumFractionDigits: 1 })} kg`} />
-            : null
-        })()}
-        {!isWeightTraining && activity?.distance_m != null && activity.distance_m > 0 && (
-          <StatCard label="Distanz" value={`${(activity.distance_m / 1000).toFixed(2)} km`} />
-        )}
-        {!isWeightTraining && !isRun && stats.elevationGain != null && (
-          <StatCard label="Höhenmeter" value={`${stats.elevationGain} m`} />
-        )}
-        {!isWeightTraining && (isRide || isRun) && stats.avgSpeed != null && (
-          <StatCard
-            label={isRun ? 'Ø Pace' : 'Ø Tempo'}
-            value={isRun ? speedToPace(stats.avgSpeed) : `${stats.avgSpeed} km/h`}
-          />
-        )}
-        {!isWeightTraining && (isRide || isRun) && stats.maxSpeed != null && (
-          <StatCard
-            label={isRun ? 'Max Pace' : 'Max Tempo'}
-            value={isRun ? speedToPace(stats.maxSpeed) : `${stats.maxSpeed} km/h`}
-          />
-        )}
-        {!isWeightTraining && activity?.max_hr != null && (
-          <StatCard label="Max HF" value={`${Math.round(activity.max_hr)} bpm`} />
-        )}
-        {!isWeightTraining && !isRun && activity?.np_watts != null && (
-          <StatCard label="Norm. Power" value={`${Math.round(activity.np_watts)} W`} />
-        )}
-        {isRide && stats.avgWatts != null && (
-          <StatCard label="Ø Watt" value={`${stats.avgWatts} W`} />
-        )}
-        {isRide && stats.maxWatts != null && (
-          <StatCard label="Max Watt" value={`${stats.maxWatts} W`} />
-        )}
-        {isRide && stats.avgCadence != null && (
-          <StatCard label="Ø Trittfreq." value={`${stats.avgCadence} rpm`} />
-        )}
-      </div>
+      {isRun ? (
+        <div className="grid grid-cols-3 gap-2 mb-6">
+          {activity?.distance_m != null && activity.distance_m > 0 && (
+            <StatCard label="Distanz" value={`${(activity.distance_m / 1000).toFixed(2)} km`} />
+          )}
+          {activity?.duration_s != null && (
+            <StatCard label="Dauer" value={formatDuration(activity.duration_s)} />
+          )}
+          {stats.avgSpeed != null && (
+            <StatCard label="Ø Pace" value={speedToPace(stats.avgSpeed)} />
+          )}
+          {activity?.avg_hr != null && (
+            <StatCard label="Ø HF" value={`${Math.round(activity.avg_hr)} bpm`} />
+          )}
+          {activity?.max_hr != null && (
+            <StatCard label="Max HF" value={`${Math.round(activity.max_hr)} bpm`} />
+          )}
+          {stats.avgCadence != null && (
+            <StatCard label="Ø Kadenz" value={`${stats.avgCadence * 2} spm`} />
+          )}
+        </div>
+      ) : (
+        <div className="grid grid-cols-3 gap-2 mb-6">
+          {activity?.duration_s != null && (
+            <StatCard label="Dauer" value={formatDuration(activity.duration_s)} />
+          )}
+          {activity?.avg_hr != null && (
+            <StatCard label="Ø HF" value={`${Math.round(activity.avg_hr)} bpm`} />
+          )}
+          {isWeightTraining && exercises.length > 0 && (() => {
+            const total = exercises.reduce((s, ex) => s + ex.totalVolume, 0)
+            return total > 0
+              ? <StatCard label="Volumen" value={`${total.toLocaleString('de-DE', { maximumFractionDigits: 1 })} kg`} />
+              : null
+          })()}
+          {!isWeightTraining && activity?.distance_m != null && activity.distance_m > 0 && (
+            <StatCard label="Distanz" value={`${(activity.distance_m / 1000).toFixed(2)} km`} />
+          )}
+          {!isWeightTraining && stats.elevationGain != null && (
+            <StatCard label="Höhenmeter" value={`${stats.elevationGain} m`} />
+          )}
+          {isRide && stats.avgSpeed != null && (
+            <StatCard label="Ø Tempo" value={`${stats.avgSpeed} km/h`} />
+          )}
+          {isRide && stats.maxSpeed != null && (
+            <StatCard label="Max Tempo" value={`${stats.maxSpeed} km/h`} />
+          )}
+          {!isWeightTraining && activity?.max_hr != null && (
+            <StatCard label="Max HF" value={`${Math.round(activity.max_hr)} bpm`} />
+          )}
+          {!isWeightTraining && activity?.np_watts != null && (
+            <StatCard label="Norm. Power" value={`${Math.round(activity.np_watts)} W`} />
+          )}
+          {isRide && stats.avgWatts != null && (
+            <StatCard label="Ø Watt" value={`${stats.avgWatts} W`} />
+          )}
+          {isRide && stats.maxWatts != null && (
+            <StatCard label="Max Watt" value={`${stats.maxWatts} W`} />
+          )}
+          {isRide && stats.avgCadence != null && (
+            <StatCard label="Ø Trittfreq." value={`${stats.avgCadence} rpm`} />
+          )}
+        </div>
+      )}
 
       {/* ── Übungstabelle (WeightTraining) ────────────────────── */}
       {isWeightTraining && exercises.length > 0 && (
