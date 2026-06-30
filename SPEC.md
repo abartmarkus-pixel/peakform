@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 30. Juni 2026 (Coach-Prompt: Du-Form-Pflicht — niemals dritte Person)
+> Letzte Aktualisierung: 30. Juni 2026 (ActivityDetail: kein Pace-Chart, Splits stream-basiert)
 
 ---
 
@@ -391,11 +391,13 @@ Strava OAuth Token Exchange & Refresh — STRAVA_CLIENT_SECRET bleibt server-sei
 **Lauf (Run / VirtualRun / TrailRun):**
 - Stats-Grid: Dauer, Ø HF, Distanz, **Ø Pace** (min/km), **Max Pace** (min/km), Max HF — *kein* Höhenmeter, *kein* NP
   - Pace-Formel: `paceMinKm = 60 / speedKmh`; Anzeige: `"6:58 min/km"`
-- Charts: **Herzfrequenz** (rot), **Pace-Verlauf** (violett, optional — nur wenn `velocity_smooth` Stream vorhanden, Y-Achse invertiert: schneller = oben) — *kein* Watt-Chart, *kein* Höhenprofil
-- **Kilometer-Splits-Tabelle** (unterhalb Charts, oberhalb KI-Analyse): `laps_json` aus Supabase (Cache-first)
-  - Spalten: KM | ZEIT | Ø HF
-  - Ganze Kilometer: `"km 1"`, `"km 2"` etc.; Letzter Lap < 1000m: tatsächliche Distanz `"0.13 km"`
-  - ZEIT: MM:SS via `formatDuration`; Ø HF: `"{wert} bpm"` oder `"—"`
+- Charts: **Herzfrequenz** (rot) — *kein* Pace-Chart, *kein* Watt-Chart, *kein* Höhenprofil
+- **Kilometer-Splits-Tabelle** (unterhalb Charts, oberhalb KI-Analyse)
+  - Spalten: KM | ZEIT | PACE | Ø HF
+  - Ganze Kilometer: `"km 1"`, `"km 2"` etc.; Letzter unvollständiger Split: tatsächliche Distanz `"0.13 km"`, PACE = `"—"`
+  - ZEIT: MM:SS via `formatDuration`; PACE: `"M:SS min/km"` via `formatPace(secPerKm)`; Ø HF: `"{wert} bpm"` oder `"—"`
+  - Datenquelle: **`laps_json` (Strava-Laps) wenn `laps.length > 1`** — sonst **`calculateSplitsFromStreams()`** (integriert `velocity_smooth` zu kumulativer Distanz, teilt in 1-km-Abschnitte)
+  - State: `runSplits: RunSplit[]` (wird in useEffect befüllt, nach Laden von streams + laps)
   - Card-Design: `bg-slate-800 rounded-xl`, abwechselnd `bg-slate-700/20`
 - Claude-Analyse-Button → `/api/analyse` → gespeichert in `activities.claude_analysis`
 
@@ -825,9 +827,8 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 
 **ActivityDetail:**
 - **Sportartabhängige Darstellung** (Lauf vs. Rad vs. Kraft)
-- Lauf: Pace statt km/h, kein NP, kein Höhenmeter, kein Watt-Chart
-- Lauf: Pace-Chart (violett, Y-Achse invertiert, optional wenn velocity_smooth vorhanden)
-- Lauf: Kilometer-Splits-Tabelle (KM | ZEIT | Ø HF, aus `laps_json`)
+- Lauf: Pace statt km/h, kein NP, kein Höhenmeter, kein Watt-Chart, kein Pace-Chart
+- Lauf: Kilometer-Splits-Tabelle (KM | ZEIT | PACE | Ø HF); stream-basierte Berechnung wenn Strava nur 1 Lap liefert
 - Rad: Watt-Chart, HF-Chart, Höhenprofil, Rundentabelle unverändert
 - Cache-first für streams_json, laps_json und description
 - Hevy-Workout-Parser (aus Strava description)

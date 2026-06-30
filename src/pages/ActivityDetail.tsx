@@ -45,6 +45,13 @@ type ChartPoint = {
   cadence?: number
 }
 
+type RunSplit = {
+  km: number | string
+  duration: string
+  pace: string
+  avgHr: number | null
+}
+
 type ComputedStats = {
   avgWatts?: number
   maxWatts?: number
@@ -233,10 +240,70 @@ function speedToPace(speedKmh: number): string {
   return `${min}:${String(sec).padStart(2, '0')} min/km`
 }
 
-function formatPaceAxis(val: number): string {
-  const min = Math.floor(val)
-  const sec = Math.round((val - min) * 60)
-  return `${min}:${String(sec).padStart(2, '0')}`
+function formatPace(secPerKm: number): string {
+  const min = Math.floor(secPerKm / 60)
+  const sec = Math.round(secPerKm % 60)
+  return `${min}:${String(sec).padStart(2, '0')} min/km`
+}
+
+function calculateSplitsFromStreams(streams: Record<string, unknown>): RunSplit[] {
+  type Stream = { data: number[] }
+  const timeArr = (streams.time as Stream)?.data ?? []
+  const velArr = (streams.velocity_smooth as Stream)?.data ?? []
+  const hrArr = (streams.heartrate as Stream)?.data
+
+  if (timeArr.length === 0 || velArr.length === 0) return []
+
+  // Build cumulative distance by integrating velocity_smooth
+  const distArr: number[] = [0]
+  for (let i = 1; i < velArr.length; i++) {
+    const dt = timeArr[i] - timeArr[i - 1]
+    distArr.push(distArr[i - 1] + velArr[i] * dt)
+  }
+
+  const splits: RunSplit[] = []
+  let splitStart = 0
+  let kmTarget = 1000
+
+  for (let i = 1; i < distArr.length; i++) {
+    if (distArr[i] >= kmTarget) {
+      const duration = timeArr[i] - timeArr[splitStart]
+      const segDist = distArr[i] - distArr[splitStart]
+      const paceSecPerKm = duration / (segDist / 1000)
+      let avgHr: number | null = null
+      if (hrArr) {
+        const slice = hrArr.slice(splitStart, i)
+        avgHr = Math.round(slice.reduce((a, b) => a + b, 0) / slice.length)
+      }
+      splits.push({
+        km: splits.length + 1,
+        duration: `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, '0')}`,
+        pace: formatPace(paceSecPerKm),
+        avgHr,
+      })
+      splitStart = i
+      kmTarget += 1000
+    }
+  }
+
+  // Last incomplete km (>50m)
+  const remaining = distArr[distArr.length - 1] - distArr[splitStart]
+  if (remaining > 50 && splitStart < distArr.length - 1) {
+    const duration = timeArr[timeArr.length - 1] - timeArr[splitStart]
+    let avgHr: number | null = null
+    if (hrArr) {
+      const slice = hrArr.slice(splitStart)
+      avgHr = Math.round(slice.reduce((a, b) => a + b, 0) / slice.length)
+    }
+    splits.push({
+      km: `${(remaining / 1000).toFixed(2)} km`,
+      duration: `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, '0')}`,
+      pace: '—',
+      avgHr,
+    })
+  }
+
+  return splits
 }
 
 function renderBold(line: string, keyPrefix: string) {
@@ -352,6 +419,7 @@ export default function ActivityDetail() {
   const [exercises, setExercises] = useState<Exercise[]>([])
   const [athleteId, setAthleteId] = useState<string | null>(null)
   const [athleteName, setAthleteName] = useState<string | null>(null)
+  const [runSplits, setRunSplits] = useState<RunSplit[]>([])
   const [analysing, setAnalysing] = useState(false)
   const [analysis, setAnalysis] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -431,6 +499,19 @@ export default function ActivityDetail() {
         setChartData(data)
         setStats(computeStats(data))
         setLaps(lapsData)
+
+        if (['Run', 'VirtualRun', 'TrailRun'].includes(act.type)) {
+          if (lapsData.length > 1) {
+            setRunSplits(lapsData.map(lap => ({
+              km: lap.distance < 1000 ? `${(lap.distance / 1000).toFixed(2)} km` : lap.lap_index,
+              duration: formatDuration(lap.elapsed_time),
+              pace: lap.distance > 0 ? formatPace(lap.elapsed_time / (lap.distance / 1000)) : '—',
+              avgHr: lap.average_heartrate != null ? Math.round(lap.average_heartrate) : null,
+            })))
+          } else {
+            setRunSplits(calculateSplitsFromStreams(streamsRaw as Record<string, unknown>))
+          }
+        }
       } catch (e) {
         console.error(e)
         setError('Aktivität konnte nicht geladen werden.')
@@ -589,7 +670,6 @@ ${exercises.length > 0
   const hasHr = chartData.some(d => d.hr !== undefined)
   const hasAlt = !isWeightTraining && chartData.some(d => d.alt !== undefined)
   const hasWatts = chartData.some(d => d.watts !== undefined)
-  const hasSpeed = chartData.some(d => (d.speed ?? 0) > 0)
 
   return (
     <>
@@ -761,48 +841,6 @@ ${exercises.length > 0
         </div>
       )}
 
-      {/* ── Pace-Chart (nur Lauf) ──────────────────────────────── */}
-      {isRun && hasSpeed && (() => {
-        const paceData = chartData.map(d => ({
-          t: d.t,
-          pace: d.speed && d.speed > 0 ? 60 / d.speed : undefined,
-        }))
-        return (
-          <div className="mb-6">
-            <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-2">Pace</h2>
-            <ResponsiveContainer width="100%" height={160}>
-              <AreaChart data={paceData}>
-                <defs>
-                  <linearGradient id="paceGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#a78bfa" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#a78bfa" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                <XAxis dataKey="t" hide />
-                <YAxis
-                  reversed
-                  domain={['auto', 'auto']}
-                  stroke="#64748b"
-                  tick={{ fontSize: 11 }}
-                  tickFormatter={formatPaceAxis}
-                />
-                <Tooltip
-                  contentStyle={{ background: '#1e293b', border: 'none', borderRadius: 8 }}
-                  labelFormatter={(v) => `${Math.round(Number(v) / 60)} min`}
-                  formatter={(v: unknown) => {
-                    const num = Number(v)
-                    const min = Math.floor(num)
-                    const sec = Math.round((num - min) * 60)
-                    return [`${min}:${String(sec).padStart(2, '0')} min/km`, 'Pace']
-                  }}
-                />
-                <Area type="monotone" dataKey="pace" stroke="#a78bfa" fill="url(#paceGrad)" dot={false} strokeWidth={1.5} connectNulls={false} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        )
-      })()}
 
       {/* ── Höhenprofil ────────────────────────────────────────── */}
       {hasAlt && !isRun && (
@@ -831,7 +869,7 @@ ${exercises.length > 0
       )}
 
       {/* ── Kilometer-Splits (nur Lauf) ────────────────────────── */}
-      {isRun && laps.length > 0 && (
+      {isRun && runSplits.length > 0 && (
         <div className="mb-6">
           <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-2">Kilometer-Splits</h2>
           <div className="bg-slate-800 rounded-xl overflow-hidden">
@@ -840,20 +878,20 @@ ${exercises.length > 0
                 <tr className="text-xs text-slate-500 uppercase border-b border-slate-700">
                   <th className="px-4 py-2.5 text-left">KM</th>
                   <th className="px-4 py-2.5 text-left">ZEIT</th>
+                  <th className="px-4 py-2.5 text-left">PACE</th>
                   <th className="px-4 py-2.5 text-left">Ø HF</th>
                 </tr>
               </thead>
               <tbody>
-                {laps.map((lap, i) => (
-                  <tr key={lap.lap_index} className={`border-b border-slate-700/40 last:border-0 ${i % 2 === 1 ? 'bg-slate-700/20' : ''}`}>
+                {runSplits.map((split, i) => (
+                  <tr key={i} className={`border-b border-slate-700/40 last:border-0 ${i % 2 === 1 ? 'bg-slate-700/20' : ''}`}>
                     <td className="px-4 py-2.5 text-slate-300">
-                      {lap.distance < 1000
-                        ? `${(lap.distance / 1000).toFixed(2)} km`
-                        : `km ${lap.lap_index}`}
+                      {typeof split.km === 'number' ? `km ${split.km}` : split.km}
                     </td>
-                    <td className="px-4 py-2.5 text-slate-300">{formatDuration(lap.elapsed_time)}</td>
+                    <td className="px-4 py-2.5 text-slate-300">{split.duration}</td>
+                    <td className="px-4 py-2.5 text-slate-300">{split.pace}</td>
                     <td className="px-4 py-2.5 text-slate-300">
-                      {lap.average_heartrate != null ? `${Math.round(lap.average_heartrate)} bpm` : '—'}
+                      {split.avgHr != null ? `${split.avgHr} bpm` : '—'}
                     </td>
                   </tr>
                 ))}
