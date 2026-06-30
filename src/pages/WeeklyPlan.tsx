@@ -12,6 +12,7 @@ import {
 } from '../lib/icons'
 import { AppHeader } from '../components/AppHeader'
 import { useFeatures } from '../lib/features'
+import { getISOMonday, getISOSunday, formatWeekRange } from '../lib/dateUtils'
 
 // ── types ──────────────────────────────────────────────────────────────────
 
@@ -89,14 +90,6 @@ function validateConstraints(planJson: PlanJson, sportConfigs: SportConfig[], tr
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
-function mondayOf(date: Date): Date {
-  const d = new Date(date)
-  const day = d.getDay()
-  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day))
-  d.setHours(0, 0, 0, 0)
-  return d
-}
-
 function addWeeks(date: Date, n: number): Date {
   const d = new Date(date)
   d.setDate(d.getDate() + n * 7)
@@ -104,13 +97,10 @@ function addWeeks(date: Date, n: number): Date {
 }
 
 function toDateStr(d: Date): string {
-  return d.toISOString().slice(0, 10)
-}
-
-function weekLabel(monday: Date): string {
-  const sunday = new Date(monday)
-  sunday.setDate(sunday.getDate() + 6)
-  return `${monday.toLocaleDateString('de-DE', { day: 'numeric', month: 'numeric' })} – ${sunday.toLocaleDateString('de-DE', { day: 'numeric', month: 'numeric', year: 'numeric' })}`
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 function dayDate(monday: Date, idx: number): string {
@@ -273,7 +263,7 @@ function DayCard({ day, idx, monday, plan, match, onPress }: {
 export default function WeeklyPlan() {
   const navigate = useNavigate()
   const [athlete, setAthlete]         = useState<Athlete | null>(null)
-  const [monday, setMonday]           = useState<Date>(mondayOf(new Date()))
+  const [monday, setMonday]           = useState<Date>(getISOMonday(new Date()))
   const [plan, setPlan]               = useState<WeeklyPlan | null>(null)
   const [weekActivities, setWeekActivities] = useState<Activity[]>([])
   const [generating, setGenerating]   = useState(false)
@@ -289,7 +279,7 @@ export default function WeeklyPlan() {
   const [pendingReviewData, setPendingReviewData] = useState<ReviewJson | null>(null)
   const [reviewViolationList, setReviewViolationList] = useState<string[]>([])
 
-  const isCurrentWeek = toDateStr(monday) === toDateStr(mondayOf(new Date()))
+  const isCurrentWeek = toDateStr(monday) === toDateStr(getISOMonday(new Date()))
   const weekStr = toDateStr(monday)
 
   // load athlete once
@@ -318,8 +308,6 @@ export default function WeeklyPlan() {
     setReviewResult(null)
     setReviewFeedback('')
 
-    const sunday = toDateStr(addWeeks(monday, 1))
-
     ;(async () => {
       // Mini-sync: pull latest 10 activities from Strava → upsert to Supabase
       try {
@@ -340,8 +328,8 @@ export default function WeeklyPlan() {
           .from('activities')
           .select('*')
           .eq('athlete_id', athlete.id)
-          .gte('date', weekStr)
-          .lt('date', sunday)
+          .gte('date', monday.toISOString())
+          .lte('date', getISOSunday(monday).toISOString())
           .order('date', { ascending: true }),
       ])
       setPlan(planRes.data?.[0] as WeeklyPlan ?? null)
@@ -410,7 +398,7 @@ export default function WeeklyPlan() {
       ])
 
       const monday8 = monday.toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' })
-      const sunday8 = new Date(monday.getTime() + 6 * 86400000)
+      const sunday8 = getISOSunday(monday)
         .toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' })
 
       const sportConfigs = (athlete.sport_types as SportConfig[] | null) ?? []
@@ -593,7 +581,7 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, 
         : ''
 
       const nextMonday = addWeeks(monday, 1)
-      const nextSunday = new Date(nextMonday.getTime() + 6 * 86400000)
+      const nextSunday = getISOSunday(nextMonday)
 
       const actsText = weekActivities.length > 0
         ? weekActivities.map(a =>
@@ -625,7 +613,7 @@ Wenn eine Prüfung fehlschlägt, korrigiere den Plan BEVOR du ihn ausgibst.` : '
 
 ---
 
-Erstelle ein Wochenreview für die Woche ${weekLabel(monday)}.
+Erstelle ein Wochenreview für die Woche ${formatWeekRange(monday)}.
 
 Tatsächlich absolvierte Aktivitäten diese Woche:
 ${actsText}
@@ -700,18 +688,18 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
       {/* Week navigation */}
       <div className="flex items-center justify-between mb-6">
         <button
-          onClick={() => setMonday(m => addWeeks(m, -1))}
+          onClick={() => setMonday(m => getISOMonday(new Date(m.getTime() - 7 * 86400000)))}
           className="w-9 h-9 flex items-center justify-center bg-slate-800 hover:bg-slate-700 rounded-xl text-slate-300 transition-colors shrink-0"
         >
           <IconChevronLeft size={16} />
         </button>
         <div className="flex-1 text-center px-2">
-          <p className="text-sm font-semibold text-slate-200">{weekLabel(monday)}</p>
+          <p className="text-sm font-semibold text-slate-200">{formatWeekRange(monday)}</p>
           {isCurrentWeek && <p className="text-xs text-brand-400">Aktuelle Woche</p>}
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <button
-            onClick={() => setMonday(m => addWeeks(m, 1))}
+            onClick={() => setMonday(m => getISOMonday(new Date(m.getTime() + 7 * 86400000)))}
             className="w-9 h-9 flex items-center justify-center bg-slate-800 hover:bg-slate-700 rounded-xl text-slate-300 transition-colors"
           >
             <IconChevronRight size={16} />
@@ -802,7 +790,7 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
       </button>
 
       {/* ── Wochenreview (nur für aktuelle + vergangene Wochen) ── */}
-      {!loadingPlan && monday <= mondayOf(new Date()) && (
+      {!loadingPlan && monday <= getISOMonday(new Date()) && (
         <div className="mt-8 pt-6 border-t border-slate-700/50">
           <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-1">
             Wochenreview

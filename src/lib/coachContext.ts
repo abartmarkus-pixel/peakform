@@ -1,13 +1,15 @@
 import { supabase, type SportConfig, type EquipmentConfig, type AestheticGoals } from './supabase'
+import { getISOMonday } from './dateUtils'
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
-/** Returns the ISO date string (YYYY-MM-DD) of the Monday of the given date. */
+/** Returns the local YYYY-MM-DD string for the Monday of the given date. */
 function mondayOf(date: Date): string {
-  const d = new Date(date)
-  const day = d.getDay()
-  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day))
-  return d.toISOString().slice(0, 10)
+  const d = getISOMonday(date)
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 /** Returns a human-readable countdown string (e.g. "17 Wochen 3 Tage"). */

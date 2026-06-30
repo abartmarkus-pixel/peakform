@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 30. Juni 2026 (ActivityDetail: Lauf-Kacheln Reihenfolge + Kadenz statt Max Pace)
+> Letzte Aktualisierung: 30. Juni 2026 (dateUtils.ts: ISO 8601 Wochengrenzen-Bug behoben — Sonntag wurde falscher Woche zugeordnet)
 
 ---
 
@@ -91,6 +91,10 @@ peakform/
 │       ├── features.ts        # FeatureFlags Interface, DEFAULT_FEATURES, useFeatures(athlete)
 │       ├── icons.ts           # Zentrale Icon-Exports (FA6 via react-icons/fa6) + SPORT_DISPLAY Konstante
 │       │                        SPORT_DISPLAY: { cycling, running, strength, rest } → { color, label }
+│       ├── dateUtils.ts       # ISO 8601 Datums-Helpers (Woche beginnt Montag, Sonntag ist letzter Tag)
+│       │                        getISOMonday(date): Date — Montag der Woche in Lokalzeit
+│       │                        getISOSunday(monday): Date — Sonntag 23:59:59.999 in Lokalzeit
+│       │                        formatWeekRange(monday): string — z. B. "29.6. – 5.7.2026"
 │       ├── coachContext.ts    # buildCoachContext(athleteId, threadId?) — 7 Abschnitte, alle parallel
 │       │                        buildSpecialistContext(athleteId, sport) — sportart-spezifische Historien
 │       └── coachPrompt.ts     # buildCoachSystemPrompt(athleteId): Promise<string> (Hauptcoach, dynamisch aus DB)
@@ -550,6 +554,14 @@ Strava OAuth Token Exchange & Refresh — STRAVA_CLIENT_SECRET bleibt server-sei
 ---
 
 ## 10. Wochenplan-Architektur (WeeklyPlan.tsx)
+
+### Wochenstart-Logik (ISO 8601)
+
+Alle Wochengrenzen werden über `src/lib/dateUtils.ts` berechnet:
+- **Woche beginnt Montag** (ISO 8601) — `getISOMonday(date)` liefert den Montag in Lokalzeit
+- **Woche endet Sonntag** 23:59:59.999 — `getISOSunday(monday)` für Abfrage-Obergrenze
+- **`week_start`-Schlüssel** (YYYY-MM-DD) wird via `getFullYear()/getMonth()/getDate()` aus Lokalzeit gebildet — nicht `toISOString()`, das UTC-Datum zurückgibt (Bug in CET/CEST)
+- **Activity-Query** nutzt volle ISO-Timestamps: `gte('date', monday.toISOString())` und `lte('date', getISOSunday(monday).toISOString())` — damit fallen Sonntags-Aktivitäten korrekt in die Vorwoche
 
 ### Plan-Generierung (`generatePlan()`)
 
