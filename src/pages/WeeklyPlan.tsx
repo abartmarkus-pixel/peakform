@@ -316,12 +316,15 @@ export default function WeeklyPlan() {
         await syncActivitiesToSupabase(acts, athlete.id)
       } catch { /* sync failure doesn't block UI */ }
 
+      // Fallback: alte Einträge wurden mit UTC-Datum gespeichert (1 Tag früher)
+      const weekStrFallback = toDateStr(new Date(monday.getTime() - 86400000))
+
       const [planRes, actsRes] = await Promise.all([
         supabase
           .from('weekly_plans')
           .select('*')
           .eq('athlete_id', athlete.id)
-          .eq('week_start', weekStr)
+          .in('week_start', [weekStr, weekStrFallback])
           .order('version', { ascending: false })
           .limit(1),
         supabase

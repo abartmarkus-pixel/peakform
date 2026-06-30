@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 30. Juni 2026 (dateUtils.ts: ISO 8601 Wochengrenzen-Bug behoben — Sonntag wurde falscher Woche zugeordnet)
+> Letzte Aktualisierung: 30. Juni 2026 (Wochengrenzen-Bug + Supabase-Migration: alle week_start auf korrekte Montage migriert)
 
 ---
 
@@ -562,6 +562,10 @@ Alle Wochengrenzen werden über `src/lib/dateUtils.ts` berechnet:
 - **Woche endet Sonntag** 23:59:59.999 — `getISOSunday(monday)` für Abfrage-Obergrenze
 - **`week_start`-Schlüssel** (YYYY-MM-DD) wird via `getFullYear()/getMonth()/getDate()` aus Lokalzeit gebildet — nicht `toISOString()`, das UTC-Datum zurückgibt (Bug in CET/CEST)
 - **Activity-Query** nutzt volle ISO-Timestamps: `gte('date', monday.toISOString())` und `lte('date', getISOSunday(monday).toISOString())` — damit fallen Sonntags-Aktivitäten korrekt in die Vorwoche
+- **Plan-Lade-Query** nutzt `.in('week_start', [weekStr, weekStrFallback])` mit Fallback auf Vortag — defensiv für allfällige alte UTC-Einträge (kann nach 4 Wochen entfernt werden)
+
+**Supabase-Migration (30.6.2026):** Alle `week_start`-Werte mit DOW=0 (Sonntag, falsch durch UTC-Bug) wurden um +1 Tag korrigiert:
+`2026-06-21→06-22`, `2026-06-28→06-29`, `2026-07-05→07-06`
 
 ### Plan-Generierung (`generatePlan()`)
 
