@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 30. Juni 2026 (Lauf-Aktivitätsdetail: sportartabhängige Darstellung, Pace statt km/h, Km-Splits-Tabelle, laps_json-Cache)
+> Letzte Aktualisierung: 30. Juni 2026 (Coach-Prompt: Du-Form-Pflicht — niemals dritte Person)
 
 ---
 
@@ -734,7 +734,7 @@ Siehe Kapitel 18 für Details zur Coach-Architektur.
 **`buildCoachSystemPrompt(athleteId)`** (Hauptcoach — async, dynamisch):
 - Lädt bei jedem Aufruf Athleten-Profil + A-Event aus Supabase (inkl. `gender`, `birth_year`, `resting_hr`)
 - Dynamische Abschnitte: Name, Geschlecht, Alter, Gewicht, Leistungsgewicht (W/kg), FTP, Max HF (gemessen od. geschätzt: Tanaka-Formel 208−0.7×Alter), Ruhe-HF, HF-Reserve (Karvonen), Sportarten, Equipment, Ästhetik-Ziele, Coach-Stil/Fokus, Saisonziel, Wochen-Countdown, aktuelle Phase, HF-Zonen, Pace-Referenz
-- Statische Abschnitte: Coaching-Prinzipien (8 Regeln), Datennutzung, Review-Format, Antwortformat
+- Statische Abschnitte: Coaching-Prinzipien (8 Regeln), Datennutzung, Review-Format, Antwortformat (inkl. Du-Form-Pflicht: niemals über den Athleten in der dritten Person)
 - Hilfsfunktionen in `coachContext.ts` (exportiert):
   - `calculateSeasonPhase(weeksUntilEvent, override)` — Phase aus Wochen-Countdown oder manuellem Override
   - `calculateHRZones(maxHR, restingHR?)` — Z1–Z5: Karvonen-Methode wenn `restingHR` vorhanden, sonst %-Methode als Fallback
