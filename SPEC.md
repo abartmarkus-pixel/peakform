@@ -457,7 +457,7 @@ Strava OAuth Token Exchange & Refresh — STRAVA_CLIENT_SECRET bleibt server-sei
   - Trainingstage reduzieren → Amber-Warnung wenn `totalDays > trainingDaysNum`; kein Auto-Save
 
 *LEISTUNGSDATEN:*
-- Max HF (bpm): immer sichtbar
+- Max HF (bpm): immer sichtbar; "Tanaka berechnen"-Button neben dem Feld (nur sichtbar wenn Geburtsjahr eingetragen); Button triggert direkten Save ohne Debounce; Hint: "Gemessener Wert empfohlen. Ohne Wert: Tanaka-Formel (208 − 0.7 × Alter) als Schätzung."
 - Ruheherzfrequenz (bpm): immer sichtbar, Hint: "Morgens vor dem Aufstehen messen"
 - Gewicht (kg): immer sichtbar
 - FTP (W): nur wenn cycling aktiv
@@ -717,7 +717,7 @@ Siehe Kapitel 18 für Details zur Coach-Architektur.
 
 **`buildCoachSystemPrompt(athleteId)`** (Hauptcoach — async, dynamisch):
 - Lädt bei jedem Aufruf Athleten-Profil + A-Event aus Supabase (inkl. `gender`, `birth_year`, `resting_hr`)
-- Dynamische Abschnitte: Name, Geschlecht, Alter, Gewicht, Leistungsgewicht (W/kg), FTP, Max HF (gemessen od. geschätzt: 220−Alter), Ruhe-HF, HF-Reserve (Karvonen), Sportarten, Equipment, Ästhetik-Ziele, Coach-Stil/Fokus, Saisonziel, Wochen-Countdown, aktuelle Phase, HF-Zonen, Pace-Referenz
+- Dynamische Abschnitte: Name, Geschlecht, Alter, Gewicht, Leistungsgewicht (W/kg), FTP, Max HF (gemessen od. geschätzt: Tanaka-Formel 208−0.7×Alter), Ruhe-HF, HF-Reserve (Karvonen), Sportarten, Equipment, Ästhetik-Ziele, Coach-Stil/Fokus, Saisonziel, Wochen-Countdown, aktuelle Phase, HF-Zonen, Pace-Referenz
 - Statische Abschnitte: Coaching-Prinzipien (8 Regeln), Datennutzung, Review-Format, Antwortformat
 - Hilfsfunktionen in `coachContext.ts` (exportiert):
   - `calculateSeasonPhase(weeksUntilEvent, override)` — Phase aus Wochen-Countdown oder manuellem Override

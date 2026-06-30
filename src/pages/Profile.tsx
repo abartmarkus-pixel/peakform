@@ -446,6 +446,30 @@ export default function Profile() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name, gender, birthYear, ftpWatts, maxHr, restingHr, weightKg, best5kInput, trainingDays, sportConfigs, hasSportViolation, bodyGoals, personaStyle, personaFocus, equipment, aestheticGoals, seasonPhaseOverride])
 
+  // ── Tanaka direct save ──────────────────────────────────────────────────
+
+  async function applyTanakaMaxHR() {
+    if (!birthYear || !athlete) return
+    const age = new Date().getFullYear() - parseInt(birthYear)
+    const estimated = Math.round(208 - (0.7 * age))
+    const estimatedStr = estimated.toString()
+
+    if (debounce.current) clearTimeout(debounce.current)
+    setMaxHr(estimatedStr)
+
+    const now = new Date().toISOString()
+    setSaveState('saving')
+    await supabase.from('athletes').update({
+      max_hr: estimated,
+      max_hr_updated_at: now,
+    }).eq('id', athlete.id)
+
+    origMaxHr.current = estimatedStr
+    setMaxHrUpdatedAt(now)
+    setSaveState('saved')
+    setTimeout(() => setSaveState('idle'), 2000)
+  }
+
   // ── sport helpers ───────────────────────────────────────────────────────
 
   function toggleSport(key: string) {
@@ -747,8 +771,21 @@ export default function Profile() {
         >
           <div className="flex flex-col gap-4">
             <div>
-              <NumberField label="Max HF" value={maxHr} onChange={setMaxHr} unit="bpm" placeholder="185" />
+              <div className="flex items-end gap-3">
+                <div className="flex-1">
+                  <NumberField label="Max HF" value={maxHr} onChange={setMaxHr} unit="bpm" placeholder="185" />
+                </div>
+                {birthYear && (
+                  <button
+                    onClick={applyTanakaMaxHR}
+                    className="text-xs text-brand-400 hover:text-brand-300 underline whitespace-nowrap pb-2"
+                  >
+                    Tanaka berechnen
+                  </button>
+                )}
+              </div>
               <UpdatedAt updatedAt={maxHrUpdatedAt} staleDays={365} />
+              <p className="text-xs text-slate-500 mt-1">Gemessener Wert empfohlen. Ohne Wert: Tanaka-Formel (208 − 0.7 × Alter) als Schätzung.</p>
             </div>
             <div>
               <NumberField label="Ruheherzfrequenz" value={restingHr} onChange={setRestingHr} unit="bpm" placeholder="z.B. 52" />

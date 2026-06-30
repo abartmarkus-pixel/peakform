@@ -143,7 +143,8 @@ export async function buildCoachSystemPrompt(athleteId: string): Promise<string>
   const age = (athlete as { birth_year?: number | null } | null)?.birth_year
     ? new Date().getFullYear() - ((athlete as { birth_year: number }).birth_year)
     : null
-  const estimatedMaxHR = age ? 220 - age : null
+  // Tanaka et al. (2001), präziser für Ausdauersportler als 220-Alter
+  const estimatedMaxHR = age ? Math.round(208 - (0.7 * age)) : null
   const effectiveMaxHR = (athlete?.max_hr ?? estimatedMaxHR) ?? 182
   const restingHR = (athlete as { resting_hr?: number | null } | null)?.resting_hr ?? null
   const wPerKg = (athlete?.ftp_watts && athlete?.weight_kg)
@@ -174,7 +175,7 @@ export async function buildCoachSystemPrompt(athleteId: string): Promise<string>
     athlete?.ftp_watts ? `FTP: ${athlete.ftp_watts} W`                                                                          : null,
     athlete?.max_hr
       ? `Max HF: ${athlete.max_hr} bpm (gemessen)`
-      : (estimatedMaxHR ? `Max HF: ${estimatedMaxHR} bpm (geschätzt: 220 − Alter)` : null),
+      : (estimatedMaxHR ? `Max HF: ${estimatedMaxHR} bpm (geschätzt: Tanaka-Formel)` : null),
     restingHR          ? `Ruhe-HF: ${restingHR} bpm`                                                                            : null,
     hrReserve          ? `HF-Reserve: ${hrReserve} bpm (Karvonen-Methode verfügbar)`                                            : null,
     `Aktive Sportarten: ${formatSportTypes(athlete?.sport_types as SportConfig[] | null)}`,
