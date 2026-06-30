@@ -5,6 +5,7 @@ import { buildCoachContext } from '../lib/coachContext'
 import { buildCoachSystemPrompt } from '../lib/coachPrompt'
 import { IconChat, IconSend, IconRefresh } from '../lib/icons'
 import { AppHeader } from '../components/AppHeader'
+import { useFeatures } from '../lib/features'
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -84,7 +85,9 @@ export default function Chat() {
         .eq('strava_athlete_id', Number(stravaId))
         .single()
       if (!athleteData) { navigate('/'); return }
-      setAthlete(athleteData as Athlete)
+      const a = athleteData as Athlete
+      if (!useFeatures(a).coach_chat) { navigate('/dashboard', { replace: true }); return }
+      setAthlete(a)
 
       const { data: msgs } = await supabase
         .from('chat_messages')

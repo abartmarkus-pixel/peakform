@@ -9,6 +9,7 @@ import {
 } from '../lib/icons'
 import { SPORT_DISPLAY } from '../lib/icons'
 import { AppHeader } from '../components/AppHeader'
+import { useFeatures } from '../lib/features'
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -52,6 +53,7 @@ export default function Dashboard() {
   const [error,            setError]            = useState<string | null>(null)
 
   const [athleteId,        setAthleteId]        = useState<string | null>(null)
+  const [athlete,          setAthlete]          = useState<Athlete | null>(null)
 
   // alert state
   const [alert,            setAlert]            = useState<{ message: string } | null>(null)
@@ -70,8 +72,10 @@ export default function Dashboard() {
       .single()
       .then(async ({ data, error: dbError }) => {
         if (dbError || !data) { navigate('/'); return }
-        const athlete = data as Athlete
-        setAthleteId(athlete.id)
+        const athleteRow = data as Athlete
+        setAthlete(athleteRow)
+        setAthleteId(athleteRow.id)
+        const athlete = athleteRow
 
         try {
           const token = await getValidAccessToken(athlete)
@@ -194,10 +198,11 @@ oder
     )
   }
 
+  const features = useFeatures(athlete)
   const FILTER_BUTTONS: [string, JSX.Element][] = [
-    ['WeightTraining', <IconStrength size={16} />],
-    ['Ride',          <IconCycling  size={16} />],
-    ['Run',           <IconRunning  size={16} />],
+    ...(features.strength  ? [['WeightTraining', <IconStrength size={16} />] as [string, JSX.Element]] : []),
+    ...(features.cycling   ? [['Ride',           <IconCycling  size={16} />] as [string, JSX.Element]] : []),
+    ['Run', <IconRunning size={16} />],
   ]
 
   function handleLogout() {

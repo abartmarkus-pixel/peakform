@@ -1,19 +1,40 @@
+import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   IconHome, IconPlan, IconChat, IconGoals, IconProfile,
 } from '../lib/icons'
+import { supabase, type Athlete } from '../lib/supabase'
+import { useFeatures, DEFAULT_FEATURES, type FeatureFlags } from '../lib/features'
 
-const TABS = [
-  { path: '/dashboard', Icon: IconHome,    label: 'Home'   },
-  { path: '/plan',      Icon: IconPlan,    label: 'Plan'   },
-  { path: '/chat',      Icon: IconChat,    label: 'Coach'  },
-  { path: '/goals',     Icon: IconGoals,   label: 'Ziele'  },
-  { path: '/profile',   Icon: IconProfile, label: 'Profil' },
-]
+const ALL_TABS = [
+  { path: '/dashboard', Icon: IconHome,    label: 'Home',   featureKey: null            },
+  { path: '/plan',      Icon: IconPlan,    label: 'Plan',   featureKey: 'weekly_plan'   },
+  { path: '/chat',      Icon: IconChat,    label: 'Coach',  featureKey: 'coach_chat'    },
+  { path: '/goals',     Icon: IconGoals,   label: 'Ziele',  featureKey: 'goals'         },
+  { path: '/profile',   Icon: IconProfile, label: 'Profil', featureKey: null            },
+] as const
 
 export default function BottomNav() {
   const { pathname } = useLocation()
   const navigate     = useNavigate()
+  const [features, setFeatures] = useState<FeatureFlags>(DEFAULT_FEATURES)
+
+  useEffect(() => {
+    const stravaId = localStorage.getItem('athlete_strava_id')
+    if (!stravaId) return
+    supabase
+      .from('athletes')
+      .select('features')
+      .eq('strava_athlete_id', Number(stravaId))
+      .single()
+      .then(({ data }) => {
+        if (data) setFeatures(useFeatures(data as unknown as Athlete))
+      })
+  }, [])
+
+  const tabs = ALL_TABS.filter(t =>
+    t.featureKey === null || features[t.featureKey as keyof FeatureFlags]
+  )
 
   return (
     <nav
@@ -21,7 +42,7 @@ export default function BottomNav() {
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
       <div className="flex max-w-2xl mx-auto">
-        {TABS.map(({ path, Icon, label }) => {
+        {tabs.map(({ path, Icon, label }) => {
           const active = pathname.startsWith(path)
           return (
             <button

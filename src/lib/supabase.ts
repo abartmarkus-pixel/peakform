@@ -51,6 +51,12 @@ export type Athlete = {
   max_hr_updated_at: string | null
   weight_updated_at: string | null
   best_5k_updated_at: string | null
+  // Personal data fields
+  gender: 'male' | 'female' | 'diverse' | null
+  birth_year: number | null
+  resting_hr: number | null
+  // Feature flags
+  features: Record<string, boolean> | null
 }
 
 export type SeasonGoal = {

@@ -131,6 +131,8 @@ export async function restoreSessionFromSupabase(): Promise<boolean> {
     const stravaId = String(data.strava_athlete_id)
     localStorage.setItem('athlete_strava_id', stravaId)
     sessionStorage.setItem('athlete_strava_id', stravaId)
+    // Set RLS context after successful session restore
+    void supabase.rpc('set_athlete_context', { athlete_id: stravaId })
     return true
   } catch {
     return false
@@ -159,7 +161,11 @@ export async function syncActivitiesToSupabase(
 }
 
 // Returns a valid access token, refreshing automatically if expired (with 60s buffer).
+// Also sets the athlete context for RLS policies.
 export async function getValidAccessToken(athlete: Athlete): Promise<string> {
+  // Set RLS context for this session (best-effort; effective in session-mode pooling)
+  void supabase.rpc('set_athlete_context', { athlete_id: String(athlete.strava_athlete_id) })
+
   const expiresAt = athlete.expires_at ? new Date(athlete.expires_at).getTime() : 0
   const isExpired = Date.now() >= expiresAt - 60_000
 

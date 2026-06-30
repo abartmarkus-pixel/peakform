@@ -117,7 +117,7 @@ export async function buildCoachSystemPrompt(athleteId: string): Promise<string>
   const [{ data: athlete }, { data: goalRows }] = await Promise.all([
     supabase
       .from('athletes')
-      .select('name, ftp_watts, max_hr, weight_kg, sport_types, coach_persona, body_goals, aesthetic_goals, equipment, season_phase_override, best_5k_seconds')
+      .select('name, ftp_watts, max_hr, weight_kg, sport_types, coach_persona, body_goals, aesthetic_goals, equipment, season_phase_override, best_5k_seconds, gender, birth_year, resting_hr')
       .eq('id', athleteId)
       .single(),
     supabase
@@ -139,7 +139,19 @@ export async function buildCoachSystemPrompt(athleteId: string): Promise<string>
     : 99
 
   const phase    = calculateSeasonPhase(weeksUntilEvent, athlete?.season_phase_override ?? null)
-  const hrZones  = calculateHRZones(athlete?.max_hr ?? 182)
+
+  const age = (athlete as { birth_year?: number | null } | null)?.birth_year
+    ? new Date().getFullYear() - ((athlete as { birth_year: number }).birth_year)
+    : null
+  const estimatedMaxHR = age ? 220 - age : null
+  const effectiveMaxHR = (athlete?.max_hr ?? estimatedMaxHR) ?? 182
+  const restingHR = (athlete as { resting_hr?: number | null } | null)?.resting_hr ?? null
+  const wPerKg = (athlete?.ftp_watts && athlete?.weight_kg)
+    ? (athlete.ftp_watts / (athlete.weight_kg as number)).toFixed(2)
+    : null
+  const hrReserve = (effectiveMaxHR && restingHR) ? effectiveMaxHR - restingHR : null
+
+  const hrZones  = calculateHRZones(effectiveMaxHR, restingHR)
   const paceRef  = calculatePaceReference(
     athlete?.best_5k_seconds ?? null,
     primaryGoal?.distance_km ?? 8,
@@ -149,12 +161,22 @@ export async function buildCoachSystemPrompt(athleteId: string): Promise<string>
 
   // ── dynamic sections ────────────────────────────────────────────────────
 
+  const genderLabel: Record<string, string> = { male: 'Männlich', female: 'Weiblich', diverse: 'Divers' }
+  const athleteGender = (athlete as { gender?: string | null } | null)?.gender
+
   const athleteSection = [
     `## DEIN ATHLET`,
     athlete?.name      ? `Name: ${athlete.name}`                                                                                 : null,
-    athlete?.ftp_watts ? `FTP: ${athlete.ftp_watts} W`                                                                          : null,
-    athlete?.max_hr    ? `Max HF: ${athlete.max_hr} bpm`                                                                        : null,
+    athleteGender      ? `Geschlecht: ${genderLabel[athleteGender] ?? athleteGender}`                                           : `Geschlecht: nicht angegeben`,
+    age                ? `Alter: ${age} Jahre`                                                                                   : `Alter: nicht angegeben`,
     athlete?.weight_kg ? `Gewicht: ${athlete.weight_kg} kg`                                                                     : null,
+    wPerKg             ? `Leistungsgewicht: ${wPerKg} W/kg`                                                                     : null,
+    athlete?.ftp_watts ? `FTP: ${athlete.ftp_watts} W`                                                                          : null,
+    athlete?.max_hr
+      ? `Max HF: ${athlete.max_hr} bpm (gemessen)`
+      : (estimatedMaxHR ? `Max HF: ${estimatedMaxHR} bpm (geschätzt: 220 − Alter)` : null),
+    restingHR          ? `Ruhe-HF: ${restingHR} bpm`                                                                            : null,
+    hrReserve          ? `HF-Reserve: ${hrReserve} bpm (Karvonen-Methode verfügbar)`                                            : null,
     `Aktive Sportarten: ${formatSportTypes(athlete?.sport_types as SportConfig[] | null)}`,
     `Körperziele: ${(athlete?.body_goals as string[] | null)?.join(', ') ?? '—'}`,
     `Ästhetik-Prioritäten: ${formatAestheticGoals(athlete?.aesthetic_goals as AestheticGoals | null, athlete?.body_goals as string[] | null)}`,

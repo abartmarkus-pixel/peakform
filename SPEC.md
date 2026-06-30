@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 29. Juni 2026 (Splash-Screen: Bär-Bild zentriert 80% Breite max-w-sm, CSS peakform-pulse Animation, kein PeakForm Logo)
+> Letzte Aktualisierung: 30. Juni 2026 (Nutzerdaten: gender, birth_year, resting_hr; Feature-Flags; Karvonen HF-Zonen; RLS Multi-User-Vorbereitung)
 
 ---
 
@@ -87,6 +87,8 @@ peakform/
 │   └── lib/
 │       ├── supabase.ts        # Supabase Client + TypeScript-Types
 │       ├── strava.ts          # OAuth URL, Token Exchange/Refresh via /api/strava-token, Activities, Streams, Laps
+│       │                        getValidAccessToken(): setzt set_athlete_context RPC (RLS-Vorbereitung)
+│       ├── features.ts        # FeatureFlags Interface, DEFAULT_FEATURES, useFeatures(athlete)
 │       ├── icons.ts           # Zentrale Icon-Exports (FA6 via react-icons/fa6) + SPORT_DISPLAY Konstante
 │       │                        SPORT_DISPLAY: { cycling, running, strength, rest } → { color, label }
 │       ├── coachContext.ts    # buildCoachContext(athleteId, threadId?) — 7 Abschnitte, alle parallel
@@ -158,6 +160,12 @@ ftp_updated_at        TIMESTAMPTZ DEFAULT NULL -- Zeitpunkt der letzten FTP-Eing
 max_hr_updated_at     TIMESTAMPTZ DEFAULT NULL -- Zeitpunkt der letzten Max HF-Eingabe
 weight_updated_at     TIMESTAMPTZ DEFAULT NULL -- Zeitpunkt der letzten Gewicht-Eingabe
 best_5k_updated_at    TIMESTAMPTZ DEFAULT NULL -- Zeitpunkt der letzten 5k-Bestzeit-Eingabe
+-- Persönliche Daten
+gender                TEXT CHECK (gender IN ('male', 'female', 'diverse')) DEFAULT NULL
+birth_year            INTEGER CHECK (birth_year BETWEEN 1940 AND 2010) DEFAULT NULL
+resting_hr            INTEGER CHECK (resting_hr BETWEEN 30 AND 100) DEFAULT NULL
+-- Feature-Flags
+features              JSONB DEFAULT '{"cycling":true,"running":true,"strength":true,"body_checkin":true,"weekly_plan":true,"coach_chat":true,"goals":true}'
 created_at            TIMESTAMPTZ
 ```
 
@@ -434,7 +442,10 @@ Strava OAuth Token Exchange & Refresh — STRAVA_CLIENT_SECRET bleibt server-sei
 
 **Sektionsinhalte:**
 
-*ALLGEMEIN:* Name (Textfeld)
+*ALLGEMEIN:*
+- Name (Textfeld)
+- Geschlecht: Segmented Control (Männlich / Weiblich / Divers) → speichert `'male'|'female'|'diverse'`
+- Geburtsjahr: Number Input (1940–2010), Hint: "Wird für Altersberechnung und Max HF Schätzung verwendet"
 
 *TRAINING:*
 - Trainingstage pro Woche: Button-Grid 1–7
@@ -447,6 +458,7 @@ Strava OAuth Token Exchange & Refresh — STRAVA_CLIENT_SECRET bleibt server-sei
 
 *LEISTUNGSDATEN:*
 - Max HF (bpm): immer sichtbar
+- Ruheherzfrequenz (bpm): immer sichtbar, Hint: "Morgens vor dem Aufstehen messen"
 - Gewicht (kg): immer sichtbar
 - FTP (W): nur wenn cycling aktiv
 - 5k Bestzeit (MM:SS): nur wenn running aktiv — konvertiert zu/von `best_5k_seconds`
@@ -465,7 +477,15 @@ Strava OAuth Token Exchange & Refresh — STRAVA_CLIENT_SECRET bleibt server-sei
 - Segmented Control: Auto | Readaptation | Grundlage | Wettkampf | Taper
 - Amber-Hinweis wenn Override aktiv
 
-*KRAFTTRAINING (nur wenn `hasStrength`):*
+**Feature-Gates (via `useFeatures(athlete)` aus `src/lib/features.ts`):**
+- Sportart-Pill Radfahren: nur wenn `features.cycling`
+- Sportart-Pill Krafttraining: nur wenn `features.strength`
+- Laufen ist immer sichtbar (Basis-Feature)
+- KRAFTTRAINING-Sektion: nur wenn `hasStrength && features.strength`
+- Dashboard Filter-Button WeightTraining: nur wenn `features.strength`
+- Dashboard Filter-Button Radfahren: nur wenn `features.cycling`
+
+*KRAFTTRAINING (nur wenn `hasStrength && features.strength`):*
 - **Teil A — Equipment:** Checkboxen (Kurzhanteln / Bänder / Körpergewicht / Klimmzugstange + Gym als Mutex)
   - Bei Kurzhanteln aktiv: Number-Input `bis X kg`
   - Gym aktiv → alle anderen disabled + ausgegraut
@@ -696,12 +716,12 @@ Siehe Kapitel 18 für Details zur Coach-Architektur.
 **Implementierter Stand:**
 
 **`buildCoachSystemPrompt(athleteId)`** (Hauptcoach — async, dynamisch):
-- Lädt bei jedem Aufruf Athleten-Profil + A-Event aus Supabase
-- Dynamische Abschnitte: Name, FTP, Max HF, Gewicht, Sportarten, Equipment, Ästhetik-Ziele, Coach-Stil/Fokus, Saisonziel, Wochen-Countdown, aktuelle Phase, HF-Zonen, Pace-Referenz
+- Lädt bei jedem Aufruf Athleten-Profil + A-Event aus Supabase (inkl. `gender`, `birth_year`, `resting_hr`)
+- Dynamische Abschnitte: Name, Geschlecht, Alter, Gewicht, Leistungsgewicht (W/kg), FTP, Max HF (gemessen od. geschätzt: 220−Alter), Ruhe-HF, HF-Reserve (Karvonen), Sportarten, Equipment, Ästhetik-Ziele, Coach-Stil/Fokus, Saisonziel, Wochen-Countdown, aktuelle Phase, HF-Zonen, Pace-Referenz
 - Statische Abschnitte: Coaching-Prinzipien (8 Regeln), Datennutzung, Review-Format, Antwortformat
 - Hilfsfunktionen in `coachContext.ts` (exportiert):
   - `calculateSeasonPhase(weeksUntilEvent, override)` — Phase aus Wochen-Countdown oder manuellem Override
-  - `calculateHRZones(maxHR)` — Z1–Z5 aus Max HF berechnet
+  - `calculateHRZones(maxHR, restingHR?)` — Z1–Z5: Karvonen-Methode wenn `restingHR` vorhanden, sonst %-Methode als Fallback
   - `calculatePaceReference(best5kSeconds, targetEventKm)` — Zielpace, Z2-Tempo, Schwellenpace aus 5k-PB
 - Wird bei JEDEM Claude-Call als `system`-Parameter übergeben (alle 4 Consumer: ActivityDetail, Chat, WeeklyPlan, Dashboard)
 
@@ -856,6 +876,23 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 - `athletes.season_phase_override` + `athletes.best_5k_seconds` — neue DB-Felder (Migration angewendet)
 - Trainingsphase-Sektion in Profile.tsx mit Segmented Control (Auto/Override)
 
+**Nutzerdaten & Feature-Flags:**
+- `athletes.gender`, `athletes.birth_year`, `athletes.resting_hr` — neue DB-Felder (Migration angewendet)
+- `athletes.features JSONB` — Feature-Flags pro User (Migration angewendet)
+- `src/lib/features.ts`: `FeatureFlags`, `DEFAULT_FEATURES`, `useFeatures()`
+- Profil ALLGEMEIN: Geschlecht (Segmented Control) + Geburtsjahr (Number Input)
+- Profil LEISTUNGSDATEN: Ruheherzfrequenz nach Max HF
+- BottomNav: selbst-ladendes Feature-Gate (Plan/Coach/Ziele bedingt)
+- Dashboard: Filter-Buttons Rad/Kraft bedingt
+- WeeklyPlan/Chat/Goals: Redirect zu /dashboard wenn Feature disabled
+- `buildCoachSystemPrompt`: Alter, W/kg, HF-Reserve, Karvonen-Zonen wenn `resting_hr` vorhanden
+
+**Multi-User Vorbereitung (RLS):**
+- `set_athlete_context` Supabase-Funktion (SECURITY DEFINER)
+- RLS-Policies auf allen 6 Tabellen (athletes, activities, season_goals, weekly_plans, coach_decisions, chat_messages)
+- `getValidAccessToken()` + `restoreSessionFromSupabase()`: fire-and-forget `set_athlete_context` RPC
+- Hinweis: pgBouncer Transaction Mode limitiert die Effektivität (Session-Variablen persistent nur in Session Mode)
+
 **Sicherheit:**
 - STRAVA_CLIENT_SECRET nie im Browser-Bundle
 - ANTHROPIC_API_KEY nie im Browser-Bundle
@@ -883,13 +920,110 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 
 ---
 
-## 17. Supabase-Projektdetails
+## 17. Feature-Flags
+
+Feature-Flags steuern pro User welche Funktionen sichtbar und zugänglich sind. Keine eigene Verwaltungs-UI — Flags werden direkt in Supabase gesetzt.
+
+### Felder
+
+```typescript
+// src/lib/features.ts
+interface FeatureFlags {
+  cycling: boolean      // Radfahren Tab/Filter/Sportart-Pill
+  running: boolean      // immer true — Basis-Feature, nicht abschaltbar per UI
+  strength: boolean     // Krafttraining Tab/Filter/Sportart-Pill/Sektion
+  body_checkin: boolean // reserviert für zukünftigen Body-Check-in
+  weekly_plan: boolean  // /plan Route (Redirect zu /dashboard wenn false)
+  coach_chat: boolean   // /chat Route (Redirect zu /dashboard wenn false)
+  goals: boolean        // /goals Route (Redirect zu /dashboard wenn false)
+}
+```
+
+### Feature-Flags per User anpassen
+
+1. Supabase Dashboard → Table Editor → athletes
+2. Zeile des Users finden (via `name` oder `strava_athlete_id`)
+3. `features` Spalte editieren (JSON direkt im Table Editor)
+4. Speichern — wirkt sofort beim nächsten App-Load
+
+**Beispiel Nur-Lauf-User:**
+```json
+{
+  "cycling": false,
+  "running": true,
+  "strength": false,
+  "body_checkin": false,
+  "weekly_plan": true,
+  "coach_chat": true,
+  "goals": true
+}
+```
+
+### Auswirkungen
+
+| Flag | Effekt bei `false` |
+|---|---|
+| `cycling` | Kein Rad-Tab in BottomNav; kein Rad-Filter im Dashboard; kein Radfahren-Pill in Profil |
+| `strength` | Kein Krafttraining-Pill; KRAFTTRAINING-Sektion versteckt; kein Kraft-Filter im Dashboard |
+| `weekly_plan` | `/plan` → Redirect zu `/dashboard` |
+| `coach_chat` | `/chat` → Redirect zu `/dashboard` |
+| `goals` | `/goals` → Redirect zu `/dashboard` |
+
+### Implementierung
+
+- `src/lib/features.ts`: `FeatureFlags` Interface, `DEFAULT_FEATURES` (alle true), `useFeatures(athlete)` Funktion
+- `useFeatures(athlete)`: merged DEFAULT_FEATURES mit `athlete.features` aus DB (Spread — neue Flags haben automatisch default true)
+- `BottomNav.tsx`: selbst-lädt features aus Supabase (einmalig per mount); filtert Tabs
+- Seiten mit Redirect: laden athlete inkl. features und navigieren zu `/dashboard` wenn Feature disabled
+
+---
+
+## 18. Multi-User Vorbereitung (RLS)
+
+Datentrennung via PostgreSQL Row Level Security. Basis für zukünftigen Multi-User-Betrieb.
+
+### Konzept
+
+Die App nutzt kein Supabase Auth. Als Ersatz wird `app.strava_athlete_id` als PostgreSQL-Session-Variable gesetzt und in RLS-Policies referenziert.
+
+**Einschränkung:** Supabase verwendet pgBouncer im Transaction Mode. Session-Variablen (via `set_config`) sind in diesem Modus nicht persistent über Requests hinweg. Die Policies sind daher eine Vorbereitung für Session-Mode-Pooling oder direkten DB-Zugriff (Multi-User-Implementierung würde Supabase Auth oder eigene JWT-Claims erfordern).
+
+### Supabase Funktion
+
+```sql
+CREATE OR REPLACE FUNCTION set_athlete_context(athlete_id TEXT)
+RETURNS void AS $$
+BEGIN
+  PERFORM set_config('app.strava_athlete_id', athlete_id, false);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+```
+
+### RLS Policies
+
+Alle 6 Datentabellen haben restrictive Policies:
+- `athletes`: `strava_athlete_id = NULLIF(current_setting('app.strava_athlete_id', true), '')::bigint`
+- Alle anderen: `athlete_id IN (SELECT id FROM athletes WHERE strava_athlete_id = ...)`
+
+### Client-seitige Aktivierung
+
+In `src/lib/strava.ts`:
+- `getValidAccessToken()`: ruft `set_athlete_context` als fire-and-forget vor Token-Rückgabe
+- `restoreSessionFromSupabase()`: ruft `set_athlete_context` nach Restore des stravaId
+
+```typescript
+void supabase.rpc('set_athlete_context', { athlete_id: String(athlete.strava_athlete_id) })
+```
+
+---
+
+## 19. Supabase-Projektdetails
 
 - **Name:** peakform
 - **Project ID:** `thjihbyyelqrrvdinzti`
 - **URL:** `https://thjihbyyelqrrvdinzti.supabase.co`
 - **Region:** eu-central-1
-- **RLS:** Aktiv auf allen Tabellen, aktuell offene Policy (kein auth.uid()-Binding)
+- **RLS:** Aktiv auf allen Tabellen; Policy basiert auf `app.strava_athlete_id` Session-Variable via `set_athlete_context()` RPC (siehe Kapitel 18)
 
 ---
 

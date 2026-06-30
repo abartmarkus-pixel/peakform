@@ -64,8 +64,19 @@ export function calculateSeasonPhase(
   return PHASE_LABELS.taper
 }
 
-/** Berechnet HF-Zonen-Text aus Max HF. */
-export function calculateHRZones(maxHR: number): string {
+/** Berechnet HF-Zonen-Text aus Max HF. Karvonen-Methode wenn restingHR vorhanden. */
+export function calculateHRZones(maxHR: number, restingHR?: number | null): string {
+  if (restingHR) {
+    const hrr = maxHR - restingHR
+    return [
+      `Z1 Regeneration:    < ${Math.round(hrr * 0.60 + restingHR)} bpm`,
+      `Z2 Grundlage:       ${Math.round(hrr * 0.60 + restingHR)}–${Math.round(hrr * 0.75 + restingHR)} bpm`,
+      `Z3 Tempo:           ${Math.round(hrr * 0.75 + restingHR)}–${Math.round(hrr * 0.85 + restingHR)} bpm`,
+      `Z4 Schwelle:        ${Math.round(hrr * 0.85 + restingHR)}–${Math.round(hrr * 0.92 + restingHR)} bpm`,
+      `Z5 VO2max:          > ${Math.round(hrr * 0.92 + restingHR)} bpm`,
+      `(Karvonen-Methode, Ruhe-HF ${restingHR} bpm)`,
+    ].join('\n')
+  }
   return [
     `Z1 Regeneration:    < ${Math.round(maxHR * 0.70)} bpm`,
     `Z2 Grundlage:       ${Math.round(maxHR * 0.70)}–${Math.round(maxHR * 0.81)} bpm`,

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { supabase, type SeasonGoal } from '../lib/supabase'
+import { supabase, type SeasonGoal, type Athlete } from '../lib/supabase'
 import { IconAdd, IconEdit, IconMissed, IconGoals } from '../lib/icons'
 import { AppHeader } from '../components/AppHeader'
+import { useFeatures } from '../lib/features'
 
 // ── types & constants ──────────────────────────────────────────────────────
 
@@ -80,10 +81,11 @@ export default function Goals() {
     ;(async () => {
       const { data: athleteData } = await supabase
         .from('athletes')
-        .select('id')
+        .select('id, features')
         .eq('strava_athlete_id', Number(stravaId))
         .single()
       if (!athleteData) { setLoading(false); return }
+      if (!useFeatures(athleteData as unknown as Athlete).goals) { navigate('/dashboard', { replace: true }); return }
 
       setAthleteId(athleteData.id)
       const { data: goalsData } = await supabase

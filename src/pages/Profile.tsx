@@ -31,6 +31,7 @@ import {
 } from '../lib/supabase'
 import { calculateSeasonPhase } from '../lib/coachContext'
 import { AppHeader } from '../components/AppHeader'
+import { useFeatures } from '../lib/features'
 
 // ── constants ──────────────────────────────────────────────────────────────
 
@@ -247,8 +248,11 @@ export default function Profile() {
 
   // form state
   const [name,               setName]              = useState('')
+  const [gender,             setGender]            = useState<'male' | 'female' | 'diverse' | null>(null)
+  const [birthYear,          setBirthYear]          = useState('')
   const [ftpWatts,           setFtpWatts]          = useState('')
   const [maxHr,              setMaxHr]             = useState('')
+  const [restingHr,          setRestingHr]         = useState('')
   const [weightKg,           setWeightKg]          = useState('')
   const [best5kInput,        setBest5kInput]        = useState('')
   const [best5kError,        setBest5kError]        = useState<string | null>(null)
@@ -305,8 +309,11 @@ export default function Profile() {
       const a = data as Athlete
       setAthlete(a)
       setName(a.name ?? '')
+      setGender(a.gender ?? null)
+      setBirthYear(a.birth_year?.toString() ?? '')
       setFtpWatts(a.ftp_watts?.toString() ?? '')
       setMaxHr(a.max_hr?.toString() ?? '')
+      setRestingHr(a.resting_hr?.toString() ?? '')
       setWeightKg(a.weight_kg?.toString() ?? '')
       if (a.best_5k_seconds) {
         const m = Math.floor(a.best_5k_seconds / 60)
@@ -398,8 +405,11 @@ export default function Profile() {
 
       const updatePayload: Record<string, unknown> = {
         name:                   name.trim() || null,
+        gender:                 gender,
+        birth_year:             birthYear ? parseInt(birthYear) : null,
         ftp_watts:              newFtp,
         max_hr:                 newMaxHr,
+        resting_hr:             restingHr ? parseInt(restingHr) : null,
         weight_kg:              newWeight,
         best_5k_seconds:        newBest5k,
         training_days_per_week: trainingDays ? parseInt(trainingDays) : null,
@@ -434,7 +444,7 @@ export default function Profile() {
       setTimeout(() => setSaveState('idle'), 2000)
     }, 800)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name, ftpWatts, maxHr, weightKg, best5kInput, trainingDays, sportConfigs, hasSportViolation, bodyGoals, personaStyle, personaFocus, equipment, aestheticGoals, seasonPhaseOverride])
+  }, [name, gender, birthYear, ftpWatts, maxHr, restingHr, weightKg, best5kInput, trainingDays, sportConfigs, hasSportViolation, bodyGoals, personaStyle, personaFocus, equipment, aestheticGoals, seasonPhaseOverride])
 
   // ── sport helpers ───────────────────────────────────────────────────────
 
@@ -502,8 +512,9 @@ export default function Profile() {
     }))
   }
 
+  const features      = useFeatures(athlete)
   const showAesthetic = bodyGoals.includes('Nackt gut ausschauen')
-  const hasStrength   = sportConfigs.some(s => s.type === 'strength')
+  const hasStrength   = sportConfigs.some(s => s.type === 'strength') && features.strength
 
   // ── subtitle computations ───────────────────────────────────────────────
 
@@ -587,15 +598,52 @@ export default function Profile() {
           open={generalOpen}
           onToggle={() => setGeneralOpen(o => !o)}
         >
-          <div>
-            <label className="text-xs text-slate-400 mb-1 block">Name</label>
-            <input
-              type="text"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              placeholder="Dein Vorname"
-              className="bg-slate-700 text-slate-100 rounded-xl px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-brand-500 placeholder:text-slate-500"
-            />
+          <div className="flex flex-col gap-4">
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Name</label>
+              <input
+                type="text"
+                value={name}
+                onChange={e => setName(e.target.value)}
+                placeholder="Dein Vorname"
+                className="bg-slate-700 text-slate-100 rounded-xl px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-brand-500 placeholder:text-slate-500"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs text-slate-400 mb-2 block">Geschlecht</label>
+              <div className="flex gap-2">
+                {(['male', 'female', 'diverse'] as const).map(g => (
+                  <button
+                    key={g}
+                    type="button"
+                    onClick={() => setGender(gender === g ? null : g)}
+                    className={`flex-1 py-2 rounded-xl text-sm font-medium transition-colors ${
+                      gender === g
+                        ? 'bg-brand-500/20 text-brand-400 ring-1 ring-brand-500'
+                        : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                    }`}
+                  >
+                    {g === 'male' ? 'Männlich' : g === 'female' ? 'Weiblich' : 'Divers'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Geburtsjahr</label>
+              <input
+                type="number"
+                value={birthYear}
+                onChange={e => setBirthYear(e.target.value)}
+                placeholder="z.B. 1982"
+                min={1940}
+                max={2010}
+                step={1}
+                className="bg-slate-700 text-slate-100 rounded-xl px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-brand-500 placeholder:text-slate-500"
+              />
+              <p className="text-xs text-slate-500 mt-1">Wird für Altersberechnung und Max HF Schätzung verwendet</p>
+            </div>
           </div>
         </AccordionSection>
 
@@ -628,7 +676,10 @@ export default function Profile() {
           <div>
             <label className="text-xs text-slate-400 mb-2 block">Sportarten</label>
             <div className="flex flex-wrap gap-2">
-              {SPORT_OPTIONS.map(({ key, Icon, color, label }) => {
+              {SPORT_OPTIONS.filter(opt =>
+                (opt.key !== 'cycling'  || features.cycling) &&
+                (opt.key !== 'strength' || features.strength)
+              ).map(({ key, Icon, color, label }) => {
                 const isActive = sportConfigs.some(s => s.type === key)
                 return (
                   <button
@@ -698,6 +749,10 @@ export default function Profile() {
             <div>
               <NumberField label="Max HF" value={maxHr} onChange={setMaxHr} unit="bpm" placeholder="185" />
               <UpdatedAt updatedAt={maxHrUpdatedAt} staleDays={365} />
+            </div>
+            <div>
+              <NumberField label="Ruheherzfrequenz" value={restingHr} onChange={setRestingHr} unit="bpm" placeholder="z.B. 52" />
+              <p className="text-xs text-slate-500 mt-1">Morgens vor dem Aufstehen messen</p>
             </div>
             <div>
               <NumberField label="Gewicht" value={weightKg} onChange={setWeightKg} unit="kg" placeholder="70" />

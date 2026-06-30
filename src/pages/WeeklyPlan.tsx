@@ -11,6 +11,7 @@ import {
   SPORT_DISPLAY,
 } from '../lib/icons'
 import { AppHeader } from '../components/AppHeader'
+import { useFeatures } from '../lib/features'
 
 // ── types ──────────────────────────────────────────────────────────────────
 
@@ -300,7 +301,12 @@ export default function WeeklyPlan() {
       .select('*')
       .eq('strava_athlete_id', Number(stravaId))
       .single()
-      .then(({ data }) => setAthlete(data as Athlete))
+      .then(({ data }) => {
+        if (!data) return
+        const a = data as Athlete
+        if (!useFeatures(a).weekly_plan) { navigate('/dashboard', { replace: true }); return }
+        setAthlete(a)
+      })
   }, [navigate])
 
   // load plan + week activities whenever week changes (with Strava mini-sync)
