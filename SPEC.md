@@ -789,7 +789,7 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 
 **Branding / Assets:**
 - Favicon-Set in public/: favicon-16.png, favicon-32.png, apple-touch-icon.png (180×180), icon-192.png, icon-512.png
-- PWA Manifest Icons: icon-192.png (standard + maskable), icon-512.png
+- PWA Manifest Icons: apple-touch-icon.png (180×180), icon-192.png (standard + maskable), icon-512.png
 - Logo: public/peakform-logo.png (1x) + peakform-logo@2x.png (Retina) — im AppHeader + Splash + Home.tsx
 - Home-Hintergrund: keiner — Home.tsx nutzt bg-slate-900 (splash-bg.jpg entfernt)
 - Splash-Screen: App.tsx zeigt splash.png zentriert (80% Breite, max-w-sm) NUR wenn eingeloggt; bg-slate-900; CSS peakform-pulse; kein Logo; 2000ms + 400ms Fade-out
