@@ -435,7 +435,7 @@ export async function buildSpecialistContext(
   }
 
   // ── Strength ──────────────────────────────────────────────────────────────
-  const [{ data: athleteRow }, { data: acts }] = await Promise.all([
+  const [{ data: athleteRow }, { data: acts }, { data: checkins }] = await Promise.all([
     supabase
       .from('athletes')
       .select('equipment, aesthetic_goals, body_goals')
@@ -449,6 +449,13 @@ export async function buildSpecialistContext(
       .gte('date', twoMonthsAgo)
       .order('date', { ascending: false })
       .limit(5),
+    supabase
+      .from('body_checkins')
+      .select('date, claude_feedback')
+      .eq('athlete_id', athleteId)
+      .not('claude_feedback', 'is', null)
+      .order('date', { ascending: false })
+      .limit(3),
   ])
 
   const contextLines: string[] = []
@@ -480,11 +487,18 @@ export async function buildSpecialistContext(
     return `${a.date.slice(0, 10)}: ${a.name}${snippet}`
   })
 
+  const checkinLines = (checkins ?? []).map(c =>
+    `${c.date}: ${(c.claude_feedback as string).slice(0, 300)}`
+  )
+
   return [
     '[KRAFT-KONTEXT]',
     ...contextLines,
     '',
     `Letzte ${sessionLines.length} Kraft-Sessions:`,
     sessionLines.length ? sessionLines.join('\n') : 'Keine Sessions in den letzten 60 Tagen.',
+    '',
+    '[LETZTE BODY CHECK-INS]',
+    checkinLines.length ? checkinLines.join('\n') : 'Keine Body Check-ins vorhanden.',
   ].join('\n')
 }

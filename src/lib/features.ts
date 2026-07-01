@@ -24,3 +24,13 @@ export function useFeatures(athlete: Athlete | null): FeatureFlags {
   if (!athlete?.features) return DEFAULT_FEATURES
   return { ...DEFAULT_FEATURES, ...(athlete.features as Partial<FeatureFlags>) }
 }
+
+/** Body-Check-in ist sichtbar wenn Feature-Flag aktiv, Krafttraining gewählt und ein Ästhetik-Körperziel gesetzt ist. */
+export function canBodyCheckin(athlete: Athlete | null): boolean {
+  if (!athlete) return false
+  if (!useFeatures(athlete).body_checkin) return false
+  const hasStrength = (athlete.sport_types ?? []).some(s => s.type === 'strength')
+  if (!hasStrength) return false
+  const bodyGoals = athlete.body_goals ?? []
+  return bodyGoals.includes('Muskelaufbau') || bodyGoals.includes('Gewicht reduzieren')
+}

@@ -9,11 +9,12 @@ import Goals from './pages/Goals'
 import WeeklyPlan from './pages/WeeklyPlan'
 import Chat from './pages/Chat'
 import Onboarding from './pages/Onboarding'
+import BodyCheckin from './pages/BodyCheckin'
 import BottomNav from './components/BottomNav'
 import { restoreSessionFromSupabase } from './lib/strava'
 import { supabase } from './lib/supabase'
 
-const NO_NAV_PATHS = ['/', '/auth/callback', '/onboarding']
+const NO_NAV_PATHS = ['/', '/auth/callback', '/onboarding', '/body-checkin']
 const PUBLIC_PATHS = ['/', '/auth/callback']
 
 function Layout() {
@@ -84,6 +85,7 @@ function Layout() {
         <Route path="/plan" element={<WeeklyPlan />} />
         <Route path="/chat" element={<Chat />} />
         <Route path="/onboarding" element={<Onboarding />} />
+        <Route path="/body-checkin" element={<BodyCheckin />} />
       </Routes>
       {showNav && <BottomNav />}
 

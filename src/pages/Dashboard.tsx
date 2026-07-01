@@ -5,11 +5,13 @@ import { fetchRecentActivities, getValidAccessToken, syncActivitiesToSupabase, t
 import { supabase, type Athlete } from '../lib/supabase'
 import { buildCoachSystemPrompt } from '../lib/coachPrompt'
 import {
-  IconLogout, IconRunning, IconCycling, IconStrength, IconWarning,
+  IconLogout, IconRunning, IconCycling, IconStrength, IconWarning, IconCamera,
 } from '../lib/icons'
 import { SPORT_DISPLAY } from '../lib/icons'
 import { AppHeader } from '../components/AppHeader'
-import { useFeatures } from '../lib/features'
+import { useFeatures, canBodyCheckin } from '../lib/features'
+
+const BODY_CHECKIN_DUE_DAYS = 6
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -60,6 +62,7 @@ export default function Dashboard() {
   const [alertDismissed,   setAlertDismissed]   = useState(false)
   const [planModal,        setPlanModal]        = useState<{ loading: boolean; content: string | null } | null>(null)
   const [currentPlanJson,  setCurrentPlanJson]  = useState<Record<string, unknown> | null>(null)
+  const [bodyCheckinDue,   setBodyCheckinDue]   = useState(false)
 
   useEffect(() => {
     const stravaId = localStorage.getItem('athlete_strava_id')
@@ -76,6 +79,18 @@ export default function Dashboard() {
         setAthlete(athleteRow)
         setAthleteId(athleteRow.id)
         const athlete = athleteRow
+
+        if (canBodyCheckin(athlete)) {
+          const { data: lastCheckin } = await supabase
+            .from('body_checkins')
+            .select('date')
+            .eq('athlete_id', athlete.id)
+            .order('date', { ascending: false })
+            .limit(1)
+          const last = lastCheckin?.[0]
+          const daysSince = last ? Math.floor((Date.now() - new Date(last.date).getTime()) / (24 * 60 * 60 * 1000)) : null
+          setBodyCheckinDue(daysSince === null || daysSince > BODY_CHECKIN_DUE_DAYS)
+        }
 
         try {
           const token = await getValidAccessToken(athlete)
@@ -248,6 +263,17 @@ oder
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Body Check-in Reminder Banner ──────────────────────── */}
+      {bodyCheckinDue && (
+        <Link
+          to="/body-checkin"
+          className="bg-brand-500/10 border border-brand-500/30 rounded-xl p-4 mb-5 flex items-center gap-3 hover:bg-brand-500/15 transition-colors"
+        >
+          <IconCamera size={18} className="text-brand-400 shrink-0" />
+          <p className="text-sm text-brand-200">Wöchentlicher Check-in ausstehend</p>
+        </Link>
       )}
 
       <div className="flex items-center justify-between mb-3">

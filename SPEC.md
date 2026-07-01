@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 1. Juli 2026 (Verpflichtender Onboarding-Flow für neue User — 6-Schritte-Wizard, läuft einmalig nach dem ersten Strava-Login)
+> Letzte Aktualisierung: 1. Juli 2026 (Body Check-in Feature — wöchentlicher Foto-Vergleich mit Claude Vision gegen Ästhetik-Ziele und Vorwoche; FTP/W-kg kontextuelle Blindheit strukturell erzwungen via activeSport-Parameter)
 
 ---
 
@@ -50,10 +50,14 @@ PeakForm ist eine PWA (Progressive Web App) die als KI-Trainingscoach fungiert. 
 peakform/
 ├── api/
 │   ├── analyse.ts          # Vercel Serverless Function — Claude API Proxy
-│   │                         Params: { prompt, max_tokens?, system? }
-│   │                         Limits: 80.000 Zeichen, max_tokens Cap 4.096
-│   └── strava-token.ts     # Vercel Serverless Function — Strava OAuth Token Exchange/Refresh
-│                             STRAVA_CLIENT_SECRET ausschließlich server-seitig
+│   │                         Params: { prompt, max_tokens?, system?, images? }
+│   │                         Limits: 80.000 Zeichen, max_tokens Cap 4.096, max. 10 Bilder, max. 2M Base64-Zeichen/Bild
+│   ├── strava-token.ts     # Vercel Serverless Function — Strava OAuth Token Exchange/Refresh
+│   │                         STRAVA_CLIENT_SECRET ausschließlich server-seitig
+│   ├── body-checkin-upload.ts # Vercel Serverless Function — Foto-Upload in body-checkins Storage Bucket
+│   │                         SUPABASE_SERVICE_ROLE_KEY ausschließlich server-seitig (Bucket hat keine anon-Policy)
+│   └── body-checkin-url.ts # Vercel Serverless Function — Signed URLs für Vorwoche-Fotos (60s TTL)
+│                             SUPABASE_SERVICE_ROLE_KEY ausschließlich server-seitig
 ├── public/
 │   ├── peakform-logo.png        # Schriftzug Header (1x, max 320×80)
 │   ├── peakform-logo@2x.png     # Schriftzug Header (2x Retina)
@@ -65,7 +69,7 @@ peakform/
 │   ├── splash.png               # PWA Splash 1024×1024
 │   └── splash-bg.jpg            # Home.tsx Hintergrundbild, max 1200px, JPEG 80%
 ├── src/
-│   ├── App.tsx             # Router (9 Routen) + Layout-Wrapper mit BottomNav
+│   ├── App.tsx             # Router (10 Routen) + Layout-Wrapper mit BottomNav
 │   │                       # Splash-Screen: NUR wenn eingeloggt (athlete_strava_id in localStorage/sessionStorage)
 │   │                       # Dauer: 2000ms + 400ms Fade-out; bg-slate-900; splash.png zentriert 80% Breite, CSS peakform-pulse; kein Logo
 │   │                       # Session-Guard: nach Session-Herstellung wird athletes.onboarding_completed geprüft
@@ -85,23 +89,30 @@ peakform/
 │   │   ├── Goals.tsx          # Saison-Ziele A/B/C + Countdown + Add/Edit-Modal; AppHeader mit "+" rechts
 │   │   ├── WeeklyPlan.tsx     # Wochenplan-Generator + Constraint-Validierung + Review
 │   │   │                      # Wochen-Navigation: Prev | Datum (center) | Next (right) — keine Versionsnummer
-│   │   └── Chat.tsx           # Globaler Coach-Chat mit Supabase-Persistenz
-│   │                          # AppHeader mit "Neu"-Button rechts; Container: mt-[72px], h=calc(100vh-136px)
+│   │   ├── Chat.tsx           # Globaler Coach-Chat mit Supabase-Persistenz
+│   │   │                      # AppHeader mit "Neu"-Button rechts; Container: mt-[72px], h=calc(100vh-136px)
+│   │   └── BodyCheckin.tsx    # Wöchentlicher Foto-Check-in + Claude Vision Vergleich (siehe Kapitel 9)
+│   │                          # Nicht in BottomNav — nur über Dashboard-Banner + Profil-Button erreichbar
 │   └── lib/
 │       ├── supabase.ts        # Supabase Client + TypeScript-Types
 │       ├── strava.ts          # OAuth URL, Token Exchange/Refresh via /api/strava-token, Activities, Streams, Laps
 │       │                        getValidAccessToken(): setzt set_athlete_context RPC (RLS-Vorbereitung)
-│       ├── features.ts        # FeatureFlags Interface, DEFAULT_FEATURES, useFeatures(athlete)
+│       ├── features.ts        # FeatureFlags Interface, DEFAULT_FEATURES, useFeatures(athlete), canBodyCheckin(athlete)
 │       ├── icons.ts           # Zentrale Icon-Exports (FA6 via react-icons/fa6) + SPORT_DISPLAY Konstante
 │       │                        SPORT_DISPLAY: { cycling, running, strength, rest } → { color, label }
 │       ├── dateUtils.ts       # ISO 8601 Datums-Helpers (Woche beginnt Montag, Sonntag ist letzter Tag)
 │       │                        getISOMonday(date): Date — Montag der Woche in Lokalzeit
 │       │                        getISOSunday(monday): Date — Sonntag 23:59:59.999 in Lokalzeit
 │       │                        formatWeekRange(monday): string — z. B. "29.6. – 5.7.2026"
-│       ├── coachContext.ts    # buildCoachContext(athleteId, threadId?) — 7 Abschnitte, alle parallel
+│       ├── coachContext.ts    # buildCoachContext(athleteId, threadId?, activeSport?) — 7 Abschnitte, alle parallel
 │       │                        buildSpecialistContext(athleteId, sport) — sportart-spezifische Historien
-│       └── coachPrompt.ts     # buildCoachSystemPrompt(athleteId): Promise<string> (Hauptcoach, dynamisch aus DB)
-│                                LAUF_COACH_PROMPT | RAD_COACH_PROMPT | KRAFT_COACH_PROMPT (Spezialcoaches, statisch)
+│       │                        (strength: inkl. [LETZTE BODY CHECK-INS])
+│       ├── coachPrompt.ts     # buildCoachSystemPrompt(athleteId, activeSport?): Promise<string> (Hauptcoach, dynamisch aus DB)
+│       │                        LAUF_COACH_PROMPT | RAD_COACH_PROMPT | KRAFT_COACH_PROMPT (Spezialcoaches, statisch)
+│       ├── imageUtils.ts      # compressImage(file, maxWidth?, quality?): Promise<Blob> — Canvas-Kompression zu JPEG
+│       │                        blobToBase64(blob): Promise<string> — Base64 ohne data:-Prefix
+│       └── markdown.tsx       # renderMarkdown(text): React.ReactNode[] — geteilter Markdown-Lite-Renderer
+│                                (h1-h3, Bullets, Blockquotes, **fett**, HR; genutzt von ActivityDetail + BodyCheckin)
 ├── vite.config.ts          # PWA-Config + /api/analyse + /api/strava-token Middleware für lokales Dev
 ├── vercel.json             # SPA Rewrites + SW Cache-Header
 └── .env                    # Credentials (nicht committen)
@@ -319,6 +330,27 @@ created_at  TIMESTAMPTZ
 
 ---
 
+### body_checkins
+```sql
+id               UUID PRIMARY KEY DEFAULT gen_random_uuid()
+athlete_id       UUID NOT NULL → athletes.id
+date             DATE NOT NULL DEFAULT CURRENT_DATE
+photos           JSONB NOT NULL DEFAULT '{}'   -- {"front"?: path, "side"?: path, "back"?: path} — mind. 1, nicht alle 3 Pflicht
+weight_kg        DECIMAL
+claude_feedback  TEXT               -- Vision-Analyse-Text, nach dem Insert per UPDATE nachgetragen
+notes            TEXT
+created_at       TIMESTAMPTZ DEFAULT now()
+```
+
+RLS: gleiches Muster wie alle anderen Tabellen (`"open"` Policy `qual: true` + `"body_checkins_own"` Session-Variablen-Policy für Multi-User-Vorbereitung, siehe Kapitel 18 Multi-User-RLS).
+
+**Storage Bucket `body-checkins`** (Supabase Storage):
+- `public: false`, Pfad-Schema: `{athlete_id}/{date}/{front|side|back}.jpg`
+- **Keine `storage.objects` RLS-Policy für die `anon`-Rolle** — der Bucket ist damit für den Browser komplett unerreichbar (default-deny). Zugriff ausschließlich über die Serverless Functions `api/body-checkin-upload.ts` (Upload) und `api/body-checkin-url.ts` (Signed URLs, 60s TTL), beide mit `SUPABASE_SERVICE_ROLE_KEY` (bypasst RLS grundsätzlich, nie im Browser-Bundle)
+- Diese striktere Kapselung ist eine bewusste Abweichung vom „offenen" Trust-Modell der übrigen Tabellen — Fotos sind sensibler als Trainingsdaten
+
+---
+
 ## 6. Umgebungsvariablen
 
 ```bash
@@ -329,8 +361,9 @@ VITE_STRAVA_CLIENT_ID=260874
 VITE_STRAVA_REDIRECT_URI=https://peakform-wheat.vercel.app/auth/callback
 
 # Server-seitig (kein VITE_ Prefix → niemals im Browser-Bundle)
-STRAVA_CLIENT_SECRET=...      # nur in /api/strava-token
-ANTHROPIC_API_KEY=...         # nur in /api/analyse
+STRAVA_CLIENT_SECRET=...         # nur in /api/strava-token
+ANTHROPIC_API_KEY=...            # nur in /api/analyse
+SUPABASE_SERVICE_ROLE_KEY=...    # nur in /api/body-checkin-upload + /api/body-checkin-url (bypasst RLS)
 ```
 
 ---
@@ -342,9 +375,11 @@ Claude API Proxy — niemals direkt vom Browser aufrufen.
 
 **Request:**
 ```json
-{ "prompt": "...", "max_tokens": 1024, "system": "..." }
+{ "prompt": "...", "max_tokens": 1024, "system": "...", "images": [{ "base64": "...", "mediaType": "image/jpeg", "label": "Aktuell — Frontal" }] }
 ```
-**Limits:** Prompt max 80.000 Zeichen, max_tokens Cap 4.096  
+`images` ist optional (Claude Vision Support für Body Check-in). Content-Blocks werden dann als `[label?, image, label?, image, ..., prompt]` an die Anthropic Messages API gebaut (Label-Text direkt vor dem zugehörigen Bild). Ohne `images` bleibt `content` ein reiner String wie bisher.
+
+**Limits:** Prompt max 80.000 Zeichen, max_tokens Cap 4.096, max. 10 Bilder, max. 2.000.000 Base64-Zeichen pro Bild  
 **Response:** `{ "text": "..." }`  
 **Modell:** `claude-sonnet-4-6`
 
@@ -356,6 +391,24 @@ Strava OAuth Token Exchange & Refresh — STRAVA_CLIENT_SECRET bleibt server-sei
 **Request (Exchange):** `{ "grant_type": "authorization_code", "code": "..." }`  
 **Request (Refresh):** `{ "grant_type": "refresh_token", "refresh_token": "..." }`  
 **Response:** Strava Token Response (access_token, refresh_token, expires_at, athlete)
+
+---
+
+### POST `/api/body-checkin-upload`
+Lädt ein komprimiertes Check-in-Foto in den `body-checkins` Storage Bucket — SUPABASE_SERVICE_ROLE_KEY bleibt server-seitig (Bucket hat keine anon-Policy, siehe Kapitel 5).
+
+**Request:** `{ "athleteId": "...", "date": "YYYY-MM-DD", "perspective": "front"|"side"|"back", "base64": "...", "mediaType": "image/jpeg" }`  
+**Limits:** max. 2.000.000 Base64-Zeichen, `mediaType` muss `image/jpeg` sein  
+**Response:** `{ "path": "{athleteId}/{date}/{perspective}.jpg" }`
+
+---
+
+### POST `/api/body-checkin-url`
+Stellt Signed URLs für vorhandene Check-in-Fotos aus (für den Vorwoche-Vergleich) — SUPABASE_SERVICE_ROLE_KEY bleibt server-seitig.
+
+**Request:** `{ "paths": ["athleteId/date/front.jpg", ...] }`  
+**Limits:** max. 10 Pfade, TTL 60 Sekunden  
+**Response:** `{ "urls": { "athleteId/date/front.jpg": "https://...", ... } }`
 
 ---
 
@@ -372,6 +425,7 @@ Strava OAuth Token Exchange & Refresh — STRAVA_CLIENT_SECRET bleibt server-sei
 | `/goals` | Goals.tsx | Saison-Ziele verwalten |
 | `/plan` | WeeklyPlan.tsx | Wochenplan generieren + Review |
 | `/chat` | Chat.tsx | Globaler Coach-Chat |
+| `/body-checkin` | BodyCheckin.tsx | Wöchentlicher Foto-Check-in + Claude Vision; nicht über BottomNav erreichbar |
 
 ---
 
@@ -590,6 +644,28 @@ Verpflichtender Wizard, läuft **einmalig** nach dem ersten Strava-Login. Kein S
 - Textarea: auto-resize bis max 128px; Enter = senden, Shift+Enter = neue Zeile
 - Typing-Indicator (3 springende Dots) während API-Call
 
+### BodyCheckin.tsx
+
+Wöchentlicher Foto-Check-in mit Claude Vision Vergleich gegen die Vorwoche. Kein AppHeader-Logout, nicht in BottomNav — nur über Dashboard-Banner und Profil-Button erreichbar (Kapitel 7).
+
+**Sichtbarkeit** (`canBodyCheckin(athlete)` in `features.ts`): `features.body_checkin === true` UND `'strength'` in `sport_types` UND (`'Muskelaufbau'` ODER `'Gewicht reduzieren'` in `body_goals`). Guard läuft im `useEffect` der Seite selbst (wie bei WeeklyPlan/Chat/Goals) — bei Nichterfüllung `navigate('/dashboard', { replace: true })`, unabhängig vom normalen Session-Guard in `App.tsx`.
+
+**UI:** 3 Upload-Slots (Frontal/Seitlich/Hinten, `<input type="file" accept="image/*" capture="user">`), je optional — mindestens 1 Foto Pflicht für "Check-in abschließen". Optionales Gewicht- und Notizfeld.
+
+**Flow bei "Check-in abschließen":**
+1. Jedes ausgewählte Foto: `compressImage()` (Canvas, maxWidth 1024, JPEG 80%) → `blobToBase64()` → POST `/api/body-checkin-upload` → Storage-Pfad zurück
+2. `body_checkins` INSERT (photos JSONB nur mit hochgeladenen Pfaden, weight_kg, notes)
+3. `loadPreviousCheckin()`: letzter `body_checkins`-Eintrag vor heute mit ≥1 Foto (direkte Supabase-Query, `body_checkins` hat offene RLS-Policy)
+4. Falls vorhanden: Fotos der Vorwoche via `/api/body-checkin-url` (Signed URLs, 60s TTL) laden, als Blob fetchen, zu Base64 konvertieren
+5. Claude-Vision-Call (`/api/analyse`, `system: KRAFT_COACH_PROMPT`, `max_tokens: 1000`): `images` = aktuelle Fotos (Label `"Aktuell — {Perspektive}"`) + Vorwoche-Fotos (Label `"Vorwoche ({date}) — {Perspektive}"`); Prompt enthält Ästhetik-Prioritäten, Notizen, Körperziel aus dem Athleten-Profil
+6. Response → UPDATE `body_checkins.claude_feedback` auf den neu erstellten Eintrag
+7. Erfolgsbildschirm zeigt das Claude-Feedback gerendert (`renderMarkdown()`) an, sonst generische Erfolgsmeldung falls der Vision-Call fehlschlägt (Check-in selbst gilt trotzdem als gespeichert — Vision ist best-effort, kein Blocker)
+8. Loading-State: `phase` = `'uploading'` → `'analysing'` (Button-Label wechselt entsprechend)
+
+**Dashboard-Banner** (`Dashboard.tsx`): Wenn `canBodyCheckin(athlete)` und letzter `body_checkins`-Eintrag >6 Tage her oder gar keiner existiert → Banner "📸 Wöchentlicher Check-in ausstehend" (brand-farben, analog zum Echtzeit-Alert-Banner-Stil), Tap → `/body-checkin`. Prüfung läuft unabhängig vom Strava-Sync (auch bei dessen Fehlschlag sichtbar).
+
+**Profil-Button** (`Profile.tsx`, KRAFTTRAINING-Sektion): "Foto-Check-in starten" am Ende der Sektion, sichtbar wenn `features.body_checkin && hasStrength && showAesthetic` (gleiche Kopplung wie die Ästhetik-Ziele-Unterseektion) — bewusst nicht zusätzlich vom 6-Tage-Timer abhängig, für jederzeitige On-Demand-Check-ins.
+
 ---
 
 ## 10. Wochenplan-Architektur (WeeklyPlan.tsx)
@@ -788,6 +864,9 @@ sport = 'strength':
   Ästhetik-Prioritäten aus athletes.aesthetic_goals (nur wenn "Muskelaufbau" oder "Gewicht reduzieren" in body_goals)
   Letzte 5 WeightTraining/Workout Aktivitäten (60 Tage)
   Datum | Name | Description-Snippet (max 200 Zeichen)
+  [LETZTE BODY CHECK-INS]: letzte 3 body_checkins mit claude_feedback IS NOT NULL
+  Format: "{date}: {claude_feedback, max 300 Zeichen}" — fließt automatisch in jede
+  zukünftige Krafttraining-Analyse ein (der Kraftcoach sieht ob sein Plan sichtbar wirkt)
 ```
 
 ---
@@ -966,6 +1045,8 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 - `calculateSeasonPhase()`, `calculateHRZones()`, `calculatePaceReference()` — exportierte Helpers in coachContext.ts
 - `athletes.season_phase_override` + `athletes.best_5k_seconds` — neue DB-Felder (Migration angewendet)
 - Trainingsphase-Sektion in Profile.tsx mit Segmented Control (Auto/Override)
+- **Body Check-in** (BodyCheckin.tsx, Kapitel 9): 3 Foto-Slots (Frontal/Seitlich/Hinten, min. 1 Pflicht), Canvas-Kompression (imageUtils.ts), `body_checkins`-Tabelle + privater Storage Bucket (kein anon-Zugriff, nur via Service-Role-Serverless-Functions), Claude Vision Vergleich mit Vorwoche über `/api/analyse` `images`-Parameter, Ergebnis fließt in `buildSpecialistContext('strength')` als `[LETZTE BODY CHECK-INS]` ein
+- `activeSport`-Parameter in `buildCoachSystemPrompt()` + `buildCoachContext()`: FTP/W-kg technisch aus dem Kontext entfernt bei Lauf-/Kraft-fokussierten Analysen (kontextuelle Blindheit strukturell statt nur per Prompt-Anweisung)
 
 **Nutzerdaten & Feature-Flags:**
 - `athletes.gender`, `athletes.birth_year`, `athletes.resting_hr` — neue DB-Felder (Migration angewendet)
@@ -998,7 +1079,7 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 - **Supabase Auth / Multi-User-Login** — kein Registrierungsformular, kein E-Mail/Passwort-Login; nur Strava OAuth
 - **Dynamischer System-Prompt** — ✅ Implementiert: `buildCoachSystemPrompt(athleteId)` lädt Athleten-Daten + A-Event aus Supabase; HF-Zonen, Pace-Referenz und Saison-Phase werden dynamisch berechnet
 - **Hevy API-Integration** — Hevy-Daten kommen ausschließlich via Strava description; kein `hevy_api_key`, keine eigene `strength_workouts`-Tabelle
-- **Body Check-in** — kein Foto-Upload, keine Claude Vision, keine body_checkins-Tabelle, keine PWA-Erinnerung
+- **Body Check-in** ✅ — Foto-Upload + Claude Vision + `body_checkins`-Tabelle implementiert (siehe Kapitel 9). Fehlt weiterhin: PWA-Push-Erinnerung (nur In-App-Banner, kein Push)
 - **Kraftcoach-Ästhetik-Bewertung** — Equipment + aesthetic_goals werden zwar als Kontext mitgeschickt, aber es gibt kein automatisches Übungs-Matching / Lücken-Identifikation (Phase D aus Kap. 18)
 - **Aktivitäts-Matching** ✅ — DayCards zeigen Status completed/missed/pending; Tap auf completed → ActivityDetail
 - **Recovery-Extraktion für bestehende Analysen** — ✅ Behoben: ActivityDetail prüft beim Laden einer bestehenden `claude_analysis` ob bereits ein `coach_decisions`-Eintrag mit `related_activity_id = act.id` und `decision_type = 'recovery_required'` existiert. Falls nicht → fire-and-forget Extraction wird nachträglich getriggert.
@@ -1023,7 +1104,7 @@ interface FeatureFlags {
   cycling: boolean      // Radfahren Tab/Filter/Sportart-Pill
   running: boolean      // immer true — Basis-Feature, nicht abschaltbar per UI
   strength: boolean     // Krafttraining Tab/Filter/Sportart-Pill/Sektion
-  body_checkin: boolean // reserviert für zukünftigen Body-Check-in
+  body_checkin: boolean // /body-checkin Sichtbarkeit (zusätzlich zu strength + Ästhetik-Körperziel, siehe canBodyCheckin())
   weekly_plan: boolean  // /plan Route (Redirect zu /dashboard wenn false)
   coach_chat: boolean   // /chat Route (Redirect zu /dashboard wenn false)
   goals: boolean        // /goals Route (Redirect zu /dashboard wenn false)
@@ -1056,6 +1137,7 @@ interface FeatureFlags {
 |---|---|
 | `cycling` | Kein Rad-Tab in BottomNav; kein Rad-Filter im Dashboard; kein Radfahren-Pill in Profil |
 | `strength` | Kein Krafttraining-Pill; KRAFTTRAINING-Sektion versteckt; kein Kraft-Filter im Dashboard |
+| `body_checkin` | `/body-checkin` → Redirect zu `/dashboard`; Dashboard-Banner + Profil-Button ausgeblendet (zusätzlich zu strength + Ästhetik-Ziel-Bedingung) |
 | `weekly_plan` | `/plan` → Redirect zu `/dashboard` |
 | `coach_chat` | `/chat` → Redirect zu `/dashboard` |
 | `goals` | `/goals` → Redirect zu `/dashboard` |
@@ -1066,6 +1148,7 @@ interface FeatureFlags {
 - `useFeatures(athlete)`: merged DEFAULT_FEATURES mit `athlete.features` aus DB (Spread — neue Flags haben automatisch default true)
 - `BottomNav.tsx`: selbst-lädt features aus Supabase (einmalig per mount); filtert Tabs
 - Seiten mit Redirect: laden athlete inkl. features und navigieren zu `/dashboard` wenn Feature disabled
+- `canBodyCheckin(athlete)`: kombiniert `useFeatures(athlete).body_checkin` mit `'strength' in sport_types` und Ästhetik-Körperziel — genutzt in `BodyCheckin.tsx` (Guard), `Dashboard.tsx` (Banner) und `Profile.tsx` (Button)
 
 ---
 
@@ -1270,11 +1353,12 @@ Falls die Lauf-Aktivität eigene Leistungsdaten (Watt) liefert, sind diese Werte
   "Ersetze in Workout II die Beinpresse durch Hip Thrusts 4×10 — direkterer Po-Fokus, gleiche Belastung"
 - Berücksichtigt verfügbares Equipment bei jedem Vorschlag
 
-**Foto-Check-in Integration (zukünftig):**
-- Wertet wöchentliche Fortschrittsfotos aus (Claude Vision)
-- Vergleicht aktuell vs. Vorwoche
-- Bezieht Ästhetik-Ziele in die Bewertung ein
+**Foto-Check-in Integration ✅ implementiert (BodyCheckin.tsx, Kapitel 9):**
+- Wertet wöchentliche Fortschrittsfotos aus (Claude Vision über `/api/analyse` `images`-Parameter)
+- Vergleicht aktuell vs. Vorwoche (Bild-Labels "Aktuell — {Perspektive}" / "Vorwoche ({date}) — {Perspektive}")
+- Bezieht Ästhetik-Prioritäten, Freitext-Notizen und Körperziel aus dem Athleten-Profil in den Prompt ein
 - Gibt konkretes visuelles Feedback zu Fortschritt der priorisierten Muskelgruppen
+- `claude_feedback` fließt über `buildSpecialistContext('strength')` (`[LETZTE BODY CHECK-INS]`, letzte 3 Einträge) in jede zukünftige Krafttraining-Analyse ein
 
 ---
 
@@ -1380,4 +1464,13 @@ Beschreibung: siehe 18.3. Claude-basierter Check (nicht heuristisch-JS), einmal 
 - Automatisches Übungs-Matching zu Ästhetik-Prioritäten
 - Lücken-Identifikation (Muskelgruppen die in Workout I/II/III fehlen)
 - Konkrete Ersetzungsvorschläge mit Equipment-Filter
-- (Foto-Check-in / Claude Vision: Langfrist-Feature)
+
+**Phase E — Body Check-in ✅ DONE**
+- `body_checkins`-Tabelle + privater Storage Bucket (`body-checkins`, kein anon-Zugriff, siehe Kapitel 5)
+- `api/body-checkin-upload.ts` + `api/body-checkin-url.ts`: Service-Role-only Serverless Functions für Upload und Signed URLs
+- `src/lib/imageUtils.ts`: `compressImage()` (Canvas → JPEG, maxWidth 1024, Quality 0.8) + `blobToBase64()`
+- `/api/analyse.ts`: `images`-Parameter für Claude Vision (multimodale Content-Blocks)
+- `BodyCheckin.tsx`: 3-Slot-Upload-UI, Vorwoche-Vergleich, Claude-Feedback-Anzeige (siehe Kapitel 9)
+- Einstiegspunkte: Dashboard-Banner (6-Tage-Timer) + Profil-Button (KRAFTTRAINING-Sektion, ohne Timer)
+- `buildSpecialistContext('strength')`: `[LETZTE BODY CHECK-INS]`-Block (letzte 3 Einträge mit `claude_feedback`)
+- Fehlt weiterhin: PWA-Push-Erinnerung (aktuell nur In-App-Banner)
