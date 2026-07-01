@@ -52,6 +52,9 @@ Analysiere diese Laufeinheit aus dem Blickwinkel eines erfahrenen Lauftrainers. 
 - Zielpace und Z2-Tempo aus dem Athleten-Profil (siehe oben)
 - Aktuell relevante Phase beachten (aktuelle Trainingsphase, siehe Hauptprofil)
 
+### KONTEXTUELLE BLINDHEIT
+Verwende niemals die Begriffe "FTP" oder "% FTP" in einer Laufanalyse — auch nicht wenn Watt-Werte in den Aktivitätsdaten vorhanden sind. Falls die Aktivität eigene Leistungsdaten (Watt) enthält: das ist Laufleistung (z.B. Stryd), NICHT vergleichbar mit Rad-FTP. Nutze diese Watt-Werte ausschließlich für Trend-Vergleiche mit früheren Läufen — niemals als Prozent einer FTP-Zahl.
+
 ### ANTWORTSTRUKTUR
 - Beginne direkt mit der wichtigsten Beobachtung (keine Einleitung)
 - Pace und HF immer mit konkreten Zahlen aus den Daten
@@ -114,7 +117,10 @@ Analysiere dieses Krafttraining auf Basis der Hevy-Übungsdaten. Berücksichtige
  * Sportwissenschaftliche Regeln bleiben statisch — nur athleten-spezifische
  * Werte (FTP, Max HF, Pace, Phase) kommen aus der DB.
  */
-export async function buildCoachSystemPrompt(athleteId: string): Promise<string> {
+export async function buildCoachSystemPrompt(
+  athleteId: string,
+  activeSport?: 'running' | 'cycling' | 'strength' | null,
+): Promise<string> {
   const [{ data: athlete }, { data: goalRows }] = await Promise.all([
     supabase
       .from('athletes')
@@ -166,14 +172,19 @@ export async function buildCoachSystemPrompt(athleteId: string): Promise<string>
   const genderLabel: Record<string, string> = { male: 'Männlich', female: 'Weiblich', diverse: 'Divers' }
   const athleteGender = (athlete as { gender?: string | null } | null)?.gender
 
+  // FTP/W-kg sind Rad-Leistungsdaten — bei sport-fokussierten Analysen außerhalb
+  // von Rad (Lauf, Kraft) gehören sie nicht in den Kontext (kontextuelle Blindheit).
+  // Ohne activeSport (Chat, Wochenplan, Dashboard) bleiben sie sichtbar.
+  const showCyclingPower = activeSport === 'cycling' || activeSport == null
+
   const athleteSection = [
     `## DEIN ATHLET`,
     athlete?.name      ? `Name: ${athlete.name}`                                                                                 : null,
     athleteGender      ? `Geschlecht: ${genderLabel[athleteGender] ?? athleteGender}`                                           : `Geschlecht: nicht angegeben`,
     age                ? `Alter: ${age} Jahre`                                                                                   : `Alter: nicht angegeben`,
     athlete?.weight_kg ? `Gewicht: ${athlete.weight_kg} kg`                                                                     : null,
-    wPerKg             ? `Leistungsgewicht: ${wPerKg} W/kg`                                                                     : null,
-    athlete?.ftp_watts ? `FTP: ${athlete.ftp_watts} W`                                                                          : null,
+    (showCyclingPower && wPerKg)             ? `Leistungsgewicht: ${wPerKg} W/kg`                                                : null,
+    (showCyclingPower && athlete?.ftp_watts) ? `FTP: ${athlete.ftp_watts} W`                                                    : null,
     athlete?.max_hr
       ? `Max HF: ${athlete.max_hr} bpm (gemessen)`
       : (estimatedMaxHR ? `Max HF: ${estimatedMaxHR} bpm (geschätzt: Tanaka-Formel)` : null),

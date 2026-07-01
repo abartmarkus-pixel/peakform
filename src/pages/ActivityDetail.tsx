@@ -531,8 +531,8 @@ export default function ActivityDetail() {
       const { specialist, sport } = getSpecialistPrompt(activity.type)
 
       const [basePrompt, generalContext, specialistContext] = await Promise.all([
-        buildCoachSystemPrompt(athleteId),
-        buildCoachContext(athleteId),
+        buildCoachSystemPrompt(athleteId, sport),
+        buildCoachContext(athleteId, undefined, sport),
         sport ? buildSpecialistContext(athleteId, sport) : Promise.resolve(null),
       ])
 

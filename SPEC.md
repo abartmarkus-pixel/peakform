@@ -723,13 +723,15 @@ const SPORT_KEYWORDS = {
 
 ## 11. Coach-Kontext-Architektur (`buildCoachContext`)
 
-Funktion in `src/lib/coachContext.ts`. Wird bei JEDEM Claude-Call als User-Message-Inhalt aufgebaut.
+Funktion in `src/lib/coachContext.ts`. Signatur: `buildCoachContext(athleteId: string, threadId?: string, activeSport?: 'running' | 'cycling' | 'strength' | null)`. Wird bei JEDEM Claude-Call als User-Message-Inhalt aufgebaut.
 
 **Alle 7 Queries laufen parallel (Promise.all).**
 
 ```
 [ATHLETEN-PROFIL]                      ~200 tokens
   Name, FTP, Max HF, Gewicht, Trainingstage, Sportarten, Ziele, Coach-Persona
+  FTP nur wenn activeSport === 'cycling' oder activeSport ist undefined/null (kontextuelle
+  Blindheit — bei 'running'/'strength' fehlt die FTP-Zeile komplett, nicht nur unerwähnt)
 
 [HARTE TRAININGS-CONSTRAINTS]          ~100 tokens
   Gesamte Trainingstage (von 7 Wochentagen), Ruhetage, Pflicht-Verteilung pro Sportart
@@ -765,6 +767,8 @@ Funktion in `src/lib/coachContext.ts`. Wird bei JEDEM Claude-Call als User-Messa
 
 **Ziel: unter ~3.000 tokens, immer gleiche Struktur.**
 
+Nur `ActivityDetail.tsx` (`runAnalysis()`) reicht `activeSport` durch; Chat/WeeklyPlan rufen weiterhin ohne dritten Parameter auf (kein einzelner Sport-Fokus, FTP bleibt sichtbar).
+
 ### `buildSpecialistContext(athleteId, sport)`
 
 Ergänzende Funktion, die sportart-spezifische Historien-Daten liefert. Wird parallel zu `buildCoachContext()` geladen und als zweiter Block in die User-Message eingefügt.
@@ -794,15 +798,16 @@ Siehe Kapitel 18 für Details zur Coach-Architektur.
 
 **Implementierter Stand:**
 
-**`buildCoachSystemPrompt(athleteId)`** (Hauptcoach — async, dynamisch):
+**`buildCoachSystemPrompt(athleteId, activeSport?: 'running' | 'cycling' | 'strength' | null)`** (Hauptcoach — async, dynamisch):
 - Lädt bei jedem Aufruf Athleten-Profil + A-Event aus Supabase (inkl. `gender`, `birth_year`, `resting_hr`)
 - Dynamische Abschnitte: Name, Geschlecht, Alter, Gewicht, Leistungsgewicht (W/kg), FTP, Max HF (gemessen od. geschätzt: Tanaka-Formel 208−0.7×Alter), Ruhe-HF, HF-Reserve (Karvonen), Sportarten, Equipment, Ästhetik-Ziele, Coach-Stil/Fokus, Saisonziel, Wochen-Countdown, aktuelle Phase, HF-Zonen, Pace-Referenz
+- **`activeSport`-Parameter (kontextuelle Blindheit auf Kontext-Ebene):** Leistungsgewicht (W/kg) und FTP werden NUR in den `[ATHLETEN-PROFIL]`-Block aufgenommen wenn `activeSport === 'cycling'` oder `activeSport` ist `undefined`/`null` (kein Sport-Fokus — Chat, Wochenplan, Dashboard). Bei `activeSport === 'running'` oder `'strength'` fehlen FTP/W-kg vollständig im Kontext — nicht nur als Anweisung "nicht erwähnen", sondern schlicht nicht vorhanden.
 - Statische Abschnitte: Coaching-Prinzipien (8 Regeln), Datennutzung, Review-Format, Antwortformat (inkl. Du-Form-Pflicht: niemals über den Athleten in der dritten Person)
 - Hilfsfunktionen in `coachContext.ts` (exportiert):
   - `calculateSeasonPhase(weeksUntilEvent, override)` — Phase aus Wochen-Countdown oder manuellem Override
   - `calculateHRZones(maxHR, restingHR?)` — Z1–Z5: Karvonen-Methode wenn `restingHR` vorhanden, sonst %-Methode als Fallback
   - `calculatePaceReference(best5kSeconds, targetEventKm)` — Zielpace, Z2-Tempo, Schwellenpace aus 5k-PB
-- Wird bei JEDEM Claude-Call als `system`-Parameter übergeben (alle 4 Consumer: ActivityDetail, Chat, WeeklyPlan, Dashboard)
+- Wird bei JEDEM Claude-Call als `system`-Parameter übergeben (alle 4 Consumer: ActivityDetail, Chat, WeeklyPlan, Dashboard). Nur `ActivityDetail.tsx` (`runAnalysis()`) reicht `activeSport` durch (aus `getSpecialistPrompt(activityType)`-Routing); Chat/WeeklyPlan/Dashboard rufen weiterhin ohne zweiten Parameter auf, da dort kein einzelner Sport-Fokus besteht.
 
 **`LAUF_COACH_PROMPT`** / **`RAD_COACH_PROMPT`** / **`KRAFT_COACH_PROMPT`** (Spezialcoaches — statisch):
 - Sportart-spezifisch, nicht athleten-spezifisch → bleiben statische Exports
@@ -1200,8 +1205,13 @@ Nach jedem Strava-Sync in `Dashboard.tsx`:
 
 **Kontextuelle Blindheit:**
 - Wertet niemals FTP oder Wattwerte direkt
+- Verwendet niemals die Begriffe "FTP" oder "% FTP" in einer Laufanalyse — auch nicht wenn die Aktivität eigene Watt-Werte enthält (explizit im Prompt verankert, siehe unten)
 - Erwähnt Radausdauer nur aus Laufperspektive: "Deine aerobe Basis vom Radfahren hilft dir beim Z2-Laufen"
 - Kommentiert kein Krafttraining direkt — nur wie es die Laufleistung beeinflusst
+- FTP/W-kg sind bei Lauf-Analysen technisch nicht im Kontext vorhanden (siehe Kapitel 11/12, `activeSport`-Parameter) — die Blindheit ist damit nicht nur eine Prompt-Anweisung, sondern strukturell erzwungen
+
+**Laufleistungsmesser (Stryd o.ä.):**
+Falls die Lauf-Aktivität eigene Leistungsdaten (Watt) liefert, sind diese Werte NICHT mit Rad-FTP vergleichbar (andere Watt-Skala). Der Prompt weist den Laufcoach explizit an, solche Watt-Werte ausschließlich für Trend-Vergleiche mit früheren Läufen zu nutzen — niemals als Prozent einer FTP-Zahl.
 
 **Analyse-Fokus:**
 - Pace vs. HF-Relation (Effizienz)

@@ -114,6 +114,7 @@ export function calculatePaceReference(
 export async function buildCoachContext(
   athleteId: string,
   threadId?: string,
+  activeSport?: 'running' | 'cycling' | 'strength' | null,
 ): Promise<string> {
   const thisWeek = mondayOf(new Date())
   const fourWeeksAgo = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000).toISOString()
@@ -199,10 +200,14 @@ export async function buildCoachContext(
     ?.map(s => `${sportLabels[s.type] ?? s.type} (${s.days} Tage/Woche)`)
     .join(', ') ?? '—'
 
+  // FTP ist eine Rad-Leistungskennzahl — bei Lauf-/Kraft-fokussierten Analysen
+  // gehört sie nicht in den Kontext (kontextuelle Blindheit, siehe LAUF_COACH_PROMPT).
+  const showCyclingPower = activeSport === 'cycling' || activeSport == null
+
   sections.push([
     '[ATHLETEN-PROFIL]',
     athlete?.name ? `Name: ${athlete.name}` : null,
-    `FTP: ${fmt(athlete?.ftp_watts)} W`,
+    showCyclingPower ? `FTP: ${fmt(athlete?.ftp_watts)} W` : null,
     `Max HF: ${fmt(athlete?.max_hr)} bpm`,
     `Gewicht: ${fmt(athlete?.weight_kg, 1)} kg`,
     `Trainingstage/Woche: ${athlete?.training_days_per_week ?? '—'}`,
