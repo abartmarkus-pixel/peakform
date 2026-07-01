@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 30. Juni 2026 (Wochengrenzen-Bug + Supabase-Migration: alle week_start auf korrekte Montage migriert)
+> Letzte Aktualisierung: 1. Juli 2026 (body_goals: "Nackt gut ausschauen" durch neutrale Trigger-Logik ersetzt — showAesthetic reagiert jetzt auf Muskelaufbau/Gewicht reduzieren, mit Code-seitiger Migration bestehender Werte)
 
 ---
 
@@ -192,7 +192,9 @@ created_at            TIMESTAMPTZ
 - `style`: `"motivierend"` | `"analytisch"` | `"direkt"` | `"empathisch"` (oder leer)
 - `focus`: Freitext-Anweisung an den Coach
 
-**body_goals mögliche Werte:** `"Event"` | `"Muskelaufbau"` | `"Gewicht reduzieren"` | `"Nackt gut ausschauen"`
+**body_goals mögliche Werte:** `"Event"` | `"Muskelaufbau"` | `"Gewicht reduzieren"`
+
+**Migration (1. Juli 2026):** Der frühere Wert `"Nackt gut ausschauen"` wurde entfernt. Beim Profil-Load in `Profile.tsx` wird ein noch in der DB vorhandener Legacy-Wert automatisch migriert: Eintrag wird aus dem Array entfernt; war er der einzige Eintrag, wird `"Muskelaufbau"` als Ersatz hinzugefügt (sonst bleibt das Array wie es ist). Die Migration läuft rein im Code (kein DB-Skript), das Ergebnis wird beim nächsten Auto-Save persistiert.
 
 ---
 
@@ -464,7 +466,7 @@ Strava OAuth Token Exchange & Refresh — STRAVA_CLIENT_SECRET bleibt server-sei
 - ALLGEMEIN: `name || "—"`
 - TRAINING: `"5 Tage/Woche · Radfahren, Laufen, Krafttraining"`
 - LEISTUNGSDATEN: `"FTP 229W · Max HF 182 · 76kg · 5k 25:51"` (nur nicht-null Felder)
-- ZIEL & COACH: `"Event, Nackt gut ausschauen · Coach: Analytisch"`
+- ZIEL & COACH: `"Event, Muskelaufbau · Coach: Analytisch"`
 - TRAININGSPHASE: `"Phase 2 — Grundlage (automatisch)"` oder `"… (manuell gesetzt) ⚠"`
 - KRAFTTRAINING: Equipment-Liste `"Kurzhanteln 32kg, Bänder"` + `"Schultern, Brust, Arme (Priorität)"`
 
@@ -496,7 +498,7 @@ Strava OAuth Token Exchange & Refresh — STRAVA_CLIENT_SECRET bleibt server-sei
 - **`_updated_at` Auto-Update:** `field_updated_at = NOW()` wenn Wert geändert und nicht null (`origFtp/origMaxHr/origWeight/origBest5k` Refs)
 
 *ZIEL & COACH:*
-- Ziele (Mehrfachauswahl): Event / Muskelaufbau / Gewicht reduzieren / Nackt gut ausschauen
+- Ziele (Mehrfachauswahl): Event / Muskelaufbau / Gewicht reduzieren
 - Coach-Stil (Einfachauswahl): Motivierend / Analytisch / Direkt / Empathisch
 - Coach-Fokus: Freitext-Textarea
 
@@ -517,7 +519,7 @@ Strava OAuth Token Exchange & Refresh — STRAVA_CLIENT_SECRET bleibt server-sei
 - **Teil A — Equipment:** Checkboxen (Kurzhanteln / Bänder / Körpergewicht / Klimmzugstange + Gym als Mutex)
   - Bei Kurzhanteln aktiv: Number-Input `bis X kg`
   - Gym aktiv → alle anderen disabled + ausgegraut
-- **Teil B — Körperziele** (nur wenn `showAesthetic` = "Nackt gut ausschauen" in bodyGoals):
+- **Teil B — Körperziele** (nur wenn `showAesthetic` = `"Muskelaufbau"` oder `"Gewicht reduzieren"` in bodyGoals):
   - Drag & Drop Muskelgruppen-Ranking (7 Gruppen, via @dnd-kit)
   - Freitext-Feld für Besonderheiten
 - **Auto-Open:** Wenn Krafttraining neu aktiviert wird → `setStrengthOpen(true)` direkt in `toggleSport` (nicht via useEffect, damit kein ungewolltes Aufklappen beim initialen DB-Load)
@@ -742,7 +744,7 @@ sport = 'cycling':
 
 sport = 'strength':
   Equipment aus athletes.equipment (aktive Geräte)
-  Ästhetik-Prioritäten aus athletes.aesthetic_goals (nur wenn "Nackt gut ausschauen" in body_goals)
+  Ästhetik-Prioritäten aus athletes.aesthetic_goals (nur wenn "Muskelaufbau" oder "Gewicht reduzieren" in body_goals)
   Letzte 5 WeightTraining/Workout Aktivitäten (60 Tage)
   Datum | Name | Description-Snippet (max 200 Zeichen)
 ```
@@ -903,7 +905,7 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 
 **Coach-System (Kapitel 18):**
 - Equipment-Sektion in Profile.tsx (Checkboxen + max_kg für Kurzhanteln, Gym-Mutex-Logik)
-- Ästhetik-Ziele in Profile.tsx (Drag-and-drop Ranking via @dnd-kit, nur bei "Nackt gut ausschauen")
+- Ästhetik-Ziele in Profile.tsx (Drag-and-drop Ranking via @dnd-kit, nur bei "Muskelaufbau" oder "Gewicht reduzieren")
 - athletes-Schema: `equipment JSONB` + `aesthetic_goals JSONB`
 - LAUF_COACH_PROMPT, RAD_COACH_PROMPT, KRAFT_COACH_PROMPT in coachPrompt.ts
 - buildSpecialistContext(athleteId, sport) in coachContext.ts

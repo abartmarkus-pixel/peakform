@@ -34,7 +34,7 @@ athletes (id uuid PK, strava_athlete_id bigint UNIQUE, strava_access_token text,
           ftp_watts int, max_hr int, weight_kg numeric,
           training_days_per_week int,
           sport_types jsonb,           ← SportConfig[] {type, days}; cycling/running/strength
-          body_goals text[],           ← Mehrfachauswahl: Event/Muskelaufbau/Gewicht reduzieren/Nackt gut ausschauen
+          body_goals text[],           ← Mehrfachauswahl: Event/Muskelaufbau/Gewicht reduzieren
           coach_persona jsonb,         ← {style, focus}
           equipment jsonb,             ← {dumbbells:{active,max_kg?},bands,bodyweight,pullup_bar,gym}
           aesthetic_goals jsonb,       ← {priorities:string[],notes:string}
@@ -170,7 +170,7 @@ npm run dev       # Vite Dev-Server auf localhost:5173
   - [x] `clampSportDays(n)`: Training-Tage-Reduktion → Sport-Tage proportional reduzieren
 - [x] Körperziele (Mehrfachauswahl), Coach-Stil, Coach-Fokus Freitext
 - [x] Equipment-Sektion: Kurzhanteln/Bänder/Körpergewicht/Klimmzugstange/Gym (Gym = Mutex)
-- [x] Ästhetik-Ziele: Drag & Drop Ranking (via @dnd-kit) — nur wenn "Nackt gut ausschauen" aktiv
+- [x] Ästhetik-Ziele: Drag & Drop Ranking (via @dnd-kit) — nur wenn "Muskelaufbau" oder "Gewicht reduzieren" aktiv
 - [x] Trainingsphase: Auto-Anzeige + Segmented Control (Auto/Override); `season_phase_override` in DB
 - [x] Auto-Save 800ms Debounce
 

@@ -27,7 +27,8 @@ function formatAestheticGoals(
   goals: AestheticGoals | null,
   bodyGoals: string[] | null,
 ): string {
-  if (!bodyGoals?.includes('Nackt gut ausschauen') || !goals?.priorities?.length) return '—'
+  const hasAestheticGoal = bodyGoals?.includes('Muskelaufbau') || bodyGoals?.includes('Gewicht reduzieren')
+  if (!hasAestheticGoal || !goals?.priorities?.length) return '—'
   return goals.priorities.join(' > ') + (goals.notes ? ` | ${goals.notes}` : '')
 }
 

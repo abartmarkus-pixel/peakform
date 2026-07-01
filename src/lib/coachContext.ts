@@ -464,7 +464,8 @@ export async function buildSpecialistContext(
 
   const ag = athleteRow?.aesthetic_goals as AestheticGoals | null
   const bodyGoals = athleteRow?.body_goals as string[] | null
-  if (bodyGoals?.includes('Nackt gut ausschauen') && ag?.priorities?.length) {
+  const hasAestheticGoal = bodyGoals?.includes('Muskelaufbau') || bodyGoals?.includes('Gewicht reduzieren')
+  if (hasAestheticGoal && ag?.priorities?.length) {
     contextLines.push(`Körperziel-Prioritäten (1=höchste): ${ag.priorities.join(' > ')}`)
     if (ag.notes) contextLines.push(`Besonderheiten: ${ag.notes}`)
   }

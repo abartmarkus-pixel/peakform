@@ -51,7 +51,6 @@ const BODY_GOALS = [
   'Event',
   'Muskelaufbau',
   'Gewicht reduzieren',
-  'Nackt gut ausschauen',
 ]
 
 const PERSONA_STYLES = [
@@ -335,7 +334,12 @@ export default function Profile() {
         typeof (raw as unknown[])[0] === 'object' && 'days' in ((raw as unknown[])[0] as object)
       setSportConfigs(isNewFormat ? (raw as SportConfig[]) : [])
 
-      setBodyGoals(a.body_goals ?? [])
+      const rawBodyGoals = a.body_goals ?? []
+      const migratedBodyGoals = rawBodyGoals.includes('Nackt gut ausschauen')
+        ? rawBodyGoals.filter(g => g !== 'Nackt gut ausschauen')
+            .concat(rawBodyGoals.length === 1 ? ['Muskelaufbau'] : [])
+        : rawBodyGoals
+      setBodyGoals(migratedBodyGoals)
 
       const persona = a.coach_persona as Record<string, string> | null
       setPersonaStyle(persona?.style ?? '')
@@ -537,7 +541,7 @@ export default function Profile() {
   }
 
   const features      = useFeatures(athlete)
-  const showAesthetic = bodyGoals.includes('Nackt gut ausschauen')
+  const showAesthetic = bodyGoals.includes('Muskelaufbau') || bodyGoals.includes('Gewicht reduzieren')
   const hasStrength   = sportConfigs.some(s => s.type === 'strength') && features.strength
 
   // ── subtitle computations ───────────────────────────────────────────────
@@ -1006,7 +1010,7 @@ export default function Profile() {
               </div>
             </div>
 
-            {/* Teil B: Körperziele (nur wenn "Nackt gut ausschauen" aktiv) */}
+            {/* Teil B: Körperziele (nur wenn Muskelaufbau oder Gewicht reduzieren aktiv) */}
             {showAesthetic && (
               <div>
                 <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Körperziele (Priorität)</p>
