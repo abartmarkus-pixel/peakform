@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 1. Juli 2026 (OAuth CSRF-Schutz via state Parameter + Cookie-basierte Session-Wiederherstellung statt LIMIT 1 — Vorbereitung Multi-User-Launch)
+> Letzte Aktualisierung: 1. Juli 2026 (Verpflichtender Onboarding-Flow für neue User — 6-Schritte-Wizard, läuft einmalig nach dem ersten Strava-Login)
 
 ---
 
@@ -65,17 +65,20 @@ peakform/
 │   ├── splash.png               # PWA Splash 1024×1024
 │   └── splash-bg.jpg            # Home.tsx Hintergrundbild, max 1200px, JPEG 80%
 ├── src/
-│   ├── App.tsx             # Router (8 Routen) + Layout-Wrapper mit BottomNav
+│   ├── App.tsx             # Router (9 Routen) + Layout-Wrapper mit BottomNav
 │   │                       # Splash-Screen: NUR wenn eingeloggt (athlete_strava_id in localStorage/sessionStorage)
 │   │                       # Dauer: 2000ms + 400ms Fade-out; bg-slate-900; splash.png zentriert 80% Breite, CSS peakform-pulse; kein Logo
+│   │                       # Session-Guard: nach Session-Herstellung wird athletes.onboarding_completed geprüft
+│   │                       # → false: Redirect zu /onboarding (unabhängig von der ursprünglich angeforderten Route)
 │   ├── components/
 │   │   ├── AppHeader.tsx   # Fixierter Header (h-14); Props: rightAction?: React.ReactNode
 │   │                       # Logo links, rightAction rechts (justify-between); jede Page rendert ihn selbst
 │   │   └── BottomNav.tsx   # Fix-positionierte 5-Tab Navigation (Home|Plan|Coach|Ziele|Profil)
-│   │                         Sichtbar auf allen Seiten außer / und /auth/callback
+│   │                         Sichtbar auf allen Seiten außer /, /auth/callback und /onboarding
 │   ├── pages/
 │   │   ├── Home.tsx           # bg-slate-900 + Logo zentriert + Strava-Button; Auto-Redirect zu /dashboard (kein splash-bg.jpg)
 │   │   ├── AuthCallback.tsx   # OAuth-Code → /api/strava-token → Supabase upsert → localStorage
+│   │   ├── Onboarding.tsx     # Verpflichtender 6-Schritte-Wizard, einmalig nach erstem Login (siehe Kapitel 9)
 │   │   ├── Dashboard.tsx      # letzte 10 Aktivitäten + Typ-Filter; AppHeader mit Logout-Icon rechts
 │   │   ├── ActivityDetail.tsx # Stats-Grid + Charts + Rundentabelle + Hevy-Übungen + Claude-Analyse
 │   │   ├── Profile.tsx        # Athleten-Profil mit 800ms Auto-Save
@@ -126,6 +129,7 @@ peakform/
 2. `localStorage` oder `sessionStorage` enthält `athlete_strava_id`: Session gültig, `localStorage` wird bei Bedarf nachgefüllt
 3. Beides leer → `restoreSessionFromSupabase()`: identifiziert den Athleten über das `pf_athlete_id`-Cookie, refresht Token falls abgelaufen, schreibt `athlete_strava_id` zurück in `localStorage` + `sessionStorage`
 4. Kein Cookie, kein passender Athleten-Eintrag oder kein `refresh_token` → Redirect zu `/` (echter Strava-Login nötig)
+5. Session gültig (egal ob aus Storage oder wiederhergestellt) → `athletes.onboarding_completed` wird per Query geladen; bei `false` (und aktuelle Route ≠ `/onboarding`) → `navigate('/onboarding', { replace: true })`, unabhängig von der ursprünglich angeforderten Route
 
 Splash-Screen: erscheint **nur wenn eingeloggt** (`athlete_strava_id` in localStorage oder sessionStorage beim App-Start). Dauer: 2000ms sichtbar + 400ms Fade-out. Design: `bg-slate-900` + `splash.png` zentriert (80% Breite, max-w-sm), sanft pulsierend via CSS `peakform-pulse` (scale 1→1.05, opacity 1→0.85, 1.5s). Kein PeakForm Logo. Kein Overlay, kein Dots-Indicator. Auf PUBLIC_PATHS (/ und /auth/callback) kein Splash. Nicht eingeloggt auf geschützter Route → Session-Check läuft still, kein Splash.
 
@@ -175,6 +179,8 @@ birth_year            INTEGER CHECK (birth_year BETWEEN 1940 AND 2010) DEFAULT N
 resting_hr            INTEGER CHECK (resting_hr BETWEEN 30 AND 100) DEFAULT NULL
 -- Feature-Flags
 features              JSONB DEFAULT '{"cycling":true,"running":true,"strength":true,"body_checkin":true,"weekly_plan":true,"coach_chat":true,"goals":true}'
+-- Onboarding
+onboarding_completed  BOOLEAN DEFAULT false -- true = Wizard durchlaufen; false = Redirect zu /onboarding bei jedem Login
 created_at            TIMESTAMPTZ
 ```
 
@@ -359,6 +365,7 @@ Strava OAuth Token Exchange & Refresh — STRAVA_CLIENT_SECRET bleibt server-sei
 |---|---|---|
 | `/` | Home.tsx | Strava-Connect-Button; Auto-Redirect zu `/dashboard` wenn eingeloggt |
 | `/auth/callback` | AuthCallback.tsx | OAuth-Code verarbeiten, athletes upsert, localStorage setzen |
+| `/onboarding` | Onboarding.tsx | Verpflichtender 6-Schritte-Wizard; nicht über BottomNav erreichbar, kein AppHeader/Logout, kein Skip |
 | `/dashboard` | Dashboard.tsx | Letzte 10 Aktivitäten + Filter + Alert-Banner |
 | `/activity/:id` | ActivityDetail.tsx | Detail-Ansicht mit Charts, Hevy-Übungen, Claude-Analyse |
 | `/profile` | Profile.tsx | Athleten-Profil mit Auto-Save |
@@ -379,7 +386,30 @@ Strava OAuth Token Exchange & Refresh — STRAVA_CLIENT_SECRET bleibt server-sei
 - Ruft `/api/strava-token` auf (server-side Token Exchange)
 - Upsert in `athletes` via `strava_athlete_id` als Konflikt-Key
 - Setzt `athlete_strava_id` in localStorage
-- Redirect zu `/dashboard`
+- Redirect zu `/dashboard` (Layout-Guard in App.tsx leitet bei `onboarding_completed = false` sofort weiter zu `/onboarding`)
+
+### Onboarding.tsx
+
+Verpflichtender Wizard, läuft **einmalig** nach dem ersten Strava-Login. Kein Skip, kein "Später einrichten", kein "Zurück zum Dashboard" während des Flows. Kein AppHeader (kein Logout), keine BottomNav.
+
+**State:** `currentStep` (1–6), lokale Formular-Daten für alle Schritte (Supabase-Save erst am Ende in Schritt 6). Fortschrittsanzeige: 6 Segmente, aktueller Schritt in `bg-brand-500` hervorgehoben. Navigation: "Weiter" (disabled bis Pflichtfelder erfüllt, via `canProceed()`), "Zurück" (außer Schritt 1, Daten bleiben im State).
+
+| Schritt | Titel | Inhalt | Pflicht für "Weiter" |
+|---|---|---|---|
+| 1 | Willkommen | Logo, Willkommenstext, Name-Feld | Name ≥ 2 Zeichen |
+| 2 | Sportarten | Trainingstage 1–7, Sportarten-Pills (nur `useFeatures(athlete)`-freigeschaltete) mit Tage-Stepper; Amber-Warnung bei Σdays > Trainingstage (kein Blocker) | Trainingstage gesetzt + ≥1 Sportart |
+| 3 | Erstes Ziel | Event-Name, Datum (muss in Zukunft liegen), Sportart-Dropdown (nur aus Schritt 2 gewählte Sportarten), Distanz/Höhenmeter/Notizen optional; Priorität automatisch `A` | Event-Name, Datum, Sportart |
+| 4 | Leistungsdaten | Geschlecht, Geburtsjahr, Max HF (+ Tanaka-Button), Ruhe-HF, Gewicht, FTP (nur wenn Radfahren gewählt), 5k-Bestzeit MM:SS (nur wenn Laufen gewählt) — alles optional | keine (immer aktiv) |
+| 5 | Coach-Stil | 4 Presets (Motivierend/Analytisch/Direkt/Empathisch, Default "Analytisch"), Freitext-Fokus optional | ein Stil gewählt |
+| 6 | Zusammenfassung | Kompakte Übersicht aller Eingaben; Button "Los geht's" | — |
+
+**"Los geht's" (Schritt 6):**
+1. `season_goals` INSERT (Ziel aus Schritt 3, `priority: 'A'`, `active: true`)
+2. `athletes` UPDATE: `name, gender, birth_year, max_hr, resting_hr, weight_kg, ftp_watts, best_5k_seconds, sport_types, training_days_per_week, coach_persona, onboarding_completed: true`
+3. Bei Erfolg: `navigate('/dashboard', { replace: true })`
+4. Bei Fehler (INSERT oder UPDATE schlägt fehl): Fehlermeldung unter der Zusammenfassung, User bleibt auf Schritt 6, State bleibt erhalten, erneuter Versuch möglich. `onboarding_completed` wird nur `true` gesetzt wenn beide Schreibvorgänge erfolgreich waren.
+
+**Migration für Bestandsuser:** Beim Hinzufügen des Feldes wurden alle bestehenden `athletes`-Zeilen mit `name IS NOT NULL` per `UPDATE` auf `onboarding_completed = true` gesetzt — damit werden bereits eingerichtete Athleten (Markus) beim nächsten Login nicht in den Wizard geschickt.
 
 ### Dashboard.tsx
 - Lädt `athletes` by `strava_athlete_id` aus Supabase
@@ -827,8 +857,14 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 - Supabase Schema (6 Tabellen)
 - Strava OAuth 2.0 (Code-Exchange + Auto-Refresh)
 
+**Onboarding:**
+- `athletes.onboarding_completed BOOLEAN DEFAULT false` — neues Feld (Migration angewendet, Bestandsuser auf `true` migriert)
+- Verpflichtender 6-Schritte-Wizard (`Onboarding.tsx`) — Name, Sportarten+Trainingstage, erstes Saisonziel, optionale Leistungsdaten, Coach-Stil, Zusammenfassung
+- App.tsx Layout-Guard: `onboarding_completed = false` → Redirect zu `/onboarding`, unabhängig von der angeforderten Route
+- Kein Skip möglich; `/onboarding` nicht über BottomNav erreichbar, kein AppHeader/Logout
+
 **Navigation & Icons:**
-- Bottom-Navigation (5 Tabs: Home / Plan / Coach / Ziele / Profil) — fix positioniert, außer auf / und /auth/callback
+- Bottom-Navigation (5 Tabs: Home / Plan / Coach / Ziele / Profil) — fix positioniert, außer auf /, /auth/callback und /onboarding
 - AppHeader (Logo links, h-14, frosted-glass) — `rightAction?: React.ReactNode` Slot rechts; jede Page rendert ihn selbst
 - FA6 Icon-System (react-icons/fa6): alle Lucide/Emoji-Icons ersetzt
 - SPORT_DISPLAY Konstante in icons.ts (cycling/running/strength/rest → Farbe + Label)

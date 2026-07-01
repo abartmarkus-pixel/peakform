@@ -57,6 +57,8 @@ export type Athlete = {
   resting_hr: number | null
   // Feature flags
   features: Record<string, boolean> | null
+  // Onboarding
+  onboarding_completed: boolean
 }
 
 export type SeasonGoal = {

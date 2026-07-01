@@ -8,10 +8,12 @@ import Profile from './pages/Profile'
 import Goals from './pages/Goals'
 import WeeklyPlan from './pages/WeeklyPlan'
 import Chat from './pages/Chat'
+import Onboarding from './pages/Onboarding'
 import BottomNav from './components/BottomNav'
 import { restoreSessionFromSupabase } from './lib/strava'
+import { supabase } from './lib/supabase'
 
-const NO_NAV_PATHS = ['/', '/auth/callback']
+const NO_NAV_PATHS = ['/', '/auth/callback', '/onboarding']
 const PUBLIC_PATHS = ['/', '/auth/callback']
 
 function Layout() {
@@ -32,7 +34,7 @@ function Layout() {
     if (PUBLIC_PATHS.includes(window.location.pathname)) return
 
     const sessionCheck = (async () => {
-      const stravaId =
+      let stravaId =
         localStorage.getItem('athlete_strava_id') ||
         sessionStorage.getItem('athlete_strava_id')
 
@@ -40,11 +42,25 @@ function Layout() {
         if (!localStorage.getItem('athlete_strava_id')) {
           localStorage.setItem('athlete_strava_id', stravaId)
         }
-        return
+      } else {
+        const restored = await restoreSessionFromSupabase()
+        if (!restored) { navigate('/', { replace: true }); return }
+        stravaId =
+          localStorage.getItem('athlete_strava_id') ||
+          sessionStorage.getItem('athlete_strava_id')
       }
 
-      const restored = await restoreSessionFromSupabase()
-      if (!restored) navigate('/', { replace: true })
+      if (!stravaId || window.location.pathname === '/onboarding') return
+
+      const { data } = await supabase
+        .from('athletes')
+        .select('onboarding_completed')
+        .eq('strava_athlete_id', Number(stravaId))
+        .single()
+
+      if (data?.onboarding_completed === false) {
+        navigate('/onboarding', { replace: true })
+      }
     })()
 
     if (!isLoggedIn) return
@@ -67,6 +83,7 @@ function Layout() {
         <Route path="/goals" element={<Goals />} />
         <Route path="/plan" element={<WeeklyPlan />} />
         <Route path="/chat" element={<Chat />} />
+        <Route path="/onboarding" element={<Onboarding />} />
       </Routes>
       {showNav && <BottomNav />}
 
