@@ -109,23 +109,6 @@ export type ChatMessage = {
   created_at: string
 }
 
-export type BodyCheckinPhotos = {
-  front?: string
-  side?: string
-  back?: string
-}
-
-export type BodyCheckin = {
-  id: string
-  athlete_id: string
-  date: string
-  photos: BodyCheckinPhotos
-  weight_kg: number | null
-  claude_feedback: string | null
-  notes: string | null
-  created_at: string
-}
-
 export type Activity = {
   id: string
   athlete_id: string

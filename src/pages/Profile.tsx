@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   IconRunning, IconCycling, IconStrength,
-  IconChevronDown, IconWarning, IconCamera,
+  IconChevronDown, IconWarning,
   SPORT_DISPLAY,
 } from '../lib/icons'
 import {
@@ -1037,15 +1037,6 @@ export default function Profile() {
                   />
                 </div>
               </div>
-            )}
-
-            {features.body_checkin && showAesthetic && (
-              <button
-                onClick={() => navigate('/body-checkin')}
-                className="mt-6 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium text-brand-400 bg-brand-500/10 hover:bg-brand-500/15 ring-1 ring-brand-500/30 transition-colors"
-              >
-                <IconCamera size={14} /> Foto-Check-in starten
-              </button>
             )}
           </AccordionSection>
         )}
