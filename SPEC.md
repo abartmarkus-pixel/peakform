@@ -72,7 +72,7 @@ peakform/
 │   │                       # → false: Redirect zu /onboarding (unabhängig von der ursprünglich angeforderten Route)
 │   ├── components/
 │   │   ├── AppHeader.tsx   # Fixierter Header (h-14); Props: rightAction?: React.ReactNode
-│   │                       # Logo links, rightAction rechts (justify-between); jede Page rendert ihn selbst
+│   │                       # Logo links (Link zu /dashboard, cursor-pointer), rightAction rechts (justify-between); jede Page rendert ihn selbst
 │   │   └── BottomNav.tsx   # Fix-positionierte 5-Tab Navigation (Home|Plan|Coach|Ziele|Profil)
 │   │                         Sichtbar auf allen Seiten außer /, /auth/callback und /onboarding
 │   ├── pages/
@@ -880,7 +880,7 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 
 **Navigation & Icons:**
 - Bottom-Navigation (5 Tabs: Home / Plan / Coach / Ziele / Profil) — fix positioniert, außer auf /, /auth/callback und /onboarding
-- AppHeader (Logo links, h-14, frosted-glass) — `rightAction?: React.ReactNode` Slot rechts; jede Page rendert ihn selbst
+- AppHeader (Logo links, h-14, frosted-glass) — Logo ist `Link` zu `/dashboard` (cursor-pointer); `rightAction?: React.ReactNode` Slot rechts; jede Page rendert ihn selbst
 - FA6 Icon-System (react-icons/fa6): alle Lucide/Emoji-Icons ersetzt
 - SPORT_DISPLAY Konstante in icons.ts (cycling/running/strength/rest → Farbe + Label)
 - page-content CSS-Klasse (padding-top: 72px + padding-bottom: 80px) auf allen Hauptseiten außer Chat
