@@ -738,7 +738,7 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
                 monday={monday}
                 plan={dayPlan}
                 match={match}
-                onPress={match?.activity ? () => navigate(`/activity/${match.activity!.id}`) : undefined}
+                onPress={match?.activity ? () => navigate(`/activity/${match.activity!.strava_id}`) : undefined}
               />
             )
           })}

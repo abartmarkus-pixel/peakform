@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 1. Juli 2026 (Body Check-in Feature vollständig entfernt — siehe Hinweis am Ende der Datei)
+> Letzte Aktualisierung: 1. Juli 2026 (Bugfix: WeeklyPlan.tsx navigierte mit Supabase-UUID statt Strava-ID zu `/activity/:id`; Identifier-Konvention in Kapitel 9 dokumentiert)
 
 ---
 
@@ -434,6 +434,10 @@ Verpflichtender Wizard, läuft **einmalig** nach dem ersten Strava-Login. Kein S
 - "Plan anpassen": Claude-Call mit Plan-JSON + Konflikt-Beschreibung → Text-Modal
 
 ### ActivityDetail.tsx
+
+**Identifier-Konvention Aktivitäts-Navigation:** Die Route `/activity/:id` erwartet in `:id` immer die **Strava-BIGINT-ID** (`activities.strava_id`), niemals die Supabase-UUID (`activities.id`). Grund: `ActivityDetail.tsx` lädt die Aktivität via `useParams()` → `.eq('strava_id', Number(id))` (nicht `.eq('id', id)`). Jede Stelle, die zu `/activity/:id` navigiert, muss `strava_id` übergeben:
+- `Dashboard.tsx`: `act.id` ist hier bereits die Strava-ID, da `act` vom Typ `StravaActivity` (direkt von der Strava API) ist — kein Widerspruch zur Konvention.
+- `WeeklyPlan.tsx` (`DayCard`-`onPress`): `match.activity` ist hier vom Typ `Activity` (Supabase-Row) — es muss explizit `match.activity.strava_id` verwendet werden, **nicht** `match.activity.id`. (War Ursache eines Bugs: Klick auf absolvierte Aktivität im Wochenplan führte zu "Aktivität konnte nicht geladen werden", weil `Number(<uuid>)` zu `NaN` wird.)
 
 **Sportartabhängige Darstellung** (`isRun` = `['Run', 'VirtualRun', 'TrailRun']`):
 
@@ -942,7 +946,7 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 - coach_decisions Logging
 - **Aktivitäts-Matching:** DayCards zeigen Status completed (grün) / missed (amber) / pending (neutral)
   - `matchActivityToDay()`: Typ-Matching Laufen→Run/VirtualRun/TrailRun, Radfahren→Ride/..., Kraft→WeightTraining/Workout
-  - completed: grüner linker Rand + ✓ Icon + Aktivitätsname + Dauer; Tap → `/activity/{id}`
+  - completed: grüner linker Rand + ✓ Icon + Aktivitätsname + Dauer; Tap → `/activity/{strava_id}` (**nicht** `activity.id`/Supabase-UUID — `ActivityDetail.tsx` lädt via `.eq('strava_id', Number(id))`, siehe Kapitel 9 „Identifier-Konvention Aktivitäts-Navigation")
   - missed: amber linker Rand + ✗ Icon + "Nicht absolviert" (nur vergangene Tage)
   - pending: neutrales Erscheinungsbild; Ruhetage haben keinen Status
   - Mini-Sync: beim Laden des Wochenplans werden zuerst die letzten 10 Strava-Aktivitäten in Supabase gesynct (silent, non-blocking bei Fehler)
