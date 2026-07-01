@@ -36,6 +36,8 @@ export { FaHeartPulse as IconHeartRate } from 'react-icons/fa6'
 export { FaStopwatch20 as IconStopwatch } from 'react-icons/fa6'
 export { FaPaperPlane as IconSend } from 'react-icons/fa6'
 export { FaGripVertical as IconGrip } from 'react-icons/fa6'
+export { FaRegCommentDots as IconCommentOutline } from 'react-icons/fa6'
+export { FaCommentDots as IconCommentFilled } from 'react-icons/fa6'
 
 // Sportart-Display: zentrale Konfiguration für Icons, Farben und Labels
 export const SPORT_DISPLAY = {

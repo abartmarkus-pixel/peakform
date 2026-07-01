@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 1. Juli 2026 (Bugfix: WeeklyPlan.tsx navigierte mit Supabase-UUID statt Strava-ID zu `/activity/:id`; Identifier-Konvention in Kapitel 9 dokumentiert)
+> Letzte Aktualisierung: 1. Juli 2026 (Feature: Mid-Week Check-in — Feedback-Button an absolvierten Aktivitäten im Wochenplan, siehe Kapitel 10)
 
 ---
 
@@ -297,7 +297,7 @@ created_at               TIMESTAMPTZ
 ```sql
 id                   UUID PRIMARY KEY
 athlete_id           UUID → athletes.id
-decision_type        TEXT    -- 'plan_generated' | 'weekly_review' | 'recovery_required'
+decision_type        TEXT    -- 'plan_generated' | 'weekly_review' | 'recovery_required' | 'midweek_feedback'
 decision_summary     TEXT
 reasoning            TEXT
 related_plan_id      UUID nullable → weekly_plans.id
@@ -729,6 +729,19 @@ const SPORT_KEYWORDS = {
 
 ---
 
+### Mid-Week Check-in (Feedback direkt an absolvierten Aktivitäten)
+
+Erlaubt sofortiges Feedback zu einer Einheit, ohne auf das Wochenreview zu warten — kein zusätzlicher Claude-Call.
+
+- **UI:** Jede `DayCard` mit `match.status === 'completed'` zeigt neben dem ✓-Icon einen Feedback-Button (`IconCommentOutline` — noch kein Feedback vorhanden, oder `IconCommentFilled` in `text-brand-400` — Feedback bereits gespeichert). Klick öffnet ein Bottom-Sheet-Modal (`fixed inset-0 bg-black/70`, Klick auf Backdrop schließt) mit Freitextfeld, "Speichern" (disabled bei leerem Text) und "Abbrechen".
+- **Speicherung:** Klick auf "Speichern" → INSERT in `coach_decisions` (`decision_type: 'midweek_feedback'`, `decision_summary`: erste 100 Zeichen, `reasoning`: vollständiger Text, `related_activity_id: activity.id`). Existiert für diese `related_activity_id` bereits ein Eintrag (aus `feedbackMap`, geladen parallel zu den Wochen-Aktivitäten), wird stattdessen ein UPDATE auf `decision_summary`/`reasoning` ausgeführt — kein Duplikat.
+- **Erneutes Öffnen:** Modal wird mit dem vorherigen `reasoning`-Text vorausgefüllt.
+- **Toast:** Erfolg → "Danke — wird beim nächsten Plan berücksichtigt ✓" (`bg-brand-500`, 2.5s, `fixed top-4` zentriert). Fehler → "Feedback konnte nicht gespeichert werden" (`bg-red-500`), Modal bleibt offen, Text bleibt erhalten.
+- **Sichtbarkeit im Coach-Kontext:** Kein Extra-Code nötig — `buildCoachContext()` lädt die letzten 5 `coach_decisions` ohne Filter auf `decision_type` (siehe Kapitel 11), `midweek_feedback`-Einträge erscheinen dort automatisch.
+- **State:** `feedbackMap: Record<activityId, {id, reasoning}>` wird in derselben Woche-Lade-Query wie `weekActivities` befüllt (`coach_decisions` gefiltert auf `decision_type = 'midweek_feedback'` und `related_activity_id IN (...)`).
+
+---
+
 ## 11. Coach-Kontext-Architektur (`buildCoachContext`)
 
 Funktion in `src/lib/coachContext.ts`. Signatur: `buildCoachContext(athleteId: string, threadId?: string, activeSport?: 'running' | 'cycling' | 'strength' | null)`. Wird bei JEDEM Claude-Call als User-Message-Inhalt aufgebaut.
@@ -950,6 +963,7 @@ npm run dev     # Vite Dev-Server auf localhost:5173
   - missed: amber linker Rand + ✗ Icon + "Nicht absolviert" (nur vergangene Tage)
   - pending: neutrales Erscheinungsbild; Ruhetage haben keinen Status
   - Mini-Sync: beim Laden des Wochenplans werden zuerst die letzten 10 Strava-Aktivitäten in Supabase gesynct (silent, non-blocking bei Fehler)
+- **Mid-Week Check-in:** Feedback-Button an completed DayCards, Modal, `coach_decisions` Insert/Update (`decision_type = 'midweek_feedback'`), Toast, kein zusätzlicher Claude-Call — siehe Kapitel 10
 
 **Coach-Chat:**
 - Supabase-persistente Messages (chat_messages)

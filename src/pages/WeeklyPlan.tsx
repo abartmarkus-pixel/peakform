@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { supabase, type Athlete, type WeeklyPlan, type Activity, type SportConfig } from '../lib/supabase'
+import { supabase, type Athlete, type WeeklyPlan, type Activity, type SportConfig, type CoachDecision } from '../lib/supabase'
 import { buildCoachContext } from '../lib/coachContext'
 import { buildCoachSystemPrompt } from '../lib/coachPrompt'
 import { getValidAccessToken, fetchRecentActivities, syncActivitiesToSupabase } from '../lib/strava'
@@ -8,6 +8,7 @@ import {
   IconRunning, IconCycling, IconStrength, IconRest,
   IconChevronLeft, IconChevronRight,
   IconCheck, IconMissed, IconWarning, IconPlan,
+  IconCommentOutline, IconCommentFilled,
   SPORT_DISPLAY,
 } from '../lib/icons'
 import { AppHeader } from '../components/AppHeader'
@@ -172,9 +173,10 @@ function matchActivityToDay(
 
 // ── sub-components ─────────────────────────────────────────────────────────
 
-function DayCard({ day, idx, monday, plan, match, onPress }: {
+function DayCard({ day, idx, monday, plan, match, onPress, onFeedbackPress, hasFeedback }: {
   day: string; idx: number; monday: Date; plan: DayPlan | undefined
   match?: DayMatch; onPress?: () => void
+  onFeedbackPress?: () => void; hasFeedback?: boolean
 }) {
   const isRest = !plan || REST_KEYWORDS.some(k => plan.type.toLowerCase().includes(k))
   const isKraft = plan ? SPORT_KEYWORDS.strength.some(k => plan.type.toLowerCase().includes(k)) : false
@@ -207,6 +209,17 @@ function DayCard({ day, idx, monday, plan, match, onPress }: {
           )}
           {match?.status === 'completed' && (
             <IconCheck size={12} className="text-brand-400" />
+          )}
+          {match?.status === 'completed' && onFeedbackPress && (
+            <button
+              onClick={e => { e.stopPropagation(); onFeedbackPress() }}
+              className="text-slate-500 hover:text-brand-400 transition-colors"
+              aria-label={hasFeedback ? 'Feedback bearbeiten' : 'Feedback geben'}
+            >
+              {hasFeedback
+                ? <IconCommentFilled size={12} className="text-brand-400" />
+                : <IconCommentOutline size={12} />}
+            </button>
           )}
           {match?.status === 'missed' && (
             <IconMissed size={12} className="text-amber-400" />
@@ -278,6 +291,12 @@ export default function WeeklyPlan() {
   const [reviewError, setReviewError] = useState<string | null>(null)
   const [pendingReviewData, setPendingReviewData] = useState<ReviewJson | null>(null)
   const [reviewViolationList, setReviewViolationList] = useState<string[]>([])
+  // mid-week feedback
+  const [feedbackMap, setFeedbackMap] = useState<Record<string, { id: string; reasoning: string }>>({})
+  const [feedbackModal, setFeedbackModal] = useState<Activity | null>(null)
+  const [feedbackText, setFeedbackText] = useState('')
+  const [feedbackSaving, setFeedbackSaving] = useState(false)
+  const [feedbackToast, setFeedbackToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
   const isCurrentWeek = toDateStr(monday) === toDateStr(getISOMonday(new Date()))
   const weekStr = toDateStr(monday)
@@ -336,7 +355,26 @@ export default function WeeklyPlan() {
           .order('date', { ascending: true }),
       ])
       setPlan(planRes.data?.[0] as WeeklyPlan ?? null)
-      setWeekActivities((actsRes.data ?? []) as Activity[])
+      const acts = (actsRes.data ?? []) as Activity[]
+      setWeekActivities(acts)
+
+      const activityIds = acts.map(a => a.id)
+      if (activityIds.length > 0) {
+        const { data: fbRows } = await supabase
+          .from('coach_decisions')
+          .select('id, reasoning, related_activity_id')
+          .eq('athlete_id', athlete.id)
+          .eq('decision_type', 'midweek_feedback')
+          .in('related_activity_id', activityIds)
+        const fbMap: Record<string, { id: string; reasoning: string }> = {}
+        for (const row of (fbRows ?? []) as Pick<CoachDecision, 'id' | 'reasoning' | 'related_activity_id'>[]) {
+          if (row.related_activity_id) fbMap[row.related_activity_id] = { id: row.id, reasoning: row.reasoning ?? '' }
+        }
+        setFeedbackMap(fbMap)
+      } else {
+        setFeedbackMap({})
+      }
+
       setLoadingPlan(false)
     })()
   }, [athlete, weekStr])
@@ -680,6 +718,55 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
     }
   }
 
+  function openFeedbackModal(activity: Activity) {
+    setFeedbackModal(activity)
+    setFeedbackText(feedbackMap[activity.id]?.reasoning ?? '')
+  }
+
+  async function saveFeedback() {
+    if (!athlete || !feedbackModal) return
+    const text = feedbackText.trim()
+    if (!text) return
+    setFeedbackSaving(true)
+    const activityId = feedbackModal.id
+    const existing = feedbackMap[activityId]
+
+    try {
+      if (existing) {
+        const { error } = await supabase
+          .from('coach_decisions')
+          .update({ decision_summary: text.slice(0, 100), reasoning: text })
+          .eq('id', existing.id)
+        if (error) throw error
+        setFeedbackMap(m => ({ ...m, [activityId]: { id: existing.id, reasoning: text } }))
+      } else {
+        const { data, error } = await supabase
+          .from('coach_decisions')
+          .insert({
+            athlete_id:          athlete.id,
+            decision_type:       'midweek_feedback',
+            decision_summary:    text.slice(0, 100),
+            reasoning:           text,
+            related_activity_id: activityId,
+          })
+          .select()
+          .single()
+        if (error) throw error
+        setFeedbackMap(m => ({ ...m, [activityId]: { id: (data as CoachDecision).id, reasoning: text } }))
+      }
+      setFeedbackModal(null)
+      setFeedbackText('')
+      setFeedbackToast({ type: 'success', message: 'Danke — wird beim nächsten Plan berücksichtigt ✓' })
+      setTimeout(() => setFeedbackToast(null), 2500)
+    } catch (e) {
+      console.error(e)
+      setFeedbackToast({ type: 'error', message: 'Feedback konnte nicht gespeichert werden' })
+      setTimeout(() => setFeedbackToast(null), 2500)
+    } finally {
+      setFeedbackSaving(false)
+    }
+  }
+
   const planJson = plan?.plan_json as PlanJson | null
   const displayPlanJson = pendingPlanJson ?? planJson
 
@@ -739,6 +826,8 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
                 plan={dayPlan}
                 match={match}
                 onPress={match?.activity ? () => navigate(`/activity/${match.activity!.strava_id}`) : undefined}
+                onFeedbackPress={match?.activity ? () => openFeedbackModal(match.activity!) : undefined}
+                hasFeedback={match?.activity ? !!feedbackMap[match.activity.id] : false}
               />
             )
           })}
@@ -882,6 +971,54 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Mid-Week Feedback Modal */}
+      {feedbackModal && (
+        <div
+          className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-50 p-4"
+          onClick={e => { if (e.target === e.currentTarget && !feedbackSaving) setFeedbackModal(null) }}
+        >
+          <div className="bg-slate-800 rounded-2xl p-5 w-full max-w-lg flex flex-col gap-4">
+            <h2 className="text-lg font-bold text-slate-100">Feedback zu {feedbackModal.name}</h2>
+            <textarea
+              value={feedbackText}
+              onChange={e => setFeedbackText(e.target.value)}
+              placeholder="z.B. Pace war zu schnell für die HF-Vorgabe, Knie hat gezogen, fühlte sich super an…"
+              rows={4}
+              autoFocus
+              className="w-full bg-slate-900 text-slate-100 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none placeholder:text-slate-500"
+            />
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={() => setFeedbackModal(null)}
+                disabled={feedbackSaving}
+                className="flex-1 py-2.5 rounded-xl text-sm text-slate-400 bg-slate-700 hover:bg-slate-600 transition-colors disabled:opacity-50"
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={saveFeedback}
+                disabled={feedbackSaving || !feedbackText.trim()}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-brand-500 hover:bg-brand-600 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {feedbackSaving && (
+                  <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                )}
+                Speichern
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mid-Week Feedback Toast */}
+      {feedbackToast && (
+        <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl text-sm font-medium shadow-lg max-w-[90vw] text-center text-white ${
+          feedbackToast.type === 'success' ? 'bg-brand-500' : 'bg-red-500'
+        }`}>
+          {feedbackToast.message}
         </div>
       )}
     </div>
