@@ -206,7 +206,9 @@ oder
   ]
 
   function handleLogout() {
-    localStorage.clear(); sessionStorage.clear(); navigate('/')
+    localStorage.clear(); sessionStorage.clear()
+    document.cookie = 'pf_athlete_id=; max-age=0; path=/'
+    navigate('/')
   }
 
   return (

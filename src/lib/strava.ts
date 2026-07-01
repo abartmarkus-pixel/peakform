@@ -4,12 +4,24 @@ import { supabase } from './supabase'
 const CLIENT_ID = import.meta.env.VITE_STRAVA_CLIENT_ID as string
 const REDIRECT_URI = import.meta.env.VITE_STRAVA_REDIRECT_URI as string
 
-export const STRAVA_AUTH_URL =
-  `https://www.strava.com/oauth/authorize` +
-  `?client_id=${CLIENT_ID}` +
-  `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
-  `&response_type=code` +
-  `&scope=read,activity:read_all`
+// Generates a fresh CSRF state token for the OAuth flow, persists it in
+// sessionStorage so AuthCallback can verify it, and returns it for the auth URL.
+export function generateOAuthState(): string {
+  const state = crypto.randomUUID()
+  sessionStorage.setItem('oauth_state', state)
+  return state
+}
+
+export function getStravaAuthUrl(state: string): string {
+  return (
+    `https://www.strava.com/oauth/authorize` +
+    `?client_id=${CLIENT_ID}` +
+    `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+    `&response_type=code` +
+    `&scope=read,activity:read_all` +
+    `&state=${state}`
+  )
+}
 
 export type StravaActivity = {
   id: number
@@ -125,13 +137,18 @@ async function refreshAccessToken(refreshToken: string): Promise<RefreshResult> 
 }
 
 // Attempts to restore the session from Supabase when localStorage is empty.
-// Single-user app — queries the one athlete row, refreshes token if needed.
+// Identifies the athlete via the persistent pf_athlete_id cookie (not LIMIT 1),
+// so each browser restores its own account once multiple athletes exist.
 export async function restoreSessionFromSupabase(): Promise<boolean> {
   try {
+    const cookieMatch = document.cookie.match(/pf_athlete_id=([^;]+)/)
+    const stravaAthleteId = cookieMatch?.[1]
+    if (!stravaAthleteId) return false
+
     const { data } = await supabase
       .from('athletes')
       .select('id, strava_athlete_id, strava_access_token, strava_refresh_token, expires_at')
-      .limit(1)
+      .eq('strava_athlete_id', stravaAthleteId)
       .single()
 
     if (!data?.strava_refresh_token) return false

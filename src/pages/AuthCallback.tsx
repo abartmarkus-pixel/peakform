@@ -11,6 +11,7 @@ export default function AuthCallback() {
     const params = new URLSearchParams(window.location.search)
     const code = params.get('code')
     const errorParam = params.get('error')
+    const receivedState = params.get('state')
 
     if (errorParam) {
       setError('Strava-Verbindung abgebrochen.')
@@ -20,6 +21,15 @@ export default function AuthCallback() {
       setError('Kein Autorisierungscode erhalten.')
       return
     }
+
+    const expectedState = sessionStorage.getItem('oauth_state')
+    if (!receivedState || receivedState !== expectedState) {
+      console.error('OAuth state mismatch — möglicher CSRF-Versuch')
+      sessionStorage.removeItem('oauth_state')
+      navigate('/', { state: { error: 'Login fehlgeschlagen. Bitte erneut versuchen.' } })
+      return
+    }
+    sessionStorage.removeItem('oauth_state')
 
     exchangeCodeForToken(code)
       .then(async (token) => {
@@ -36,6 +46,7 @@ export default function AuthCallback() {
         const stravaId = String(token.athlete.id)
         localStorage.setItem('athlete_strava_id', stravaId)
         sessionStorage.setItem('athlete_strava_id', stravaId)
+        document.cookie = `pf_athlete_id=${stravaId}; max-age=31536000; path=/; SameSite=Lax`
         navigate('/dashboard')
       })
       .catch((err) => {

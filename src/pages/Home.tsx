@@ -1,15 +1,22 @@
-import { useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { STRAVA_AUTH_URL } from '../lib/strava'
+import { useEffect, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { generateOAuthState, getStravaAuthUrl } from '../lib/strava'
 
 export default function Home() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const [authUrl, setAuthUrl] = useState<string>('#')
+  const loginError = (location.state as { error?: string } | null)?.error ?? null
 
   useEffect(() => {
     if (localStorage.getItem('athlete_strava_id') || sessionStorage.getItem('athlete_strava_id')) {
       navigate('/dashboard', { replace: true })
     }
   }, [navigate])
+
+  useEffect(() => {
+    setAuthUrl(getStravaAuthUrl(generateOAuthState()))
+  }, [])
 
   return (
     <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-between py-12">
@@ -23,8 +30,13 @@ export default function Home() {
       </div>
 
       <div className="w-full max-w-sm px-4 flex flex-col items-center gap-4">
+        {loginError && (
+          <p className="w-full text-red-400 text-sm text-center bg-red-950/40 border border-red-500/30 rounded-lg px-4 py-2">
+            {loginError}
+          </p>
+        )}
         <a
-          href={STRAVA_AUTH_URL}
+          href={authUrl}
           className="flex items-center gap-3 bg-[#FC4C02] hover:bg-[#e04400] text-white font-semibold px-6 py-3 rounded-xl transition-colors"
         >
           <img

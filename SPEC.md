@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 1. Juli 2026 (body_goals: "Nackt gut ausschauen" durch neutrale Trigger-Logik ersetzt — showAesthetic reagiert jetzt auf Muskelaufbau/Gewicht reduzieren, mit Code-seitiger Migration bestehender Werte)
+> Letzte Aktualisierung: 1. Juli 2026 (OAuth CSRF-Schutz via state Parameter + Cookie-basierte Session-Wiederherstellung statt LIMIT 1 — Vorbereitung Multi-User-Launch)
 
 ---
 
@@ -111,27 +111,32 @@ peakform/
 **Kein Supabase Auth.** Die App nutzt Strava OAuth 2.0 als einzigen Login-Mechanismus.
 
 **Login-Flow:**
-1. User klickt "Mit Strava verbinden" → `STRAVA_AUTH_URL` (scope: `read,activity:read_all`)
-2. Strava redirectet zu `/auth/callback?code=...`
-3. `AuthCallback.tsx` ruft `/api/strava-token` auf (POST, server-side)
-4. Server tauscht Code gegen Token (`STRAVA_CLIENT_SECRET` bleibt server-seitig)
-5. `athletes` Upsert in Supabase via `strava_athlete_id` als Konflikt-Key
-6. `localStorage.setItem('athlete_strava_id', stravaId)` + `sessionStorage.setItem(...)` — Basis für alle weiteren Seiten
+1. User klickt "Mit Strava verbinden" → `Home.tsx` ruft `generateOAuthState()` auf (erzeugt `crypto.randomUUID()`, speichert sie in `sessionStorage.oauth_state`) und baut die Auth-URL via `getStravaAuthUrl(state)` (scope: `read,activity:read_all`, inkl. `&state=...`)
+2. Strava redirectet zu `/auth/callback?code=...&state=...`
+3. `AuthCallback.tsx` prüft **vor** dem Token-Exchange: `state` aus der Callback-URL muss mit `sessionStorage.oauth_state` übereinstimmen. Bei Mismatch/Fehlen → Redirect zu `/` mit `navigate('/', { state: { error: '...' } })`, kein Token-Exchange (CSRF-Schutz)
+4. Bei gültigem State: `sessionStorage.removeItem('oauth_state')`, dann `/api/strava-token` (POST, server-side)
+5. Server tauscht Code gegen Token (`STRAVA_CLIENT_SECRET` bleibt server-seitig)
+6. `athletes` Upsert in Supabase via `strava_athlete_id` als Konflikt-Key
+7. `localStorage.setItem('athlete_strava_id', stravaId)` + `sessionStorage.setItem(...)` + `document.cookie = 'pf_athlete_id=' + stravaId + '; max-age=31536000; path=/; SameSite=Lax'` — Basis für alle weiteren Seiten
+
+**Home.tsx Fehleranzeige:** Falls über `navigate('/', { state: { error } })` ein Fehler übergeben wurde (z.B. OAuth state mismatch), zeigt Home.tsx eine rote Fehlermeldung über dem Strava-Button (`location.state.error`).
 
 **Session-Wiederherstellung beim App-Start** (`App.tsx → Layout`):
 1. Öffentliche Pfade (`/`, `/auth/callback`): keine Prüfung nötig
 2. `localStorage` oder `sessionStorage` enthält `athlete_strava_id`: Session gültig, `localStorage` wird bei Bedarf nachgefüllt
-3. Beides leer → `restoreSessionFromSupabase()`: liest den einzigen Athletes-Eintrag aus Supabase, refresht Token falls abgelaufen, schreibt `athlete_strava_id` zurück in `localStorage` + `sessionStorage`
-4. Kein Eintrag in Supabase oder kein `refresh_token` → Redirect zu `/` (echter Strava-Login nötig)
+3. Beides leer → `restoreSessionFromSupabase()`: identifiziert den Athleten über das `pf_athlete_id`-Cookie, refresht Token falls abgelaufen, schreibt `athlete_strava_id` zurück in `localStorage` + `sessionStorage`
+4. Kein Cookie, kein passender Athleten-Eintrag oder kein `refresh_token` → Redirect zu `/` (echter Strava-Login nötig)
 
 Splash-Screen: erscheint **nur wenn eingeloggt** (`athlete_strava_id` in localStorage oder sessionStorage beim App-Start). Dauer: 2000ms sichtbar + 400ms Fade-out. Design: `bg-slate-900` + `splash.png` zentriert (80% Breite, max-w-sm), sanft pulsierend via CSS `peakform-pulse` (scale 1→1.05, opacity 1→0.85, 1.5s). Kein PeakForm Logo. Kein Overlay, kein Dots-Indicator. Auf PUBLIC_PATHS (/ und /auth/callback) kein Splash. Nicht eingeloggt auf geschützter Route → Session-Check läuft still, kein Splash.
 
 **`restoreSessionFromSupabase()`** (in `src/lib/strava.ts`):
-- `SELECT id, strava_athlete_id, strava_access_token, strava_refresh_token, expires_at FROM athletes LIMIT 1`
+- Liest `pf_athlete_id` aus `document.cookie`; ohne Cookie → `return false`
+- `SELECT id, strava_athlete_id, strava_access_token, strava_refresh_token, expires_at FROM athletes WHERE strava_athlete_id = <cookie-wert>`
 - Falls Eintrag mit `refresh_token`: `getValidAccessToken()` aufrufen → `localStorage` + `sessionStorage` setzen → `return true`
 - Sonst: `return false`
+- Ersetzt das frühere `LIMIT 1`-Pattern: bei mehreren Athleten-Einträgen bekommt jeder Browser (mit eigenem Cookie) den korrekten Account statt eines zufälligen
 
-**Logout:** `localStorage.clear()` + `sessionStorage.clear()` → Redirect zu `/`
+**Logout:** `localStorage.clear()` + `sessionStorage.clear()` + Cookie löschen (`document.cookie = 'pf_athlete_id=; max-age=0; path=/'`) → Redirect zu `/`
 
 **Token-Refresh:** Automatisch in `getValidAccessToken()` — 60s Buffer vor Ablauf, neuer Token via `/api/strava-token` (grant_type: `refresh_token`), Update in Supabase.
 
@@ -1030,6 +1035,8 @@ Datentrennung via PostgreSQL Row Level Security. Basis für zukünftigen Multi-U
 Die App nutzt kein Supabase Auth. Als Ersatz wird `app.strava_athlete_id` als PostgreSQL-Session-Variable gesetzt und in RLS-Policies referenziert.
 
 **Einschränkung:** Supabase verwendet pgBouncer im Transaction Mode. Session-Variablen (via `set_config`) sind in diesem Modus nicht persistent über Requests hinweg. Die Policies sind daher eine Vorbereitung für Session-Mode-Pooling oder direkten DB-Zugriff (Multi-User-Implementierung würde Supabase Auth oder eigene JWT-Claims erfordern).
+
+**Praktische Konsequenz:** Bis Supabase Auth eingeführt wird, ist der Datenschutz zwischen mehreren Athleten ausschließlich auf Anwendungsebene (WHERE athlete_id = X in jeder Query) sichergestellt — nicht auf Datenbankebene. Das reicht für eine kleine, vertrauenswürdige Nutzergruppe (2-3 Personen), ist aber kein Schutz vor gezieltem Zugriff über die Supabase anon key API. Vor öffentlichem Multi-User Onboarding: Supabase Auth zwingend erforderlich (siehe Roadmap).
 
 ### Supabase Funktion
 
