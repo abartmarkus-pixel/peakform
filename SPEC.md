@@ -397,7 +397,7 @@ Verpflichtender Wizard, läuft **einmalig** nach dem ersten Strava-Login. Kein S
 | Schritt | Titel | Inhalt | Pflicht für "Weiter" |
 |---|---|---|---|
 | 1 | Willkommen | Logo, Willkommenstext, Name-Feld | Name ≥ 2 Zeichen |
-| 2 | Sportarten | Trainingstage 1–7, Sportarten-Pills (nur `useFeatures(athlete)`-freigeschaltete) mit Tage-Stepper; Amber-Warnung bei Σdays > Trainingstage (kein Blocker) | Trainingstage gesetzt + ≥1 Sportart |
+| 2 | Sportarten | Trainingstage 1–7, Sportarten-Pills (alle drei, frei wählbar) mit Tage-Stepper; Amber-Warnung bei Σdays > Trainingstage (kein Blocker) | Trainingstage gesetzt + ≥1 Sportart |
 | 3 | Erstes Ziel | Event-Name, Datum (muss in Zukunft liegen), Sportart-Dropdown (nur aus Schritt 2 gewählte Sportarten), Distanz/Höhenmeter/Notizen optional; Priorität automatisch `A` | Event-Name, Datum, Sportart |
 | 4 | Leistungsdaten | Geschlecht, Geburtsjahr, Max HF (+ Tanaka-Button), Ruhe-HF, Gewicht, FTP (nur wenn Radfahren gewählt), 5k-Bestzeit MM:SS (nur wenn Laufen gewählt) — alles optional | keine (immer aktiv) |
 | 5 | Coach-Stil | 4 Presets (Motivierend/Analytisch/Direkt/Empathisch, Default "Analytisch"), Freitext-Fokus optional | ein Stil gewählt |
@@ -410,6 +410,8 @@ Verpflichtender Wizard, läuft **einmalig** nach dem ersten Strava-Login. Kein S
 4. Bei Fehler (INSERT oder UPDATE schlägt fehl): Fehlermeldung unter der Zusammenfassung, User bleibt auf Schritt 6, State bleibt erhalten, erneuter Versuch möglich. `onboarding_completed` wird nur `true` gesetzt wenn beide Schreibvorgänge erfolgreich waren.
 
 **Migration für Bestandsuser:** Beim Hinzufügen des Feldes wurden alle bestehenden `athletes`-Zeilen mit `name IS NOT NULL` per `UPDATE` auf `onboarding_completed = true` gesetzt — damit werden bereits eingerichtete Athleten (Markus) beim nächsten Login nicht in den Wizard geschickt.
+
+**Sportarten-Auswahl ist von Feature-Flags entkoppelt:** Schritt 2 zeigt immer alle drei Sportarten zur Auswahl, unabhängig vom `features`-Feld in `athletes`. Grund: `features` kann erst gesetzt werden, wenn der `athletes`-Eintrag existiert (nach erstem Login), der Wizard startet aber sofort danach — ein Feature-Flag-Gate hier würde ein Henne-Ei-Problem erzeugen. Die Sichtbarkeit sportartspezifischer UI (FTP-Feld, Krafttraining-Sektion im Profil, Dashboard-Filter etc.) wird stattdessen ausschließlich durch die eigene `sport_types`-Wahl gesteuert — wählt der User eine Sportart nicht, bleiben die zugehörigen Bereiche automatisch ausgeblendet. `useFeatures()` bleibt für alle anderen Zwecke (z.B. komplettes Sperren von `coach_chat`, `goals`, `weekly_plan`, `body_checkin`) unverändert bestehen.
 
 ### Dashboard.tsx
 - Lädt `athletes` by `strava_athlete_id` aus Supabase

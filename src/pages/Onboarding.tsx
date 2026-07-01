@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, type Athlete, type SportConfig } from '../lib/supabase'
-import { useFeatures } from '../lib/features'
 import { IconRunning, IconCycling, IconStrength, IconWarning, SPORT_DISPLAY } from '../lib/icons'
 
 const TOTAL_STEPS = 6
@@ -105,7 +104,6 @@ export default function Onboarding() {
     })()
   }, [navigate])
 
-  const features = useFeatures(athlete)
   const trainingDaysNum = trainingDays ? parseInt(trainingDays) : 0
   const totalDays = sportConfigs.reduce((sum, s) => sum + s.days, 0)
   const hasSportViolation = trainingDaysNum > 0 && totalDays > trainingDaysNum
@@ -293,10 +291,7 @@ export default function Onboarding() {
             <div>
               <label className="text-xs text-slate-400 mb-2 block">Sportarten</label>
               <div className="flex flex-wrap gap-2">
-                {SPORT_OPTIONS.filter(opt =>
-                  (opt.key !== 'cycling'  || features.cycling) &&
-                  (opt.key !== 'strength' || features.strength)
-                ).map(({ key, Icon, color, label }) => {
+                {SPORT_OPTIONS.map(({ key, Icon, color, label }) => {
                   const isActive = sportConfigs.some(s => s.type === key)
                   return (
                     <button
