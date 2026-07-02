@@ -1,5 +1,6 @@
-import type { Athlete } from './supabase'
+import type { Athlete, Activity } from './supabase'
 import { supabase } from './supabase'
+import { analyzeActivity } from './activityAnalysis'
 
 const CLIENT_ID = import.meta.env.VITE_STRAVA_CLIENT_ID as string
 const REDIRECT_URI = import.meta.env.VITE_STRAVA_REDIRECT_URI as string
@@ -185,6 +186,35 @@ export async function syncActivitiesToSupabase(
     })),
     { onConflict: 'strava_id' },
   )
+
+  // Fire-and-forget: auto-analyze any activity that doesn't have claude_analysis
+  // yet (freshly synced ones, plus any older backlog). Not awaited — callers
+  // (Dashboard/WeeklyPlan) proceed immediately, analysis runs in the background.
+  // Sequential (not Promise.all) so a recovery decision from one activity is
+  // already in coach_decisions by the time the next activity is analyzed.
+  void (async () => {
+    try {
+      const { data: unanalyzed } = await supabase
+        .from('activities')
+        .select('*')
+        .eq('athlete_id', athleteId)
+        .is('claude_analysis', null)
+        .order('date', { ascending: true })
+
+      if (!unanalyzed?.length) return
+
+      for (const activity of unanalyzed as Activity[]) {
+        const result = await analyzeActivity(activity, athleteId)
+        if (!result.success) {
+          console.error(`Background analysis failed for activity ${activity.strava_id}:`, result.error)
+        }
+      }
+    } catch (e) {
+      // Best-effort background job — a lookup failure here must never surface
+      // to the caller (Dashboard/WeeklyPlan already moved on without awaiting).
+      console.error('Background analysis sweep failed:', e)
+    }
+  })()
 }
 
 // Returns a valid access token, refreshing automatically if expired (with 60s buffer).

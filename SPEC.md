@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 2. Juli 2026 (Bugfix: Datumsfehler in Coach-Analysen — falsches Aktivitätsdatum bei Mid-Week-Feedback, fehlende Kalenderdaten im Wochenplan-Kontext, UTC-Slice statt Lokalzeit-Formatierung, siehe Kapitel 11 „Bugfix 2. Juli 2026")
+> Letzte Aktualisierung: 2. Juli 2026 (Feature: Automatische Aktivitäts-Analyse nach Strava-Sync — kein manueller Klick auf „Analysieren" mehr nötig, Button heißt jetzt „Neu analysieren", Analyse-Logik in `src/lib/activityAnalysis.ts` extrahiert, siehe Kapitel 9 „Auto-Analyse" und Kapitel 10 „Fallback: `closeOutstandingAnalyses()`"; davor Bugfix: Datumsfehler in Coach-Analysen — falsches Aktivitätsdatum bei Mid-Week-Feedback, fehlende Kalenderdaten im Wochenplan-Kontext, UTC-Slice statt Lokalzeit-Formatierung, siehe Kapitel 11 „Bugfix 2. Juli 2026")
 
 ---
 
@@ -91,6 +91,11 @@ peakform/
 │       ├── supabase.ts        # Supabase Client + TypeScript-Types
 │       ├── strava.ts          # OAuth URL, Token Exchange/Refresh via /api/strava-token, Activities, Streams, Laps
 │       │                        getValidAccessToken(): setzt set_athlete_context RPC (RLS-Vorbereitung)
+│       │                        syncActivitiesToSupabase(): Upsert + fire-and-forget Auto-Analyse unanalysierter Aktivitäten (siehe Kapitel 9 „Auto-Analyse")
+│       ├── activityAnalysis.ts # analyzeActivity(activity, athleteId): Promise<{success, error?}> — vollständige Claude-Analyse
+│       │                        (Specialist-Routing, Streams/Laps/Description cache-first nachladen, Prompt, Speichern, Recovery-Extraktion)
+│       │                        triggerRecoveryExtraction() + Chart/Stats/Hevy-Helper (auch von ActivityDetail.tsx für Anzeige importiert)
+│       │                        Einzige Implementierung — genutzt vom „Neu analysieren"-Button, vom Sync-Hintergrundjob und vom Plan/Review-Fallback
 │       ├── features.ts        # FeatureFlags Interface, DEFAULT_FEATURES, useFeatures(athlete)
 │       ├── icons.ts           # Zentrale Icon-Exports (FA6 via react-icons/fa6) + SPORT_DISPLAY Konstante
 │       │                        SPORT_DISPLAY: { cycling, running, strength, rest } → { color, label }
@@ -424,10 +429,17 @@ Verpflichtender Wizard, läuft **einmalig** nach dem ersten Strava-Login. Kein S
 ### Dashboard.tsx
 - Lädt `athletes` by `strava_athlete_id` aus Supabase
 - Holt letzte 10 Aktivitäten von Strava API (`per_page=10`)
-- Upsert in `activities` (ohne `tss`, ohne `description`)
+- `syncActivitiesToSupabase(acts, athlete.id)` (aus `src/lib/strava.ts`): Upsert in `activities` (ohne `tss`, ohne `description`, ohne `claude_analysis` — `onConflict: 'strava_id'` fasst `claude_analysis` beim Update nie an, bestehende Analysen bleiben also unangetastet)
 - Filter-Buttons: WeightTraining / Ride / Run mit FA6-Icons (VirtualRide/VirtualRun werden mitgefiltert)
 - Logout-Icon: `localStorage.clear()` + Redirect
 - Keine Nav-Kacheln mehr (ersetzt durch BottomNav)
+
+**Auto-Analyse nach Sync (`syncActivitiesToSupabase()`, 2. Juli 2026):**
+- Nach dem Upsert startet fire-and-forget (nicht `await`et — Dashboard/WeeklyPlan laden sofort normal weiter) ein Hintergrundjob: `SELECT * FROM activities WHERE athlete_id = ... AND claude_analysis IS NULL ORDER BY date ASC`
+- Jede gefundene Aktivität wird **sequenziell** (nicht `Promise.all`) mit `analyzeActivity()` analysiert — sequenziell, damit eine Recovery-Entscheidung aus `coach_decisions` bei der Analyse der nächsten Aktivität bereits im Kontext verfügbar ist
+- Fehlgeschlagene Einzel-Analysen werden geloggt (`console.error`), blockieren aber weder die Schleife noch den Aufrufer — die Aktivität bleibt einfach ohne `claude_analysis` (siehe „Fallback" in Kapitel 10 und „Polling" in Kapitel 9)
+- Die gesamte fire-and-forget-IIFE ist in `try/catch` gewrappt, damit auch ein Fehler beim initialen `SELECT` nicht als unhandled promise rejection auftaucht
+- Genutzte Implementierung: `analyzeActivity()` aus `src/lib/activityAnalysis.ts` — dieselbe Funktion, die auch der „Neu analysieren"-Button in `ActivityDetail.tsx` und der Plan/Review-Fallback in `WeeklyPlan.tsx` aufrufen
 
 **Echtzeit-Alert nach Strava-Sync:**
 - Einmal pro Session (via `sessionStorage`, Key: `peakform_alert_{weekStart}`)
@@ -475,17 +487,22 @@ Verpflichtender Wizard, läuft **einmalig** nach dem ersten Strava-Login. Kein S
 - Gesamtvolumen-Banner
 - Claude-Analyse: Volumen & Intensität / Übungsanalyse / Stärken / Empfehlung
 
-**Coach-Routing (`getSpecialistPrompt(activityType)`):**
+**Coach-Routing (`getSpecialistPrompt(activityType)`, in `src/lib/activityAnalysis.ts`):**
 - Gibt `{ specialist: string|null, sport: string|null }` zurück
 - `specialist` = sportspezifischer Spezialist-Prompt (wird auf `buildCoachSystemPrompt()` aufgesattelt)
 - `sport` = `'running'` | `'cycling'` | `'strength'` | `null`
-- `runAnalysis()` lädt `buildCoachSystemPrompt(aId)` + `buildCoachContext()` + `buildSpecialistContext()` parallel
+- `analyzeActivity()` lädt `buildCoachSystemPrompt(aId, sport)` + `buildCoachContext()` + `buildSpecialistContext()` parallel
 
-**Recovery-Extraktion (`triggerRecoveryExtraction(analysisText, athleteId, activityId)`):**
-- Fire-and-forget Helper — läuft nach `runAnalysis()` ODER beim Laden einer bestehenden Analyse
+**Recovery-Extraktion (`triggerRecoveryExtraction(analysisText, athleteId, activityId)`, in `src/lib/activityAnalysis.ts`):**
+- Fire-and-forget Helper — läuft nach jeder erfolgreichen `analyzeActivity()` ODER beim Laden einer bestehenden Analyse
 - Mini-Claude-Call (`max_tokens: 150`): extrahiert `{has_restriction, restriction_until, description}` als JSON
 - Bei `has_restriction: true` → INSERT in `coach_decisions` (`decision_type = 'recovery_required'`, `related_activity_id = activityId`)
 - **On-load Recovery-Check:** Wenn `claude_analysis` existiert aber kein `coach_decisions`-Eintrag mit `related_activity_id = act.id` und `type = 'recovery_required'` → Extraction wird automatisch nachgeholt
+
+**Auto-Analyse (2. Juli 2026):**
+- Neue Aktivitäten werden nicht mehr manuell per Klick analysiert, sondern automatisch im Hintergrund direkt nach dem Strava-Sync (siehe `syncActivitiesToSupabase()` in Dashboard.tsx oben) — der Analyse-Button heißt jetzt durchgängig **„Neu analysieren"** und bleibt jederzeit verfügbar (überschreibt bestehende `claude_analysis` bei Klick), unabhängig davon ob bereits eine Analyse existiert
+- `runAnalysis()` in `ActivityDetail.tsx` ruft dafür nur noch `analyzeActivity(activity, athleteId)` aus `src/lib/activityAnalysis.ts` auf und lädt danach `claude_analysis` neu für die Anzeige — die eigentliche Analyse-Logik lebt vollständig in der Lib (reines Refactoring, kein Verhaltensunterschied für die UI)
+- **Polling bei laufender Hintergrund-Analyse:** Ist `claude_analysis` beim Laden der Seite noch `null`, wird `awaitingBackgroundAnalysis` gesetzt; ein `useEffect` pollt danach alle 3s (max. 10 Versuche = 30s) erneut `claude_analysis`. Solange gepollt wird, zeigt die Seite statt eines leeren Zustands den Hinweis „Analyse läuft im Hintergrund…" (Spinner). Nach 10 erfolglosen Versuchen fällt die UI automatisch in den normalen „Neu analysieren"-Zustand zurück. Ein manueller Klick auf „Neu analysieren" bricht laufendes Polling sofort ab.
 
 **Markdown-Renderer** (`renderMarkdown`): h1-h3, Bullet-Lists, Blockquotes, `**fett**`, HR, Skip-Tabellen und Code-Blöcke
 
@@ -618,9 +635,23 @@ Alle Wochengrenzen werden über `src/lib/dateUtils.ts` berechnet:
 **Supabase-Migration (30.6.2026):** Alle `week_start`-Werte mit DOW=0 (Sonntag, falsch durch UTC-Bug) wurden um +1 Tag korrigiert:
 `2026-06-21→06-22`, `2026-06-28→06-29`, `2026-07-05→07-06`
 
+### Fallback: `closeOutstandingAnalyses()` (2. Juli 2026)
+
+Sicherheitsnetz für den Fall, dass die fire-and-forget Hintergrund-Analyse aus `syncActivitiesToSupabase()` (siehe Kapitel 9 „Auto-Analyse") noch nicht fertig war oder für eine Aktivität fehlgeschlagen ist. Wird von **`generatePlan()` und `startReview()` jeweils als erstes im `try`-Block** aufgerufen — noch vor `buildCoachContext()` —, damit `[LETZTE AKTIVITÄTS-ANALYSE]` garantiert aktuell ist.
+
+**Ablauf:**
+1. `SELECT * FROM activities WHERE athlete_id = ... AND claude_analysis IS NULL AND date >= (heute − 7 Tage)`
+2. Bei Treffern: `loadingMessage` wird gesetzt (`"Schließe {n} ausstehende Analyse(n) ab…"`) und im Generate-/Review-Button anstelle des generischen „Generiere Plan…"/„Review läuft…" angezeigt
+3. Jede gefundene Aktivität wird sequenziell mit `analyzeActivity()` nachanalysiert
+4. Fehlgeschlagene Einzel-Analysen werden geloggt, blockieren aber weder die Schleife noch den nachfolgenden Plan-/Review-Call
+5. Die gesamte Funktion ist in `try/catch/finally` gewrappt — ein Fehler bereits beim `SELECT` darf die eigentliche Plan-/Review-Generierung (das primäre Feature) nicht verhindern; `finally` setzt `loadingMessage` in jedem Fall zurück
+
+---
+
 ### Plan-Generierung (`generatePlan()`)
 
 **Inputs:**
+- `closeOutstandingAnalyses()` (Fallback, siehe oben) → zuerst, awaited
 - `buildCoachContext(athleteId)` + `coach_decisions[type=recovery_required, letzte 7 Tage]` → parallel
 - `COACH_SYSTEM_PROMPT` → als `system`-Parameter
 - Woche (Montag-Datum als Referenz)
@@ -683,6 +714,7 @@ const SPORT_KEYWORDS = {
 ### Wochenreview (`startReview()` + `saveReviewData()`)
 
 **Inputs:**
+- `closeOutstandingAnalyses()` (Fallback, siehe oben) → zuerst, awaited
 - `buildCoachContext(athleteId)` → vollständiger Coach-Kontext
 - `weekActivities`: alle Aktivitäten der Woche aus `activities`
 - `reviewFeedback`: Freitext-Input des Athleten
@@ -944,6 +976,7 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 - Nav-Kacheln entfernt (durch BottomNav ersetzt)
 - Aktivitäten-Filter nach Typ (Rad/Lauf/Kraft) mit FA6-Icons
 - Logout
+- `syncActivitiesToSupabase()`: Upsert lässt `claude_analysis` beim Update unangetastet + stößt fire-and-forget Auto-Analyse aller Aktivitäten mit `claude_analysis IS NULL` an (2. Juli 2026, siehe Kapitel 9)
 
 **ActivityDetail:**
 - **Sportartabhängige Darstellung** (Lauf vs. Rad vs. Kraft)
@@ -953,7 +986,8 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 - Cache-first für streams_json, laps_json und description
 - Hevy-Workout-Parser (aus Strava description)
 - Übungskarten mit Muskelgruppe-Pill und Volumen-Pill
-- Claude-Analyse (gespeichert in activities.claude_analysis)
+- Claude-Analyse (gespeichert in activities.claude_analysis) — Analyse-Logik ausgelagert in `src/lib/activityAnalysis.ts` (`analyzeActivity()`), von Button, Sync-Hintergrundjob und Plan/Review-Fallback gemeinsam genutzt (2. Juli 2026)
+- Analyse läuft automatisch im Hintergrund nach dem Sync; Button heißt durchgängig „Neu analysieren"; Polling (3s-Intervall, max. 10 Versuche) zeigt „Analyse läuft im Hintergrund…" solange keine Analyse vorliegt (2. Juli 2026)
 - Markdown-Renderer (h1-h3, Bullets, Blockquotes, bold)
 
 **Profil:**
@@ -989,8 +1023,9 @@ npm run dev     # Vite Dev-Server auf localhost:5173
   - completed: grüner linker Rand + ✓ Icon + Aktivitätsname + Dauer; Tap → `/activity/{strava_id}` (**nicht** `activity.id`/Supabase-UUID — `ActivityDetail.tsx` lädt via `.eq('strava_id', Number(id))`, siehe Kapitel 9 „Identifier-Konvention Aktivitäts-Navigation")
   - missed: amber linker Rand + ✗ Icon + "Nicht absolviert" (nur vergangene Tage)
   - pending: neutrales Erscheinungsbild; Ruhetage haben keinen Status
-  - Mini-Sync: beim Laden des Wochenplans werden zuerst die letzten 10 Strava-Aktivitäten in Supabase gesynct (silent, non-blocking bei Fehler)
+  - Mini-Sync: beim Laden des Wochenplans werden zuerst die letzten 10 Strava-Aktivitäten via `syncActivitiesToSupabase()` in Supabase gesynct (silent, non-blocking bei Fehler) — stößt dabei automatisch auch die Hintergrund-Analyse unanalysierter Aktivitäten an (siehe Kapitel 9 „Auto-Analyse")
 - **Mid-Week Check-in:** Feedback-Button an completed DayCards, Modal, `coach_decisions` Insert/Update (`decision_type = 'midweek_feedback'`), Toast, kein zusätzlicher Claude-Call — siehe Kapitel 10
+- **Fallback `closeOutstandingAnalyses()`** (2. Juli 2026): `generatePlan()` und `startReview()` holen unanalysierte Aktivitäten der letzten 7 Tage synchron nach, bevor der Plan-/Review-Call startet — Sicherheitsnetz falls die Hintergrund-Analyse aus dem Sync noch nicht fertig war; `loadingMessage` zeigt währenddessen „Schließe X ausstehende Analyse(n) ab…" im Button — siehe Kapitel 10
 
 **Coach-Chat:**
 - Supabase-persistente Messages (chat_messages)

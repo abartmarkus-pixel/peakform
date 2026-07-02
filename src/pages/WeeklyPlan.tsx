@@ -4,6 +4,7 @@ import { supabase, type Athlete, type WeeklyPlan, type Activity, type SportConfi
 import { buildCoachContext } from '../lib/coachContext'
 import { buildCoachSystemPrompt } from '../lib/coachPrompt'
 import { getValidAccessToken, fetchRecentActivities, syncActivitiesToSupabase } from '../lib/strava'
+import { analyzeActivity } from '../lib/activityAnalysis'
 import {
   IconRunning, IconCycling, IconStrength, IconRest,
   IconChevronLeft, IconChevronRight,
@@ -282,6 +283,7 @@ export default function WeeklyPlan() {
   const [generating, setGenerating]   = useState(false)
   const [loadingPlan, setLoadingPlan] = useState(true)
   const [error, setError]             = useState<string | null>(null)
+  const [loadingMessage, setLoadingMessage] = useState<string | null>(null)
   const [pendingPlanJson, setPendingPlanJson] = useState<PlanJson | null>(null)
   const [violation, setViolation]     = useState<string[]>([])
   // review
@@ -416,6 +418,39 @@ export default function WeeklyPlan() {
     setViolation([])
   }
 
+  // Fallback in case the fire-and-forget background analysis (triggered by
+  // syncActivitiesToSupabase) hasn't finished or failed for some activity of
+  // the last 7 days: catches it up synchronously before plan/review use the
+  // coach context, so [LETZTE AKTIVITÄTS-ANALYSE] is never stale.
+  async function closeOutstandingAnalyses() {
+    if (!athlete) return
+    try {
+      const sevenDaysAgoDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+      const { data: stillUnanalyzed } = await supabase
+        .from('activities')
+        .select('*')
+        .eq('athlete_id', athlete.id)
+        .is('claude_analysis', null)
+        .gte('date', sevenDaysAgoDate.toISOString())
+
+      if (!stillUnanalyzed?.length) return
+
+      setLoadingMessage(`Schließe ${stillUnanalyzed.length} ausstehende Analyse(n) ab…`)
+      for (const act of stillUnanalyzed as Activity[]) {
+        const result = await analyzeActivity(act, athlete.id)
+        if (!result.success) {
+          console.error(`Fallback analysis failed for activity ${act.strava_id}:`, result.error)
+        }
+      }
+    } catch (e) {
+      // This is a safety net, not the primary feature — a lookup failure here
+      // must never block the actual plan/review generation that follows.
+      console.error('Fallback analysis sweep failed:', e)
+    } finally {
+      setLoadingMessage(null)
+    }
+  }
+
   async function generatePlan() {
     if (!athlete) return
     setGenerating(true)
@@ -424,6 +459,8 @@ export default function WeeklyPlan() {
     setViolation([])
 
     try {
+      await closeOutstandingAnalyses()
+
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
 
       const [context, systemPrompt, { data: recoveryRows }] = await Promise.all([
@@ -536,6 +573,7 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, 
       setError('Plan-Generierung fehlgeschlagen. Bitte erneut versuchen.')
     } finally {
       setGenerating(false)
+      setLoadingMessage(null)
     }
   }
 
@@ -599,6 +637,8 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, 
     ).join('\n')
 
     try {
+      await closeOutstandingAnalyses()
+
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
 
       const [context, systemPrompt, { data: recoveryRows }] = await Promise.all([
@@ -715,6 +755,7 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
       setReviewError('Review fehlgeschlagen. Bitte erneut versuchen.')
     } finally {
       setReviewing(false)
+      setLoadingMessage(null)
     }
   }
 
@@ -878,7 +919,7 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
         {generating && (
           <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
         )}
-        {generating ? 'Generiere Plan…' : plan ? 'Plan neu generieren' : 'Plan für diese Woche generieren'}
+        {generating ? (loadingMessage ?? 'Generiere Plan…') : plan ? 'Plan neu generieren' : 'Plan für diese Woche generieren'}
       </button>
 
       {/* ── Wochenreview (nur für aktuelle + vergangene Wochen) ── */}
@@ -949,7 +990,7 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
                   {reviewing && (
                     <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   )}
-                  {reviewing ? 'Review läuft…' : 'Wochenreview starten'}
+                  {reviewing ? (loadingMessage ?? 'Review läuft…') : 'Wochenreview starten'}
                 </button>
               )}
             </>
