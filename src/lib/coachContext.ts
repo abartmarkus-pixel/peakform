@@ -1,5 +1,29 @@
 import { supabase, type SportConfig, type EquipmentConfig, type AestheticGoals } from './supabase'
-import { getISOMonday } from './dateUtils'
+import { getISOMonday, toLocalDateStr, toLocalWeekdayDateStr } from './dateUtils'
+
+const WEEKDAY_ORDER = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
+
+/** Ergänzt die Mo–So-Tageskürzel im plan_json.days-Objekt um das jeweilige Kalenderdatum,
+ *  damit Claude Wochentag↔Datum nicht selbst umrechnen muss. */
+function planJsonWithDates(planJson: unknown, monday: Date): unknown {
+  if (!planJson || typeof planJson !== 'object') return planJson
+  const pj = planJson as Record<string, unknown>
+  const days = pj.days as Record<string, unknown> | undefined
+  if (!days || typeof days !== 'object') return planJson
+
+  const datedDays: Record<string, unknown> = {}
+  for (const [label, value] of Object.entries(days)) {
+    const idx = WEEKDAY_ORDER.indexOf(label)
+    if (idx === -1) {
+      datedDays[label] = value
+      continue
+    }
+    const d = new Date(monday)
+    d.setDate(d.getDate() + idx)
+    datedDays[`${label} ${toLocalDateStr(d)}`] = value
+  }
+  return { ...pj, days: datedDays }
+}
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -116,6 +140,7 @@ export async function buildCoachContext(
   threadId?: string,
   activeSport?: 'running' | 'cycling' | 'strength' | null,
 ): Promise<string> {
+  const mondayDate = getISOMonday(new Date())
   const thisWeek = mondayOf(new Date())
   const fourWeeksAgo = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000).toISOString()
 
@@ -167,7 +192,7 @@ export async function buildCoachContext(
 
     supabase
       .from('coach_decisions')
-      .select('decision_type, decision_summary, reasoning, created_at')
+      .select('decision_type, decision_summary, reasoning, created_at, related_activity_id')
       .eq('athlete_id', athleteId)
       .order('created_at', { ascending: false })
       .limit(5),
@@ -261,7 +286,7 @@ export async function buildCoachContext(
   // ── 3. AKTUELLER WOCHENPLAN (~400 tokens) ─────────────────────────────
   const currentPlan = currentPlanRows?.[0] ?? null
   const planBody = currentPlan
-    ? JSON.stringify(currentPlan.plan_json, null, 2)
+    ? JSON.stringify(planJsonWithDates(currentPlan.plan_json, mondayDate), null, 2)
     : 'Kein Wochenplan vorhanden.'
 
   const reviewNote = currentPlan?.review_notes
@@ -277,7 +302,7 @@ export async function buildCoachContext(
   if (lastAct?.claude_analysis) {
     sections.push([
       '[LETZTE AKTIVITÄTS-ANALYSE]',
-      `${lastAct.name} (${lastAct.date.slice(0, 10)}, ${lastAct.type}):`,
+      `${lastAct.name} (${toLocalDateStr(lastAct.date)}, ${lastAct.type}):`,
       lastAct.claude_analysis,
       '→ Diese Analyse MUSS bei der Wochenplanung berücksichtigt werden.',
     ].join('\n'))
@@ -334,10 +359,24 @@ export async function buildCoachContext(
   )
 
   // ── 6. COACH-ENTSCHEIDUNGEN — LETZTE 5 (~300 tokens) ──────────────────
-  const decisionLines = (decisions ?? []).map(d =>
-    `[${d.decision_type}] ${new Date(d.created_at).toLocaleDateString('de-DE')}: ${d.decision_summary}` +
-    (d.reasoning ? `\n  → ${d.reasoning}` : '')
-  )
+  // related_activity_id-Datum separat auflösen: created_at ist der Logging-/
+  // Eingabe-Zeitpunkt (z. B. Mid-Week-Feedback oft erst am Folgetag erfasst),
+  // nicht das Datum der Aktivität selbst — beide dürfen nicht verwechselt werden.
+  const decisionActivityIds = [...new Set(
+    (decisions ?? []).map(d => d.related_activity_id).filter((v): v is string => !!v)
+  )]
+  const { data: decisionActivities } = decisionActivityIds.length
+    ? await supabase.from('activities').select('id, name, date').in('id', decisionActivityIds)
+    : { data: [] as { id: string; name: string; date: string }[] }
+  const activityById = new Map((decisionActivities ?? []).map(a => [a.id, a]))
+
+  const decisionLines = (decisions ?? []).map(d => {
+    const relatedAct = d.related_activity_id ? activityById.get(d.related_activity_id) : null
+    const header = relatedAct
+      ? `[${d.decision_type} zu ${relatedAct.name}, ${toLocalWeekdayDateStr(relatedAct.date)} — eingegeben am ${toLocalDateStr(d.created_at)}]`
+      : `[${d.decision_type}] ${toLocalDateStr(d.created_at)}`
+    return `${header}: ${d.decision_summary}` + (d.reasoning ? `\n  → ${d.reasoning}` : '')
+  })
 
   sections.push(
     `[COACH-ENTSCHEIDUNGEN — LETZTE 5]\n${decisionLines.length ? decisionLines.join('\n') : 'Keine Entscheidungen geloggt.'}`

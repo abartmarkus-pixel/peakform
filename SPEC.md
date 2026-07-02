@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 1. Juli 2026 (Feature: Mid-Week Check-in — Feedback-Button an absolvierten Aktivitäten im Wochenplan, siehe Kapitel 10)
+> Letzte Aktualisierung: 2. Juli 2026 (Bugfix: Datumsfehler in Coach-Analysen — falsches Aktivitätsdatum bei Mid-Week-Feedback, fehlende Kalenderdaten im Wochenplan-Kontext, UTC-Slice statt Lokalzeit-Formatierung, siehe Kapitel 11 „Bugfix 2. Juli 2026")
 
 ---
 
@@ -98,7 +98,11 @@ peakform/
 │       │                        getISOMonday(date): Date — Montag der Woche in Lokalzeit
 │       │                        getISOSunday(monday): Date — Sonntag 23:59:59.999 in Lokalzeit
 │       │                        formatWeekRange(monday): string — z. B. "29.6. – 5.7.2026"
+│       │                        toLocalDateStr(date): string — "TT.MM.JJJJ" in Lokalzeit (nicht ISO-String-Slice)
+│       │                        toLocalWeekdayDateStr(date): string — z. B. "Di 30.6.2026"
 │       ├── coachContext.ts    # buildCoachContext(athleteId, threadId?, activeSport?) — 7 Abschnitte, alle parallel
+│       │                        Datums-sichere Formatierung überall via toLocalDateStr()/toLocalWeekdayDateStr()
+│       │                        (nie date.slice(0,10) auf rohem UTC-ISO-String), siehe Kapitel 11
 │       │                        buildSpecialistContext(athleteId, sport) — sportart-spezifische Historien
 │       ├── coachPrompt.ts     # buildCoachSystemPrompt(athleteId, activeSport?): Promise<string> (Hauptcoach, dynamisch aus DB)
 │       │                        LAUF_COACH_PROMPT | RAD_COACH_PROMPT | KRAFT_COACH_PROMPT (Spezialcoaches, statisch)
@@ -746,7 +750,7 @@ Erlaubt sofortiges Feedback zu einer Einheit, ohne auf das Wochenreview zu warte
 
 Funktion in `src/lib/coachContext.ts`. Signatur: `buildCoachContext(athleteId: string, threadId?: string, activeSport?: 'running' | 'cycling' | 'strength' | null)`. Wird bei JEDEM Claude-Call als User-Message-Inhalt aufgebaut.
 
-**Alle 7 Queries laufen parallel (Promise.all).**
+**Alle 7 Hauptqueries laufen parallel (Promise.all).** Eine zusätzliche, davon abhängige Query löst für `[COACH-ENTSCHEIDUNGEN]` die Daten verknüpfter Aktivitäten auf (kann erst nach der `coach_decisions`-Query laufen, siehe unten).
 
 ```
 [ATHLETEN-PROFIL]                      ~200 tokens
@@ -765,11 +769,16 @@ Funktion in `src/lib/coachContext.ts`. Signatur: `buildCoachContext(athleteId: s
 [AKTUELLER WOCHENPLAN]                 ~400 tokens
   Neueste Version der laufenden Woche (week_start = Montag heute)
   + review_notes der Vorwoche (falls vorhanden)
-  + plan_json als JSON
+  + plan_json als JSON — die Mo–So-Tageskürzel in `days` werden über `planJsonWithDates()`
+    um das konkrete Kalenderdatum ergänzt (z. B. Schlüssel "Do 2.7.2026" statt nur "Do"),
+    damit Claude die Wochentag↔Datum-Zuordnung nicht selbst berechnen muss (Fehlerquelle
+    für falsche Datums-/Wochentagsnennungen in Empfehlungen, siehe Bugfix 2. Juli 2026)
 
 [LETZTE AKTIVITÄTS-ANALYSE]            ~300 tokens  (nur wenn claude_analysis vorhanden)
   Neueste Aktivität mit claude_analysis aus activities
-  Format: "{name} ({date}, {type}):\n{claude_analysis}"
+  Format: "{name} ({date}, {type}):\n{claude_analysis}" — {date} via `toLocalDateStr()`
+  (Lokalzeit-sicher; NICHT `date.slice(0, 10)` auf dem rohen UTC-ISO-String, siehe Bugfix
+  2. Juli 2026)
   → "Diese Analyse MUSS bei der Wochenplanung berücksichtigt werden."
 
 [TRAININGSHISTORIE — LETZTE 4 WOCHEN]  ~600 tokens
@@ -780,11 +789,29 @@ Funktion in `src/lib/coachContext.ts`. Signatur: `buildCoachContext(athleteId: s
   + review_notes Snippet (max 250 Zeichen)
 
 [COACH-ENTSCHEIDUNGEN — LETZTE 5]     ~300 tokens
-  decision_type, decision_summary, reasoning, created_at
+  decision_type, decision_summary, reasoning, created_at, related_activity_id
+  Bei gesetztem related_activity_id wird das Aktivitätsdatum separat aufgelöst (activities.name
+  + activities.date, lokal formatiert via `toLocalWeekdayDateStr()`) und getrennt von
+  `created_at` ausgewiesen — Format: "[{decision_type} zu {activity_name}, {Wochentag
+  TT.MM.JJJJ} — eingegeben am {TT.MM.JJJJ}]: {decision_summary}". Ohne related_activity_id:
+  "[{decision_type}] {TT.MM.JJJJ}: {decision_summary}" (created_at, lokal formatiert).
+  Grund: `created_at` ist der Logging-/Eingabe-Zeitpunkt (z. B. beim Mid-Week-Feedback oft
+  erst am Folgetag erfasst), nicht das Datum der Aktivität selbst — Claude hat beide vor dem
+  Bugfix vom 2. Juli 2026 verwechselt (siehe unten).
 
 [AKTUELLE CHAT-SESSION]                ~500 tokens  (nur wenn threadId übergeben)
   Letzte 10 Messages des threadId, chronologisch
 ```
+
+### Bugfix 2. Juli 2026 — Datumsfehler in Coach-Analysen
+
+**Symptom:** Ein Lauf vom Di 30.6. wurde in der Analyse eines späteren Laufs als "1.7." referenziert; eine "nächster Lauf"-Empfehlung nannte "Do, 3.7." (3.7.2026 ist tatsächlich ein Freitag).
+
+**Root Causes (zwei unabhängige Fehlerquellen, kein Timezone-Bug bei `activities.date` selbst — `start_date` (UTC) wird korrekt gespeichert und von `toLocaleDateString()`/`toLocalDateStr()` korrekt lokal aufgelöst):**
+1. `[COACH-ENTSCHEIDUNGEN]` zeigte bei `midweek_feedback`-Einträgen `created_at` (Zeitpunkt der Feedback-Eingabe im Wochenplan) als vermeintliches Ereignisdatum — wurde vom Coach mit dem tatsächlichen Aktivitätsdatum verwechselt, wenn Feedback erst am Folgetag eingegeben wurde.
+2. `[AKTUELLER WOCHENPLAN]` gab Claude nur Wochentags-Kürzel (Mo–So) ohne Kalenderdatum mit — die Zuordnung musste Claude selbst berechnen und hat sich dabei verrechnet.
+
+**Fix:** `[COACH-ENTSCHEIDUNGEN]` löst jetzt zusätzlich das Datum der `related_activity_id` auf und weist es getrennt von `created_at` aus (siehe Format oben). `[AKTUELLER WOCHENPLAN]` bekommt über `planJsonWithDates()` das Kalenderdatum direkt in die Tages-Schlüssel eingebettet. `[LETZTE AKTIVITÄTS-ANALYSE]` nutzt zusätzlich `toLocalDateStr()` statt `date.slice(0, 10)` (war bislang unauffällig, da kein Testfall die lokale Mitternachtsgrenze kreuzte, aber derselbe Bug-Typ wie der bereits behobene Wochengrenzen-Bug). Neue Helper `toLocalDateStr()` / `toLocalWeekdayDateStr()` in `dateUtils.ts`.
 
 **Ziel: unter ~3.000 tokens, immer gleiche Struktur.**
 
@@ -989,6 +1016,7 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 - `athletes.season_phase_override` + `athletes.best_5k_seconds` — neue DB-Felder (Migration angewendet)
 - Trainingsphase-Sektion in Profile.tsx mit Segmented Control (Auto/Override)
 - `activeSport`-Parameter in `buildCoachSystemPrompt()` + `buildCoachContext()`: FTP/W-kg technisch aus dem Kontext entfernt bei Lauf-/Kraft-fokussierten Analysen (kontextuelle Blindheit strukturell statt nur per Prompt-Anweisung)
+- **Bugfix Datumsfehler in Coach-Analysen (2. Juli 2026):** `[COACH-ENTSCHEIDUNGEN]` weist Aktivitätsdatum (via `related_activity_id`) getrennt von `created_at` aus; `[AKTUELLER WOCHENPLAN]` bettet Kalenderdatum direkt in die Mo–So-Tagesschlüssel ein (`planJsonWithDates()`); `[LETZTE AKTIVITÄTS-ANALYSE]` nutzt `toLocalDateStr()` statt `date.slice(0,10)` — siehe Kapitel 11
 
 **Nutzerdaten & Feature-Flags:**
 - `athletes.gender`, `athletes.birth_year`, `athletes.resting_hr` — neue DB-Felder (Migration angewendet)

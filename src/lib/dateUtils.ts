@@ -22,3 +22,17 @@ export function formatWeekRange(monday: Date): string {
   const year = sunday.getFullYear()
   return `${fmt(monday)} – ${fmt(sunday)}${year}`
 }
+
+const WEEKDAY_LABELS_DE = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa']
+
+/** Formats a Date/ISO-Timestamp als "TT.MM.JJJJ" in Lokalzeit (nicht UTC-slice). */
+export function toLocalDateStr(date: Date | string): string {
+  const d = typeof date === 'string' ? new Date(date) : date
+  return `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()}`
+}
+
+/** Formats a Date/ISO-Timestamp als "Di 30.6.2026" — Wochentag-Kürzel + Lokaldatum. */
+export function toLocalWeekdayDateStr(date: Date | string): string {
+  const d = typeof date === 'string' ? new Date(date) : date
+  return `${WEEKDAY_LABELS_DE[d.getDay()]} ${toLocalDateStr(d)}`
+}
