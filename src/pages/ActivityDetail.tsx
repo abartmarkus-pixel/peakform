@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { IconChevronLeft, IconSarcastic, IconRoast, IconSexy } from '../lib/icons'
+import { IconChevronLeft, IconRoast } from '../lib/icons'
 import {
   ResponsiveContainer,
   AreaChart,
@@ -25,7 +25,7 @@ import {
 import { supabase, type Activity, type Athlete } from '../lib/supabase'
 import { AppHeader } from '../components/AppHeader'
 import { renderMarkdown } from '../lib/markdown'
-import { buildFunModePrompt, type FunMode, type SportFocus } from '../lib/funModePrompts'
+import { buildRoastPrompt, type SportFocus } from '../lib/funModePrompts'
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -154,21 +154,9 @@ function splitsFromMetric(splitsMetric: StravaSplitMetric[]): RunSplit[] {
   })
 }
 
-// ── Spaß-Analyse (komplett isoliert vom Coach-Kontext) ─────────────────────────
+// ── Roast Me (komplett isoliert vom Coach-Kontext) ─────────────────────────
 
-const FUN_MODE_ICONS: Record<FunMode, typeof IconSarcastic> = {
-  sarcastic: IconSarcastic,
-  roast: IconRoast,
-  sexy: IconSexy,
-}
-
-const FUN_MODE_TITLES: Record<FunMode, string> = {
-  sarcastic: 'Sarkastisch',
-  roast: 'Roast',
-  sexy: 'Sexy',
-}
-
-function buildFunStatsText(activity: Activity, sport: SportFocus, stats: ComputedStats, exercises: Exercise[]): string {
+function buildRoastStatsText(activity: Activity, sport: SportFocus, stats: ComputedStats, exercises: Exercise[]): string {
   const lines = [
     `Aktivität: ${activity.name}`,
     `Sportart: ${activity.type}`,
@@ -210,21 +198,20 @@ function buildFunStatsText(activity: Activity, sport: SportFocus, stats: Compute
   return lines.join('\n')
 }
 
-async function getFunAnalysis(
-  mode: FunMode,
+async function getRoastAnalysis(
   activity: Activity,
-  athlete: { name: string; gender: 'male' | 'female' | 'diverse' | null },
+  athlete: { name: string },
   stats: ComputedStats,
   exercises: Exercise[]
 ): Promise<string> {
   const sport = sportFromActivityType(activity.type)
-  const statsText = buildFunStatsText(activity, sport, stats, exercises)
+  const statsText = buildRoastStatsText(activity, sport, stats, exercises)
 
   const response = await fetch('/api/analyse', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      system: buildFunModePrompt(mode, { name: athlete.name, gender: athlete.gender, sport }),
+      system: buildRoastPrompt({ name: athlete.name, sport }),
       prompt: statsText,
       max_tokens: 300,
     }),
@@ -257,17 +244,15 @@ export default function ActivityDetail() {
   const [exercises, setExercises] = useState<Exercise[]>([])
   const [athleteId, setAthleteId] = useState<string | null>(null)
   const [athleteName, setAthleteName] = useState('')
-  const [athleteGender, setAthleteGender] = useState<'male' | 'female' | 'diverse' | null>(null)
   const [runSplits, setRunSplits] = useState<RunSplit[]>([])
   const [analysing, setAnalysing] = useState(false)
   const [analysis, setAnalysis] = useState<string | null>(null)
   const [awaitingBackgroundAnalysis, setAwaitingBackgroundAnalysis] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [funMode, setFunMode] = useState<FunMode | null>(null)
-  const [funLoading, setFunLoading] = useState(false)
-  const [funResult, setFunResult] = useState<string | null>(null)
-  const [funError, setFunError] = useState<string | null>(null)
+  const [roastLoading, setRoastLoading] = useState(false)
+  const [roastResult, setRoastResult] = useState<string | null>(null)
+  const [roastError, setRoastError] = useState<string | null>(null)
 
   useEffect(() => {
     const stravaId = localStorage.getItem('athlete_strava_id')
@@ -284,7 +269,6 @@ export default function ActivityDetail() {
         const athlete = athleteData as Athlete
         setAthleteId(athlete.id)
         setAthleteName(athlete.name ?? '')
-        setAthleteGender(athlete.gender ?? null)
 
         const { data: actData } = await supabase
           .from('activities')
@@ -417,20 +401,19 @@ export default function ActivityDetail() {
     }
   }
 
-  async function handleFunClick(mode: FunMode) {
+  async function handleRoastClick() {
     if (!activity) return
-    setFunMode(mode)
-    setFunLoading(true)
-    setFunError(null)
+    setRoastLoading(true)
+    setRoastError(null)
     try {
-      const text = await getFunAnalysis(mode, activity, { name: athleteName, gender: athleteGender }, stats, exercises)
-      setFunResult(text)
+      const text = await getRoastAnalysis(activity, { name: athleteName }, stats, exercises)
+      setRoastResult(text)
     } catch (e) {
       console.error(e)
-      setFunError('Spaß-Analyse fehlgeschlagen.')
-      setFunResult(null)
+      setRoastError('Roast fehlgeschlagen.')
+      setRoastResult(null)
     } finally {
-      setFunLoading(false)
+      setRoastLoading(false)
     }
   }
 
@@ -763,42 +746,29 @@ export default function ActivityDetail() {
         </div>
       )}
 
-      {/* ── Spaß-Analyse (isoliert, nicht persistiert) ─────────── */}
+      {/* ── Roast Me (isoliert, nicht persistiert) ─────────── */}
       {analysis && (
         <div className="mt-4">
-          <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">🎭 Spaß-Analyse</h2>
-          <div className="flex gap-2">
-            {(['sarcastic', 'roast', 'sexy'] as FunMode[]).map((mode) => {
-              const Icon = FUN_MODE_ICONS[mode]
-              const isActive = funMode === mode
-              return (
-                <button
-                  key={mode}
-                  onClick={() => handleFunClick(mode)}
-                  disabled={funLoading}
-                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 ${
-                    isActive
-                      ? 'bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/40'
-                      : 'bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700'
-                  }`}
-                >
-                  {funLoading && isActive
-                    ? <span className="w-3.5 h-3.5 border-2 border-fuchsia-300 border-t-transparent rounded-full animate-spin" />
-                    : <Icon size={14} />}
-                  {FUN_MODE_TITLES[mode]}
-                </button>
-              )
-            })}
-          </div>
+          <button
+            onClick={handleRoastClick}
+            disabled={roastLoading}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-orange-600 to-red-600 hover:shadow-lg hover:shadow-orange-500/50 active:shadow-orange-500/50 transition-shadow disabled:opacity-50"
+          >
+            {roastLoading
+              ? <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              : <IconRoast size={14} />}
+            Roast Me
+            {!roastLoading && <IconRoast size={14} />}
+          </button>
 
-          {funError && <p className="text-red-400 text-sm mt-3">{funError}</p>}
+          {roastError && <p className="text-red-400 text-sm mt-3">{roastError}</p>}
 
-          {funResult && !funLoading && (
-            <div className="mt-3 bg-fuchsia-500/5 border border-dashed border-fuchsia-500/40 rounded-xl p-4">
-              <h3 className="text-sm font-semibold text-fuchsia-300 uppercase tracking-wider mb-3">
-                🎭 Spaß-Modus — {funMode && FUN_MODE_TITLES[funMode]}
+          {roastResult && !roastLoading && (
+            <div className="mt-3 bg-gradient-to-br from-red-950/40 to-orange-950/30 border border-orange-500/40 rounded-xl p-4">
+              <h3 className="text-sm font-semibold text-orange-300 uppercase tracking-wider mb-3">
+                🔥 Geröstet 🔥
               </h3>
-              <div className="space-y-1">{renderMarkdown(funResult)}</div>
+              <div className="space-y-1">{renderMarkdown(roastResult)}</div>
             </div>
           )}
         </div>

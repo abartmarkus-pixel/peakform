@@ -39,10 +39,8 @@ export { FaGripVertical as IconGrip } from 'react-icons/fa6'
 export { FaRegCommentDots as IconCommentOutline } from 'react-icons/fa6'
 export { FaCommentDots as IconCommentFilled } from 'react-icons/fa6'
 
-// Spaß-Analyse
-export { FaFaceRollingEyes as IconSarcastic } from 'react-icons/fa6'
+// Roast Me
 export { FaFire as IconRoast } from 'react-icons/fa6'
-export { FaFaceKissWinkHeart as IconSexy } from 'react-icons/fa6'
 
 // Sportart-Display: zentrale Konfiguration für Icons, Farben und Labels
 export const SPORT_DISPLAY = {
