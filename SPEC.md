@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 2. Juli 2026 (Feature: Automatische Aktivitäts-Analyse nach Strava-Sync — kein manueller Klick auf „Analysieren" mehr nötig, Button heißt jetzt „Neu analysieren", Analyse-Logik in `src/lib/activityAnalysis.ts` extrahiert, siehe Kapitel 9 „Auto-Analyse" und Kapitel 10 „Fallback: `closeOutstandingAnalyses()`"; davor Bugfix: Datumsfehler in Coach-Analysen — falsches Aktivitätsdatum bei Mid-Week-Feedback, fehlende Kalenderdaten im Wochenplan-Kontext, UTC-Slice statt Lokalzeit-Formatierung, siehe Kapitel 11 „Bugfix 2. Juli 2026")
+> Letzte Aktualisierung: 3. Juli 2026 (Bugfix: Sportart-Icon in der Dashboard-Aktivitätsliste wurde bei langen Aktivitätsnamen durch fehlendes `flex-shrink-0` vom Flexbox-Layout mitgeschrumpft — siehe Kapitel 9 „Dashboard.tsx"; davor Feature: Automatische Aktivitäts-Analyse nach Strava-Sync — kein manueller Klick auf „Analysieren" mehr nötig, Button heißt jetzt „Neu analysieren", Analyse-Logik in `src/lib/activityAnalysis.ts` extrahiert, siehe Kapitel 9 „Auto-Analyse" und Kapitel 10 „Fallback: `closeOutstandingAnalyses()`"; davor Bugfix: Datumsfehler in Coach-Analysen — falsches Aktivitätsdatum bei Mid-Week-Feedback, fehlende Kalenderdaten im Wochenplan-Kontext, UTC-Slice statt Lokalzeit-Formatierung, siehe Kapitel 11 „Bugfix 2. Juli 2026")
 
 ---
 
@@ -433,6 +433,7 @@ Verpflichtender Wizard, läuft **einmalig** nach dem ersten Strava-Login. Kein S
 - Filter-Buttons: WeightTraining / Ride / Run mit FA6-Icons (VirtualRide/VirtualRun werden mitgefiltert)
 - Logout-Icon: `localStorage.clear()` + Redirect
 - Keine Nav-Kacheln mehr (ersetzt durch BottomNav)
+- **Aktivitätsliste — `ActivityIcon`:** Sportart-Icon in der Karten-Kopfzeile (`flex items-center gap-2`) trägt `flex-shrink-0`, damit es bei langen Aktivitätsnamen (die den Zeilenplatz knapp machen) nicht vom Flexbox-Schrumpfalgorithmus mitverkleinert wird — ohne `flex-shrink-0` erben Flex-Kinder standardmäßig `flex-shrink: 1`, wodurch das SVG-Icon neben einem sehr langen `truncate`-Namen sichtbar kleiner wirkte als bei kurzen Namen (Bugfix 3. Juli 2026)
 
 **Auto-Analyse nach Sync (`syncActivitiesToSupabase()`, 2. Juli 2026):**
 - Nach dem Upsert startet fire-and-forget (nicht `await`et — Dashboard/WeeklyPlan laden sofort normal weiter) ein Hintergrundjob: `SELECT * FROM activities WHERE athlete_id = ... AND claude_analysis IS NULL ORDER BY date ASC`

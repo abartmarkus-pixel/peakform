@@ -56,12 +56,12 @@ function formatDistance(meters: number) {
 
 function ActivityIcon({ type }: { type: string }) {
   if (type === 'Run' || type === 'VirtualRun' || type === 'TrailRun')
-    return <IconRunning size={18} color={SPORT_DISPLAY.running.color} />
+    return <IconRunning size={18} color={SPORT_DISPLAY.running.color} className="flex-shrink-0" />
   if (type === 'Ride' || type === 'VirtualRide' || type === 'MountainBikeRide' || type === 'GravelRide')
-    return <IconCycling size={18} color={SPORT_DISPLAY.cycling.color} />
+    return <IconCycling size={18} color={SPORT_DISPLAY.cycling.color} className="flex-shrink-0" />
   if (type === 'WeightTraining' || type === 'Workout')
-    return <IconStrength size={18} color={SPORT_DISPLAY.strength.color} />
-  return <IconRunning size={18} className="text-slate-400" />
+    return <IconStrength size={18} color={SPORT_DISPLAY.strength.color} className="flex-shrink-0" />
+  return <IconRunning size={18} className="flex-shrink-0 text-slate-400" />
 }
 
 // ── component ──────────────────────────────────────────────────────────────
