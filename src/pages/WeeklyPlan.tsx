@@ -878,20 +878,17 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
       {/* Wochen-Kennzahlen-Leiste */}
       {showWeekStats && weekStats && (
         <div className="bg-slate-800 border border-slate-700/50 rounded-xl px-4 py-3 mb-4">
-          <p className="text-sm font-semibold text-slate-200 text-center mb-2">
-            {weekStats.completedCount} / {weekStats.totalCount} Einheiten
-          </p>
-          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5">
-            <span className="flex items-center gap-1.5 text-xs text-slate-400">
-              <IconRunning size={13} color={SPORT_DISPLAY.running.color} />
+          <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
+            <span className="flex items-center gap-2 text-base text-slate-400">
+              <IconRunning size={20} color={SPORT_DISPLAY.running.color} />
               {weekStats.runningKm.toFixed(1)} km
             </span>
-            <span className="flex items-center gap-1.5 text-xs text-slate-400">
-              <IconCycling size={13} color={SPORT_DISPLAY.cycling.color} />
+            <span className="flex items-center gap-2 text-base text-slate-400">
+              <IconCycling size={20} color={SPORT_DISPLAY.cycling.color} />
               {weekStats.cyclingKm.toFixed(1)} km
             </span>
-            <span className="flex items-center gap-1.5 text-xs text-slate-400">
-              <IconStrength size={13} color={SPORT_DISPLAY.strength.color} />
+            <span className="flex items-center gap-2 text-base text-slate-400">
+              <IconStrength size={20} color={SPORT_DISPLAY.strength.color} />
               {weekStats.strengthKg.toLocaleString('de-DE', { maximumFractionDigits: 0 })} kg
             </span>
           </div>
