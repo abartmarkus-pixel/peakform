@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, type Athlete, type WeeklyPlan, type Activity, type SportConfig, type CoachDecision } from '../lib/supabase'
 import { buildCoachContext } from '../lib/coachContext'
 import { buildCoachSystemPrompt } from '../lib/coachPrompt'
 import { getValidAccessToken, fetchRecentActivities, syncActivitiesToSupabase } from '../lib/strava'
-import { analyzeActivity } from '../lib/activityAnalysis'
+import { analyzeActivity, parseHevyDescription } from '../lib/activityAnalysis'
 import {
   IconRunning, IconCycling, IconStrength, IconRest,
   IconChevronLeft, IconChevronRight,
@@ -811,6 +811,34 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
   const planJson = plan?.plan_json as PlanJson | null
   const displayPlanJson = pendingPlanJson ?? planJson
 
+  const weekStats = useMemo(() => {
+    if (!displayPlanJson) return null
+
+    let totalCount = 0
+    let completedCount = 0
+    DAYS.forEach((day, idx) => {
+      const dayPlan = displayPlanJson.days?.[day]
+      if (!dayPlan || REST_KEYWORDS.some(k => dayPlan.type.toLowerCase().includes(k))) return
+      totalCount++
+      const date = new Date(monday); date.setDate(date.getDate() + idx)
+      if (matchActivityToDay(date, dayPlan, weekActivities).status === 'completed') completedCount++
+    })
+
+    const runningKm = weekActivities
+      .filter(a => SPORT_MATCH.running.includes(a.type))
+      .reduce((sum, a) => sum + (a.distance_m ?? 0) / 1000, 0)
+    const cyclingKm = weekActivities
+      .filter(a => SPORT_MATCH.radfahren.includes(a.type))
+      .reduce((sum, a) => sum + (a.distance_m ?? 0) / 1000, 0)
+    const strengthKg = weekActivities
+      .filter(a => SPORT_MATCH.krafttraining.includes(a.type) && a.description)
+      .reduce((sum, a) => sum + parseHevyDescription(a.description!).reduce((v, ex) => v + ex.totalVolume, 0), 0)
+
+    return { totalCount, completedCount, runningKm, cyclingKm, strengthKg }
+  }, [displayPlanJson, weekActivities, monday])
+
+  const showWeekStats = !!weekStats && (weekActivities.length > 0 || weekStats.completedCount > 0)
+
   return (
     <>
       <AppHeader />
@@ -844,6 +872,29 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
       {displayPlanJson?.summary && (
         <div className="bg-brand-500/10 border border-brand-500/20 rounded-xl px-4 py-3 mb-4">
           <p className="text-sm text-slate-300 leading-relaxed">{displayPlanJson.summary}</p>
+        </div>
+      )}
+
+      {/* Wochen-Kennzahlen-Leiste */}
+      {showWeekStats && weekStats && (
+        <div className="bg-slate-800 border border-slate-700/50 rounded-xl px-4 py-3 mb-4">
+          <p className="text-sm font-semibold text-slate-200 text-center mb-2">
+            {weekStats.completedCount} / {weekStats.totalCount} Einheiten
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5">
+            <span className="flex items-center gap-1.5 text-xs text-slate-400">
+              <IconRunning size={13} color={SPORT_DISPLAY.running.color} />
+              {weekStats.runningKm.toFixed(1)} km
+            </span>
+            <span className="flex items-center gap-1.5 text-xs text-slate-400">
+              <IconCycling size={13} color={SPORT_DISPLAY.cycling.color} />
+              {weekStats.cyclingKm.toFixed(1)} km
+            </span>
+            <span className="flex items-center gap-1.5 text-xs text-slate-400">
+              <IconStrength size={13} color={SPORT_DISPLAY.strength.color} />
+              {weekStats.strengthKg.toLocaleString('de-DE', { maximumFractionDigits: 0 })} kg
+            </span>
+          </div>
         </div>
       )}
 
