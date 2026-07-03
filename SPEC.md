@@ -4,7 +4,7 @@
 > SPEC.md beschreibt immer den tatsächlich implementierten Stand — nicht was geplant war.
 > Committe SPEC.md zusammen mit dem Feature-Code.
 
-> Letzte Aktualisierung: 3. Juli 2026 (UI-Anpassung: Wochen-Kennzahlen-Leiste im Wochenplan — „X / Y Einheiten"-Zeile entfernt, nur noch eine Zeile mit Lauf-/Rad-km + Kraft-Gesamtgewicht, Icons/Text vergrößert (`size={20}`, `text-base`), siehe Kapitel 10 „Wochen-Kennzahlen-Leiste"; davor Feature: Wochen-Kennzahlen-Leiste im Wochenplan eingeführt — Lauf-/Rad-km + Kraft-Gesamtgewicht zwischen Phasen-Banner und DayCards, ausgeblendet bei Wochen ohne jegliche Aktivität; davor Bugfix: Sportart-Icon in der Dashboard-Aktivitätsliste wurde bei langen Aktivitätsnamen durch fehlendes `flex-shrink-0` vom Flexbox-Layout mitgeschrumpft — siehe Kapitel 9 „Dashboard.tsx"; davor Feature: Automatische Aktivitäts-Analyse nach Strava-Sync — kein manueller Klick auf „Analysieren" mehr nötig, Button heißt jetzt „Neu analysieren", Analyse-Logik in `src/lib/activityAnalysis.ts` extrahiert, siehe Kapitel 9 „Auto-Analyse" und Kapitel 10 „Fallback: `closeOutstandingAnalyses()`"; davor Bugfix: Datumsfehler in Coach-Analysen — falsches Aktivitätsdatum bei Mid-Week-Feedback, fehlende Kalenderdaten im Wochenplan-Kontext, UTC-Slice statt Lokalzeit-Formatierung, siehe Kapitel 11 „Bugfix 2. Juli 2026")
+> Letzte Aktualisierung: 3. Juli 2026 (Feature: Spaß-Analyse in ActivityDetail.tsx — optionale, komplett vom Coach-Gedächtnis isolierte KI-Kommentare in 3 Modi (Sarkastisch/Roast/Sexy), erscheint als Button-Reihe unterhalb der ernsten KI-Analyse, rein ephemer im React-State, siehe Kapitel 9 „ActivityDetail.tsx — Spaß-Analyse"; davor UI-Anpassung: Wochen-Kennzahlen-Leiste im Wochenplan — „X / Y Einheiten"-Zeile entfernt, nur noch eine Zeile mit Lauf-/Rad-km + Kraft-Gesamtgewicht, Icons/Text vergrößert (`size={20}`, `text-base`), siehe Kapitel 10 „Wochen-Kennzahlen-Leiste"; davor Feature: Wochen-Kennzahlen-Leiste im Wochenplan eingeführt — Lauf-/Rad-km + Kraft-Gesamtgewicht zwischen Phasen-Banner und DayCards, ausgeblendet bei Wochen ohne jegliche Aktivität; davor Bugfix: Sportart-Icon in der Dashboard-Aktivitätsliste wurde bei langen Aktivitätsnamen durch fehlendes `flex-shrink-0` vom Flexbox-Layout mitgeschrumpft — siehe Kapitel 9 „Dashboard.tsx"; davor Feature: Automatische Aktivitäts-Analyse nach Strava-Sync — kein manueller Klick auf „Analysieren" mehr nötig, Button heißt jetzt „Neu analysieren", Analyse-Logik in `src/lib/activityAnalysis.ts` extrahiert, siehe Kapitel 9 „Auto-Analyse" und Kapitel 10 „Fallback: `closeOutstandingAnalyses()`"; davor Bugfix: Datumsfehler in Coach-Analysen — falsches Aktivitätsdatum bei Mid-Week-Feedback, fehlende Kalenderdaten im Wochenplan-Kontext, UTC-Slice statt Lokalzeit-Formatierung, siehe Kapitel 11 „Bugfix 2. Juli 2026")
 
 ---
 
@@ -111,6 +111,9 @@ peakform/
 │       │                        buildSpecialistContext(athleteId, sport) — sportart-spezifische Historien
 │       ├── coachPrompt.ts     # buildCoachSystemPrompt(athleteId, activeSport?): Promise<string> (Hauptcoach, dynamisch aus DB)
 │       │                        LAUF_COACH_PROMPT | RAD_COACH_PROMPT | KRAFT_COACH_PROMPT (Spezialcoaches, statisch)
+│       ├── funModePrompts.ts  # buildFunModePrompt(mode, {name, gender}): string — Prompts für die Spaß-Analyse
+│       │                        FunMode = 'sarcastic'|'roast'|'sexy'; FUN_MODE_LABELS; komplett unabhängig
+│       │                        von coachPrompt.ts/coachContext.ts — keine gemeinsame Logik, kein DB-Zugriff
 │       └── markdown.tsx       # renderMarkdown(text): React.ReactNode[] — geteilter Markdown-Lite-Renderer
 │                                (h1-h3, Bullets, Blockquotes, **fett**, HR; genutzt von ActivityDetail)
 ├── vite.config.ts          # PWA-Config + /api/analyse + /api/strava-token Middleware für lokales Dev
@@ -506,6 +509,16 @@ Verpflichtender Wizard, läuft **einmalig** nach dem ersten Strava-Login. Kein S
 - **Polling bei laufender Hintergrund-Analyse:** Ist `claude_analysis` beim Laden der Seite noch `null`, wird `awaitingBackgroundAnalysis` gesetzt; ein `useEffect` pollt danach alle 3s (max. 10 Versuche = 30s) erneut `claude_analysis`. Solange gepollt wird, zeigt die Seite statt eines leeren Zustands den Hinweis „Analyse läuft im Hintergrund…" (Spinner). Nach 10 erfolglosen Versuchen fällt die UI automatisch in den normalen „Neu analysieren"-Zustand zurück. Ein manueller Klick auf „Neu analysieren" bricht laufendes Polling sofort ab.
 
 **Markdown-Renderer** (`renderMarkdown`): h1-h3, Bullet-Lists, Blockquotes, `**fett**`, HR, Skip-Tabellen und Code-Blöcke
+
+**Spaß-Analyse (3. Juli 2026):**
+- Optionale, rein unterhaltsame KI-Kommentare zur Aktivität — 3 Modi: Sarkastisch / Roast / Sexy (`FunMode` in `src/lib/funModePrompts.ts`)
+- Button-Reihe „🎭 Spaß-Analyse" erscheint **nur wenn `claude_analysis` bereits existiert**, direkt unterhalb der ernsten KI-Analyse-Card
+- Bei Klick: `getFunAnalysis(mode, activity, {name, gender})` (lokal in `ActivityDetail.tsx`) ruft `/api/analyse` **direkt** auf (`fetch`, `max_tokens: 300`) — **kein** `buildCoachSystemPrompt()`, **kein** `buildCoachContext()`, **kein** `buildSpecialistContext()`. System-Prompt kommt ausschließlich aus `buildFunModePrompt(mode, {name, gender})`; User-Prompt ist ein reiner Rohdaten-Stats-Block dieser einen Aktivität (Name, Sportart, Datum, Dauer, Distanz, Ø/Max HF, NP)
+- Personalisierung: `athlete.name` und `athlete.gender` werden beim Laden der Aktivität bereits mitgeladen (kein zusätzlicher Supabase-Call) und in den State (`athleteName`, `athleteGender`) übernommen
+- Ergebnis lebt ausschließlich in React-State (`funResult`, `funMode`, `funLoading`, `funError`) — **wird nirgends persistiert**, verschwindet bei Seiten-Reload; erneuter Klick (gleicher oder anderer Modus) überschreibt den State und triggert einen neuen Claude-Call
+- Ergebnis-Card ist visuell klar von der ernsten Analyse abgesetzt: fuchsia-Akzentfarbe, gestrichelter Rand, Header „🎭 Spaß-Modus — {Modus}"
+- **Vollständig isoliert vom Coach-Gedächtnis:** taucht in keinem zukünftigen `buildCoachContext()`-Aufruf auf, erzeugt keinen `coach_decisions`-Eintrag, schreibt nie in `activities.claude_analysis` — beeinflusst niemals spätere Coaching-Entscheidungen (Plan-Generierung, Reviews, Recovery-Extraktion)
+- Icons: `IconSarcastic` (`FaFaceRollingEyes`), `IconRoast` (`FaFire`), `IconSexy` (`FaFaceKissWinkHeart`) in `src/lib/icons.ts`
 
 ### Profile.tsx
 

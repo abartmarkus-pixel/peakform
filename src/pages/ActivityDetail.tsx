@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { IconChevronLeft } from '../lib/icons'
+import { IconChevronLeft, IconSarcastic, IconRoast, IconSexy } from '../lib/icons'
 import {
   ResponsiveContainer,
   AreaChart,
@@ -25,6 +25,7 @@ import {
 import { supabase, type Activity, type Athlete } from '../lib/supabase'
 import { AppHeader } from '../components/AppHeader'
 import { renderMarkdown } from '../lib/markdown'
+import { buildFunModePrompt, type FunMode } from '../lib/funModePrompts'
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -145,6 +146,50 @@ function splitsFromMetric(splitsMetric: StravaSplitMetric[]): RunSplit[] {
   })
 }
 
+// ── Spaß-Analyse (komplett isoliert vom Coach-Kontext) ─────────────────────────
+
+const FUN_MODE_ICONS: Record<FunMode, typeof IconSarcastic> = {
+  sarcastic: IconSarcastic,
+  roast: IconRoast,
+  sexy: IconSexy,
+}
+
+const FUN_MODE_TITLES: Record<FunMode, string> = {
+  sarcastic: 'Sarkastisch',
+  roast: 'Roast',
+  sexy: 'Sexy',
+}
+
+async function getFunAnalysis(
+  mode: FunMode,
+  activity: Activity,
+  athlete: { name: string; gender: 'male' | 'female' | 'diverse' | null }
+): Promise<string> {
+  const statsText = `
+Aktivität: ${activity.name}
+Sportart: ${activity.type}
+Datum: ${new Date(activity.date).toLocaleDateString('de-DE')}
+Dauer: ${activity.duration_s != null ? formatDuration(activity.duration_s) : '—'}
+Distanz: ${activity.distance_m ? (activity.distance_m / 1000).toFixed(2) + ' km' : '—'}
+Ø HF: ${activity.avg_hr ?? '—'} bpm
+Max HF: ${activity.max_hr ?? '—'} bpm
+${activity.np_watts ? `NP: ${activity.np_watts} W` : ''}
+  `.trim()
+
+  const response = await fetch('/api/analyse', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      system: buildFunModePrompt(mode, { name: athlete.name, gender: athlete.gender }),
+      prompt: statsText,
+      max_tokens: 300,
+    }),
+  })
+  if (!response.ok) throw new Error('Claude API Fehler')
+  const data = await response.json() as { text: string }
+  return data.text
+}
+
 // ── sub-components ────────────────────────────────────────────────────────────
 
 type StatCardProps = { label: string; value: string }
@@ -167,12 +212,18 @@ export default function ActivityDetail() {
   const [laps, setLaps] = useState<StravaLap[]>([])
   const [exercises, setExercises] = useState<Exercise[]>([])
   const [athleteId, setAthleteId] = useState<string | null>(null)
+  const [athleteName, setAthleteName] = useState('')
+  const [athleteGender, setAthleteGender] = useState<'male' | 'female' | 'diverse' | null>(null)
   const [runSplits, setRunSplits] = useState<RunSplit[]>([])
   const [analysing, setAnalysing] = useState(false)
   const [analysis, setAnalysis] = useState<string | null>(null)
   const [awaitingBackgroundAnalysis, setAwaitingBackgroundAnalysis] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [funMode, setFunMode] = useState<FunMode | null>(null)
+  const [funLoading, setFunLoading] = useState(false)
+  const [funResult, setFunResult] = useState<string | null>(null)
+  const [funError, setFunError] = useState<string | null>(null)
 
   useEffect(() => {
     const stravaId = localStorage.getItem('athlete_strava_id')
@@ -188,6 +239,8 @@ export default function ActivityDetail() {
         if (!athleteData) throw new Error('Athlete not found')
         const athlete = athleteData as Athlete
         setAthleteId(athlete.id)
+        setAthleteName(athlete.name ?? '')
+        setAthleteGender(athlete.gender ?? null)
 
         const { data: actData } = await supabase
           .from('activities')
@@ -317,6 +370,23 @@ export default function ActivityDetail() {
       setError('Analyse fehlgeschlagen.')
     } finally {
       setAnalysing(false)
+    }
+  }
+
+  async function handleFunClick(mode: FunMode) {
+    if (!activity) return
+    setFunMode(mode)
+    setFunLoading(true)
+    setFunError(null)
+    try {
+      const text = await getFunAnalysis(mode, activity, { name: athleteName, gender: athleteGender })
+      setFunResult(text)
+    } catch (e) {
+      console.error(e)
+      setFunError('Spaß-Analyse fehlgeschlagen.')
+      setFunResult(null)
+    } finally {
+      setFunLoading(false)
     }
   }
 
@@ -646,6 +716,47 @@ export default function ActivityDetail() {
         <div className="bg-slate-800 rounded-xl p-4">
           <h2 className="text-sm font-semibold text-brand-400 uppercase tracking-wider mb-3">KI-Analyse</h2>
           <div className="space-y-1">{renderMarkdown(analysis)}</div>
+        </div>
+      )}
+
+      {/* ── Spaß-Analyse (isoliert, nicht persistiert) ─────────── */}
+      {analysis && (
+        <div className="mt-4">
+          <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">🎭 Spaß-Analyse</h2>
+          <div className="flex gap-2">
+            {(['sarcastic', 'roast', 'sexy'] as FunMode[]).map((mode) => {
+              const Icon = FUN_MODE_ICONS[mode]
+              const isActive = funMode === mode
+              return (
+                <button
+                  key={mode}
+                  onClick={() => handleFunClick(mode)}
+                  disabled={funLoading}
+                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 ${
+                    isActive
+                      ? 'bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/40'
+                      : 'bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700'
+                  }`}
+                >
+                  {funLoading && isActive
+                    ? <span className="w-3.5 h-3.5 border-2 border-fuchsia-300 border-t-transparent rounded-full animate-spin" />
+                    : <Icon size={14} />}
+                  {FUN_MODE_TITLES[mode]}
+                </button>
+              )
+            })}
+          </div>
+
+          {funError && <p className="text-red-400 text-sm mt-3">{funError}</p>}
+
+          {funResult && !funLoading && (
+            <div className="mt-3 bg-fuchsia-500/5 border border-dashed border-fuchsia-500/40 rounded-xl p-4">
+              <h3 className="text-sm font-semibold text-fuchsia-300 uppercase tracking-wider mb-3">
+                🎭 Spaß-Modus — {funMode && FUN_MODE_TITLES[funMode]}
+              </h3>
+              <div className="space-y-1">{renderMarkdown(funResult)}</div>
+            </div>
+          )}
         </div>
       )}
     </div>
