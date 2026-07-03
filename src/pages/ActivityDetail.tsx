@@ -25,7 +25,7 @@ import {
 import { supabase, type Activity, type Athlete } from '../lib/supabase'
 import { AppHeader } from '../components/AppHeader'
 import { renderMarkdown } from '../lib/markdown'
-import { buildFunModePrompt, type FunMode } from '../lib/funModePrompts'
+import { buildFunModePrompt, type FunMode, type SportFocus } from '../lib/funModePrompts'
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -128,6 +128,14 @@ function speedToPace(speedKmh: number): string {
   return `${min}:${String(sec).padStart(2, '0')} min/km`
 }
 
+// Gleiches Mapping wie getSpecialistPrompt() in activityAnalysis.ts (Coach-Routing).
+function sportFromActivityType(type: string): SportFocus {
+  if (['Run', 'VirtualRun', 'TrailRun'].includes(type)) return 'running'
+  if (['Ride', 'VirtualRide', 'MountainBikeRide', 'GravelRide'].includes(type)) return 'cycling'
+  if (['WeightTraining', 'Workout'].includes(type)) return 'strength'
+  return null
+}
+
 function formatPace(secPerKm: number): string {
   const min = Math.floor(secPerKm / 60)
   const sec = Math.round(secPerKm % 60)
@@ -160,27 +168,63 @@ const FUN_MODE_TITLES: Record<FunMode, string> = {
   sexy: 'Sexy',
 }
 
+function buildFunStatsText(activity: Activity, sport: SportFocus, stats: ComputedStats, exercises: Exercise[]): string {
+  const lines = [
+    `Aktivität: ${activity.name}`,
+    `Sportart: ${activity.type}`,
+    `Datum: ${new Date(activity.date).toLocaleDateString('de-DE')}`,
+    `Dauer: ${activity.duration_s != null ? formatDuration(activity.duration_s) : '—'}`,
+  ]
+
+  if (sport === 'running') {
+    if (activity.distance_m) lines.push(`Distanz: ${(activity.distance_m / 1000).toFixed(2)} km`)
+    if (activity.distance_m && activity.duration_s) {
+      lines.push(`Ø Pace: ${speedToPace((activity.distance_m / 1000) / (activity.duration_s / 3600))}`)
+    }
+    if (activity.avg_hr != null) lines.push(`Ø HF: ${Math.round(activity.avg_hr)} bpm`)
+    if (activity.max_hr != null) lines.push(`Max HF: ${Math.round(activity.max_hr)} bpm`)
+    if (stats.avgCadence != null) lines.push(`Ø Kadenz: ${stats.avgCadence * 2} spm`)
+  } else if (sport === 'cycling') {
+    if (activity.distance_m) lines.push(`Distanz: ${(activity.distance_m / 1000).toFixed(2)} km`)
+    if (activity.np_watts) lines.push(`NP: ${activity.np_watts} W`)
+    if (stats.avgWatts != null) lines.push(`Ø Watt: ${stats.avgWatts} W`)
+    if (stats.avgCadence != null) lines.push(`Ø Trittfrequenz: ${stats.avgCadence} rpm`)
+    if (activity.avg_hr != null) lines.push(`Ø HF: ${Math.round(activity.avg_hr)} bpm`)
+    if (activity.max_hr != null) lines.push(`Max HF: ${Math.round(activity.max_hr)} bpm`)
+  } else if (sport === 'strength') {
+    const totalVolume = exercises.reduce((sum, ex) => sum + ex.totalVolume, 0)
+    if (totalVolume > 0) lines.push(`Gesamtvolumen: ${Math.round(totalVolume)} kg`)
+    for (const ex of exercises) {
+      const muscle = primaryMuscleLabel(ex.name)
+      const setsText = ex.sets
+        .map(s => s.weight != null ? `${s.weight}kg×${s.reps}` : `${s.reps} Wdh`)
+        .join(', ')
+      lines.push(`${ex.name}${muscle ? ` (${muscle})` : ''}: ${setsText}`)
+    }
+  } else {
+    if (activity.distance_m) lines.push(`Distanz: ${(activity.distance_m / 1000).toFixed(2)} km`)
+    if (activity.avg_hr != null) lines.push(`Ø HF: ${Math.round(activity.avg_hr)} bpm`)
+    if (activity.max_hr != null) lines.push(`Max HF: ${Math.round(activity.max_hr)} bpm`)
+  }
+
+  return lines.join('\n')
+}
+
 async function getFunAnalysis(
   mode: FunMode,
   activity: Activity,
-  athlete: { name: string; gender: 'male' | 'female' | 'diverse' | null }
+  athlete: { name: string; gender: 'male' | 'female' | 'diverse' | null },
+  stats: ComputedStats,
+  exercises: Exercise[]
 ): Promise<string> {
-  const statsText = `
-Aktivität: ${activity.name}
-Sportart: ${activity.type}
-Datum: ${new Date(activity.date).toLocaleDateString('de-DE')}
-Dauer: ${activity.duration_s != null ? formatDuration(activity.duration_s) : '—'}
-Distanz: ${activity.distance_m ? (activity.distance_m / 1000).toFixed(2) + ' km' : '—'}
-Ø HF: ${activity.avg_hr ?? '—'} bpm
-Max HF: ${activity.max_hr ?? '—'} bpm
-${activity.np_watts ? `NP: ${activity.np_watts} W` : ''}
-  `.trim()
+  const sport = sportFromActivityType(activity.type)
+  const statsText = buildFunStatsText(activity, sport, stats, exercises)
 
   const response = await fetch('/api/analyse', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      system: buildFunModePrompt(mode, { name: athlete.name, gender: athlete.gender }),
+      system: buildFunModePrompt(mode, { name: athlete.name, gender: athlete.gender, sport }),
       prompt: statsText,
       max_tokens: 300,
     }),
@@ -379,7 +423,7 @@ export default function ActivityDetail() {
     setFunLoading(true)
     setFunError(null)
     try {
-      const text = await getFunAnalysis(mode, activity, { name: athleteName, gender: athleteGender })
+      const text = await getFunAnalysis(mode, activity, { name: athleteName, gender: athleteGender }, stats, exercises)
       setFunResult(text)
     } catch (e) {
       console.error(e)
