@@ -451,7 +451,9 @@ export default function ActivityDetail() {
       <p className="text-slate-400 text-sm mb-5">
         {activity && new Date(activity.date).toLocaleDateString('de-DE', {
           weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-        })}
+        })} · {activity && new Date(activity.date).toLocaleTimeString('de-DE', {
+          hour: '2-digit', minute: '2-digit',
+        })} Uhr
       </p>
 
       {error && <p className="text-red-400 mb-4">{error}</p>}
