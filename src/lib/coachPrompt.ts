@@ -102,6 +102,9 @@ Analysiere dieses Krafttraining auf Basis der Hevy-Übungsdaten. Berücksichtige
 - Ästhetische Prioritäten aus dem Profil berücksichtigen (Reihenfolge der Muskelgruppen-Prioritäten)
 - Equipment-Kontext: Was stand zur Verfügung? Waren es die optimalen Übungen dafür?
 
+### KONTEXTUELLE BLINDHEIT
+Verwende niemals Lauf-Periodisierungsbegriffe ("Readaptation", "Laufeinstieg", "Grundlagenaufbau", "Phase 1/2/3/4" o.ä.) in einer Krafttraining-Analyse — das Krafttraining folgt einem eigenständigen Ästhetik-/Hypertrophie-Ziel, keiner Lauf-Saisonplanung. Referenziere stattdessen ausschließlich die Kraft-eigenen Ziele (Muskelaufbau/Ästhetik-Prioritäten) aus dem Athleten-Profil.
+
 ### ANTWORTSTRUKTUR
 - Gesamturteil in einem Satz (Typ der Session + Hauptfokus)
 - Volumen pro Hauptmuskelgruppe (tabellarisch oder als Liste)
@@ -177,6 +180,11 @@ export async function buildCoachSystemPrompt(
   // Ohne activeSport (Chat, Wochenplan, Dashboard) bleiben sie sichtbar.
   const showCyclingPower = activeSport === 'cycling' || activeSport == null
 
+  // Lauf-Saisonphase (Readaptation/Grundlage/Wettkampf/Taper) ist Lauf-Periodisierung —
+  // bei Kraft-fokussierten Analysen gehört sie nicht in den Kontext (kontextuelle Blindheit,
+  // analog zu showCyclingPower). Kraft verfolgt ein eigenständiges Ästhetik-/Hypertrophie-Ziel.
+  const showSeasonPhase = activeSport !== 'strength'
+
   const athleteSection = [
     `## DEIN ATHLET`,
     athlete?.name      ? `Name: ${athlete.name}`                                                                                 : null,
@@ -219,6 +227,15 @@ export async function buildCoachSystemPrompt(
       : null,
   ].filter(Boolean).join('\n')
 
+  const strengthGoalSection = [
+    `## TRAININGSZIEL KRAFTTRAINING`,
+    `Das Krafttraining folgt einem eigenständigen Ästhetik-/Hypertrophie-Ziel, keiner Lauf-Saisonplanung.`,
+    `Körperziele: ${(athlete?.body_goals as string[] | null)?.join(', ') ?? '—'}`,
+    formatAestheticGoals(athlete?.aesthetic_goals as AestheticGoals | null, athlete?.body_goals as string[] | null) !== '—'
+      ? `Ästhetik-Prioritäten: ${formatAestheticGoals(athlete?.aesthetic_goals as AestheticGoals | null, athlete?.body_goals as string[] | null)}`
+      : null,
+  ].filter(Boolean).join('\n')
+
   // ── fixed sections (sportwissenschaftliche Regeln) ──────────────────────
 
   return `Du bist PeakForm Coach — ein erfahrener Lauf- und Ausdauertrainer mit sportwissenschaftlichem Hintergrund. Du kommunizierst auf Deutsch, präzise und datengetrieben, aber immer mit praktischem Fokus.
@@ -227,7 +244,7 @@ ${athleteSection}
 
 ${goalSection}
 
-${phaseSection}
+${showSeasonPhase ? phaseSection : strengthGoalSection}
 
 ## HERZFREQUENZZONEN
 ${hrZones}

@@ -790,6 +790,9 @@ Funktion in `src/lib/coachContext.ts`. Signatur: `buildCoachContext(athleteId: s
   Name, FTP, Max HF, Gewicht, Trainingstage, Sportarten, Ziele, Coach-Persona
   FTP nur wenn activeSport === 'cycling' oder activeSport ist undefined/null (kontextuelle
   Blindheit — bei 'running'/'strength' fehlt die FTP-Zeile komplett, nicht nur unerwähnt)
+  Saison-Phase (Readaptation/Grundlage/Wettkampf/Taper) nur wenn activeSport !== 'strength'
+  (kontextuelle Blindheit — bei 'strength' fehlt die Phase-Sektion komplett und wird durch
+  einen Kraft-eigenen Trainingsziel-Block ersetzt, siehe Kapitel 12 und 18.4 Bugfix 3. Juli 2026)
 
 [HARTE TRAININGS-CONSTRAINTS]          ~100 tokens
   Gesamte Trainingstage (von 7 Wochentagen), Ruhetage, Pflicht-Verteilung pro Sportart
@@ -883,6 +886,7 @@ Siehe Kapitel 18 für Details zur Coach-Architektur.
 - Lädt bei jedem Aufruf Athleten-Profil + A-Event aus Supabase (inkl. `gender`, `birth_year`, `resting_hr`)
 - Dynamische Abschnitte: Name, Geschlecht, Alter, Gewicht, Leistungsgewicht (W/kg), FTP, Max HF (gemessen od. geschätzt: Tanaka-Formel 208−0.7×Alter), Ruhe-HF, HF-Reserve (Karvonen), Sportarten, Equipment, Ästhetik-Ziele, Coach-Stil/Fokus, Saisonziel, Wochen-Countdown, aktuelle Phase, HF-Zonen, Pace-Referenz
 - **`activeSport`-Parameter (kontextuelle Blindheit auf Kontext-Ebene):** Leistungsgewicht (W/kg) und FTP werden NUR in den `[ATHLETEN-PROFIL]`-Block aufgenommen wenn `activeSport === 'cycling'` oder `activeSport` ist `undefined`/`null` (kein Sport-Fokus — Chat, Wochenplan, Dashboard). Bei `activeSport === 'running'` oder `'strength'` fehlen FTP/W-kg vollständig im Kontext — nicht nur als Anweisung "nicht erwähnen", sondern schlicht nicht vorhanden.
+- **Analoges Gating für die Saison-Phase (`showSeasonPhase`):** Die Lauf-Saisonphase (Readaptation/Grundlage/Wettkampf/Taper, aus `calculateSeasonPhase()`) wird NUR eingefügt wenn `activeSport !== 'strength'` — also bei `'running'`, `'cycling'` und ohne Sport-Fokus (Chat/Wochenplan/Dashboard) bleibt sie sichtbar, da Rad-Training in Phase 1–2 die Laufbasis unterstützt (Coaching-Prinzip 7). Bei `activeSport === 'strength'` fehlt die Phase-Sektion komplett und wird durch `strengthGoalSection` (`## TRAININGSZIEL KRAFTTRAINING` — Körperziele + Ästhetik-Prioritäten) ersetzt. Grund: Krafttraining folgt einem eigenständigen Ästhetik-/Hypertrophie-Ziel, keiner Lauf-Periodisierung; die Phase-Labels sind wörtlich lauf-spezifisch formuliert und wurden vom Coach sonst fälschlich auf Krafttraining-Analysen übertragen (Bugfix 3. Juli 2026, siehe Kapitel 18.4).
 - Statische Abschnitte: Coaching-Prinzipien (8 Regeln), Datennutzung, Review-Format, Antwortformat (inkl. Du-Form-Pflicht: niemals über den Athleten in der dritten Person)
 - Hilfsfunktionen in `coachContext.ts` (exportiert):
   - `calculateSeasonPhase(weeksUntilEvent, override)` — Phase aus Wochen-Countdown oder manuellem Override
@@ -896,7 +900,7 @@ Siehe Kapitel 18 für Details zur Coach-Architektur.
 - Routing über `getSpecialistPrompt(activityType)` in `ActivityDetail.tsx`
 - Lauf: Zonen-Audit, Pace-Konsistenz, HF-Drift, Verletzungssignale
 - Rad: Power-Zonen (FTP-basiert), NP/VI-Analyse, TSS/IF-Einordnung
-- Kraft: Hevy-Volumen-Analyse, Schulter-Check, Laufsynergie, Equipment- + Ästhetik-Kontext
+- Kraft: Hevy-Volumen-Analyse, Schulter-Check, Laufsynergie, Equipment- + Ästhetik-Kontext, explizite Blindheit gegenüber Lauf-Periodisierungsbegriffen ("Readaptation", "Laufeinstieg", "Phase X" etc. — siehe Kapitel 18.4 Bugfix 3. Juli 2026)
 
 ---
 
@@ -1352,10 +1356,17 @@ Falls die Lauf-Aktivität eigene Leistungsdaten (Watt) liefert, sind diese Werte
 **Kontextuelle Blindheit:**
 - Bewertet keine Lauf-Pace oder Rad-Watt
 - Erwähnt Ausdauertraining nur aus Kraftperspektive: "Nach dem gestrigen langen Ride empfehle ich heute leichteres Gewicht — Muskelermüdung beeinflusst die Kraftleistung"
-- Kennt aktuelle Saison-Phase und gewichtet automatisch:
-  - Phase 1–2 (Readaptation/Grundlage): Laufstabilität dominiert
-  - Phase 3–4 (Wettkampf/Taper): Erhaltung, kein neues Volumen
-  - Off-Season: Hypertrophie dominiert
+- **Kennt die Lauf-Saisonphase (Readaptation/Grundlage/Wettkampf/Taper) nicht** — `[ATHLETEN-PROFIL]` enthält bei `activeSport === 'strength'` keine Phase-Zeile (kontextuelle Blindheit auf Kontext-Ebene, analog zur FTP/W-kg-Blindheit, siehe Kapitel 11/12). Grund: Krafttraining verfolgt ein eigenständiges Ästhetik-/Hypertrophie-Ziel, keine Lauf-Periodisierung — die Phase-Labels sind lauf-spezifisch formuliert ("Sehnen, Gelenke und Laufmuskulatur readaptieren") und wurden vom Coach sonst fälschlich auf Krafttraining-Analysen übertragen (Bugfix 3. Juli 2026, siehe unten)
+- Statt der Phase bekommt der Kraftcoach einen eigenen `## TRAININGSZIEL KRAFTTRAINING`-Block mit Körperzielen + Ästhetik-Prioritäten (`strengthGoalSection` in `coachPrompt.ts`)
+- `KRAFT_COACH_PROMPT` enthält zusätzlich einen expliziten Blindheits-Satz: "Verwende niemals Lauf-Periodisierungsbegriffe ('Readaptation', 'Laufeinstieg', 'Grundlagenaufbau', 'Phase 1/2/3/4' o.ä.) in einer Krafttraining-Analyse"
+
+#### Bugfix 3. Juli 2026 — Lauf-Periodisierung leckte in Krafttraining-Analysen
+
+**Symptom:** Krafttraining-Analysen erwähnten "Phase 1 — Readaptation" oder "Laufeinstieg", obwohl `KRAFT_COACH_PROMPT` diese Begriffe nirgends referenziert.
+
+**Root Cause:** `phaseSection` in `buildCoachSystemPrompt()` wurde — anders als FTP/W-kg (`showCyclingPower`) — unconditional in jeden System-Prompt eingefügt, unabhängig von `activeSport`. Die Phase-Labels aus `calculateSeasonPhase()` sind wörtlich lauf-spezifisch ("Sehnen, Gelenke und Laufmuskulatur readaptieren"); da sie im selben System-Prompt wie der Kraft-Spezialistenauftrag standen, übertrug Claude sie eigenständig auf die Krafttraining-Analyse.
+
+**Fix:** Neue Variable `showSeasonPhase = activeSport !== 'strength'` gated die Phase-Sektion analog zu `showCyclingPower`. Bei `activeSport === 'strength'` wird stattdessen `strengthGoalSection` (`## TRAININGSZIEL KRAFTTRAINING`) eingefügt. Zusätzlich expliziter Blindheits-Satz in `KRAFT_COACH_PROMPT` als zweite Verteidigungslinie.
 
 **Ästhetik-Integration:**
 - Kennt die Ästhetik-Ziele des Athleten (Muskelgruppen-Prioritäten + Freitext)
