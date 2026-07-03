@@ -1267,7 +1267,7 @@ Nach jedem Strava-Sync in `Dashboard.tsx`:
 
 **Ablauf (einmal pro Session via `sessionStorage`):**
 1. `sessionStorage.getItem('peakform_alert_{weekStart}')` prüfen
-2. Wenn nicht gesetzt: aktuellen Wochenplan (`weekly_plans`), neueste Aktivität dieser Woche UND `coach_decisions` mit `decision_type='recovery_required'` der letzten 48h parallel aus Supabase laden
+2. Wenn nicht gesetzt: aktuellen Wochenplan (`weekly_plans`), neueste Aktivität dieser Woche UND den `coach_decisions`-Eintrag mit `decision_type='recovery_required'` zur zeitlich jüngsten Aktivität der letzten 48h parallel aus Supabase laden (Join `related_activity_id → activities.date`, `limit(1)` — siehe Bugfix 3. Juli 2026 unten)
 3. Check läuft, sobald ein Plan existiert UND (eine neue Aktivität diese Woche vorliegt ODER eine frische Recovery-Empfehlung existiert) — läuft also auch ohne neue Strava-Aktivität, wenn der Coach z.B. gerade erst eine `recovery_required`-Empfehlung aus einer Aktivitätsanalyse extrahiert hat
 4. Claude-Call (`max_tokens: 150`): Prompt enthält Plan-JSON + Aktivitätsdaten (oder Hinweis "keine neue Aktivität") + die Coach-eigenen Recovery-Einschätzungen der letzten 48h (Freitext, nicht nur Rohdaten); Claude antwortet AUSSCHLIESSLICH mit `{"conflict": bool, "message": string|null}`
 5. `sessionStorage` als gecheckt markieren (verhindert wiederholten Call bei Reload)
@@ -1288,6 +1288,14 @@ Nach jedem Strava-Sync in `Dashboard.tsx`:
 6. Schlägt der Save fehl (z.B. ungültiges JSON von Claude): Modal zeigt Fehlermeldung, kein Teil-Save
 
 **Nicht-kritische Abweichungen:** Kein Alert — wird beim wöchentlichen Review besprochen.
+
+#### Bugfix 3. Juli 2026 — veraltete `recovery_required`-Empfehlung blieb nach erledigter Aktivität im Alert sichtbar
+
+**Symptom:** Amber-Banner zeigte eine überholte Erholungs-Warnung ("Do-Lauf prüfen"), obwohl der referenzierte Donnerstagslauf bereits absolviert und analysiert war.
+
+**Root Cause:** Die Query lud *alle* `recovery_required`-Einträge der letzten 48h nach `coach_decisions.created_at` — ungefiltert nach Relevanz. `created_at` ist aber der Zeitpunkt der Extraktion (`triggerRecoveryExtraction`), nicht das Datum der referenzierten Aktivität. Der "on-load"-Backfill-Pfad (Extraktion beim Öffnen alter, noch nicht extrahierter Aktivitäten) kann dadurch Einträge für wochenalte Aktivitäten mit einem sehr aktuellen `created_at` erzeugen — diese landeten im 48h-Fenster und verdrängten/verwässerten die tatsächlich aktuelle Empfehlung im Claude-Prompt. Es gab keinen Resolved/Superseded-Mechanismus, der einen Eintrag nach Eintreten der referenzierten Folge-Aktivität als erledigt markiert.
+
+**Fix:** Query filtert/sortiert jetzt nach dem Datum der **referenzierten Aktivität** (`activities!related_activity_id!inner(date)`, `gte('activities.date', ...)`, `order('date', {referencedTable:'activities'})`) statt nach `coach_decisions.created_at`, und lädt nur noch den einen Eintrag zur jüngsten Aktivität (`limit(1)`). Gleiches Pattern in `WeeklyPlan.tsx` (`generatePlan()`/`startReview()`) angewendet — dort ohne `limit(1)`, da beim Plan-Erstellen/Review bewusst mehrere gleichzeitig aktive Restriktionen (z.B. Lauf- und Rad-Einschränkung parallel) berücksichtigt werden sollen.
 
 ---
 

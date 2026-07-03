@@ -41,6 +41,15 @@ function mondayOf(date: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
+// PostgREST returns the embedded resource as an object for a many-to-one
+// relationship, but our loose (ungenerated) Supabase types can't express
+// that — handle both shapes defensively.
+function embeddedActivityDate(row: { activities?: unknown }): string | null {
+  const a = row.activities as { date: string } | { date: string }[] | null | undefined
+  if (!a) return null
+  return (Array.isArray(a) ? a[0]?.date : a.date) ?? null
+}
+
 function formatDuration(seconds: number) {
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)
@@ -132,11 +141,12 @@ export default function Dashboard() {
                 .limit(1),
               supabase
                 .from('coach_decisions')
-                .select('decision_summary, reasoning, created_at')
+                .select('decision_summary, reasoning, created_at, activities!related_activity_id!inner(date)')
                 .eq('athlete_id', athlete.id)
                 .eq('decision_type', 'recovery_required')
-                .gte('created_at', fortyEightHoursAgo)
-                .order('created_at', { ascending: false }),
+                .gte('activities.date', fortyEightHoursAgo)
+                .order('date', { referencedTable: 'activities', ascending: false })
+                .limit(1),
               buildCoachSystemPrompt(athlete.id),
             ])
 
@@ -161,9 +171,9 @@ ${latestAct.np_watts ? `- NP: ${Math.round(latestAct.np_watts)} W` : ''}`
                 : 'Keine neue Aktivität diese Woche.'
 
               const recoverySection = hasRecovery
-                ? `\nCoach-Erholungseinschätzungen der letzten 48h (noch nicht im Plan berücksichtigt):\n${
+                ? `\nAktuellste Coach-Erholungseinschätzung (aus der Analyse der letzten Aktivität, noch nicht im Plan berücksichtigt):\n${
                     (recoveryRows ?? []).map(d =>
-                      `- ${new Date(d.created_at).toLocaleDateString('de-DE')}: ${d.reasoning ?? d.decision_summary}`
+                      `- ${new Date(embeddedActivityDate(d) ?? d.created_at).toLocaleDateString('de-DE')}: ${d.reasoning ?? d.decision_summary}`
                     ).join('\n')
                   }\n`
                 : ''

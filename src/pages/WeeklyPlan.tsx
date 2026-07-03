@@ -44,6 +44,15 @@ type DayMatch = {
   activity?: Activity
 }
 
+// PostgREST returns the embedded resource as an object for a many-to-one
+// relationship, but our loose (ungenerated) Supabase types can't express
+// that — handle both shapes defensively.
+function embeddedActivityDate(row: { activities?: unknown }): string | null {
+  const a = row.activities as { date: string } | { date: string }[] | null | undefined
+  if (!a) return null
+  return (Array.isArray(a) ? a[0]?.date : a.date) ?? null
+}
+
 // ── constants ──────────────────────────────────────────────────────────────
 
 const DAYS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
@@ -468,11 +477,11 @@ export default function WeeklyPlan() {
         buildCoachSystemPrompt(athlete.id),
         supabase
           .from('coach_decisions')
-          .select('decision_summary, reasoning, created_at')
+          .select('decision_summary, reasoning, created_at, activities!related_activity_id!inner(date)')
           .eq('athlete_id', athlete.id)
           .eq('decision_type', 'recovery_required')
-          .gte('created_at', sevenDaysAgo)
-          .order('created_at', { ascending: false }),
+          .gte('activities.date', sevenDaysAgo)
+          .order('date', { referencedTable: 'activities', ascending: false }),
       ])
 
       const monday8 = monday.toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' })
@@ -498,7 +507,7 @@ export default function WeeklyPlan() {
       const recoverySection = recoveryRows?.length
         ? `\nAKTUELLE ERHOLUNGS-EINSCHRÄNKUNGEN (höchste Priorität — überschreiben alle anderen Regeln):\n${
             recoveryRows.map(d =>
-              `- ${new Date(d.created_at).toLocaleDateString('de-DE')}: ${d.reasoning ?? d.decision_summary}`
+              `- ${new Date(embeddedActivityDate(d) ?? d.created_at).toLocaleDateString('de-DE')}: ${d.reasoning ?? d.decision_summary}`
             ).join('\n')
           }\n`
         : ''
@@ -646,17 +655,17 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, 
         buildCoachSystemPrompt(athlete.id),
         supabase
           .from('coach_decisions')
-          .select('decision_summary, reasoning, created_at')
+          .select('decision_summary, reasoning, created_at, activities!related_activity_id!inner(date)')
           .eq('athlete_id', athlete.id)
           .eq('decision_type', 'recovery_required')
-          .gte('created_at', sevenDaysAgo)
-          .order('created_at', { ascending: false }),
+          .gte('activities.date', sevenDaysAgo)
+          .order('date', { referencedTable: 'activities', ascending: false }),
       ])
 
       const reviewRecoverySection = recoveryRows?.length
         ? `\nAKTUELLE ERHOLUNGS-EINSCHRÄNKUNGEN (höchste Priorität — überschreiben alle anderen Regeln):\n${
             recoveryRows.map(d =>
-              `- ${new Date(d.created_at).toLocaleDateString('de-DE')}: ${d.reasoning ?? d.decision_summary}`
+              `- ${new Date(embeddedActivityDate(d) ?? d.created_at).toLocaleDateString('de-DE')}: ${d.reasoning ?? d.decision_summary}`
             ).join('\n')
           }\n`
         : ''
