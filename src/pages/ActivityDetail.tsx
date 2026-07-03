@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { IconChevronLeft, IconRoast } from '../lib/icons'
 import {
@@ -213,7 +213,7 @@ async function getRoastAnalysis(
     body: JSON.stringify({
       system: buildRoastPrompt({ name: athlete.name, sport }),
       prompt: statsText,
-      max_tokens: 300,
+      max_tokens: 500,
     }),
   })
   if (!response.ok) throw new Error('Claude API Fehler')
@@ -253,6 +253,7 @@ export default function ActivityDetail() {
   const [roastLoading, setRoastLoading] = useState(false)
   const [roastResult, setRoastResult] = useState<string | null>(null)
   const [roastError, setRoastError] = useState<string | null>(null)
+  const roastResultRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const stravaId = localStorage.getItem('athlete_strava_id')
@@ -400,6 +401,12 @@ export default function ActivityDetail() {
       setAnalysing(false)
     }
   }
+
+  useEffect(() => {
+    if (roastResult && roastResultRef.current) {
+      roastResultRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }, [roastResult])
 
   async function handleRoastClick() {
     if (!activity) return
@@ -764,7 +771,7 @@ export default function ActivityDetail() {
           {roastError && <p className="text-red-400 text-sm mt-3">{roastError}</p>}
 
           {roastResult && !roastLoading && (
-            <div className="mt-3 bg-gradient-to-br from-red-950/40 to-orange-950/30 border border-orange-500/40 rounded-xl p-4">
+            <div ref={roastResultRef} className="mt-3 bg-gradient-to-br from-red-950/40 to-orange-950/30 border border-orange-500/40 rounded-xl p-4">
               <h3 className="text-sm font-semibold text-orange-300 uppercase tracking-wider mb-3">
                 🔥 Geröstet 🔥
               </h3>
