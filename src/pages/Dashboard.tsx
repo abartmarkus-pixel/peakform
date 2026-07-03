@@ -11,7 +11,28 @@ import { SPORT_DISPLAY } from '../lib/icons'
 import { AppHeader } from '../components/AppHeader'
 import { useFeatures } from '../lib/features'
 
+// ── types ──────────────────────────────────────────────────────────────────
+
+type DayPlan = {
+  type: string
+  duration_min?: number
+  distance_km?: number
+  intensity?: string
+  description: string
+}
+
+type PlanJson = {
+  summary: string
+  days: Record<string, DayPlan>
+}
+
 // ── helpers ────────────────────────────────────────────────────────────────
+
+function parsePlanJson(text: string): PlanJson {
+  const match = text.match(/```(?:json)?\s*([\s\S]*?)```/)
+  const raw = match ? match[1] : text
+  return JSON.parse(raw.trim()) as PlanJson
+}
 
 function mondayOf(date: Date): string {
   const d = new Date(date)
@@ -58,8 +79,9 @@ export default function Dashboard() {
   // alert state
   const [alert,            setAlert]            = useState<{ message: string } | null>(null)
   const [alertDismissed,   setAlertDismissed]   = useState(false)
-  const [planModal,        setPlanModal]        = useState<{ loading: boolean; content: string | null } | null>(null)
-  const [currentPlanJson,  setCurrentPlanJson]  = useState<Record<string, unknown> | null>(null)
+  const [planModal,        setPlanModal]        = useState<{ loading: boolean; status: 'success' | 'error' | null } | null>(null)
+  const [currentPlanJson,  setCurrentPlanJson]  = useState<PlanJson | null>(null)
+  const [planWeekStart,    setPlanWeekStart]    = useState<string | null>(null)
 
   useEffect(() => {
     const stravaId = localStorage.getItem('athlete_strava_id')
@@ -91,7 +113,9 @@ export default function Dashboard() {
           if (!sessionStorage.getItem(alertKey)) {
             sessionStorage.setItem(alertKey, 'checked') // mark before async to prevent double-fire
 
-            const [{ data: planRows }, { data: recentActs }, systemPrompt] = await Promise.all([
+            const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
+
+            const [{ data: planRows }, { data: recentActs }, { data: recoveryRows }, systemPrompt] = await Promise.all([
               supabase
                 .from('weekly_plans')
                 .select('plan_json')
@@ -106,28 +130,51 @@ export default function Dashboard() {
                 .gte('date', thisWeek)
                 .order('date', { ascending: false })
                 .limit(1),
+              supabase
+                .from('coach_decisions')
+                .select('decision_summary, reasoning, created_at')
+                .eq('athlete_id', athlete.id)
+                .eq('decision_type', 'recovery_required')
+                .gte('created_at', fortyEightHoursAgo)
+                .order('created_at', { ascending: false }),
               buildCoachSystemPrompt(athlete.id),
             ])
 
             const plan = planRows?.[0]
             const latestAct = recentActs?.[0]
+            const hasRecovery = !!recoveryRows?.length
 
-            if (plan && latestAct) {
-              setCurrentPlanJson(plan.plan_json as Record<string, unknown>)
+            // Auch ohne neue Aktivität prüfen, wenn eine frische Recovery-Empfehlung vorliegt,
+            // die im aktuellen Plan noch nicht berücksichtigt sein könnte.
+            if (plan && (latestAct || hasRecovery)) {
+              setCurrentPlanJson(plan.plan_json as PlanJson)
+              setPlanWeekStart(thisWeek)
 
-              const checkPrompt = `Du bist der PeakForm Coach. Prüfe ob folgende Aktivität den geplanten Wochenplan verletzt.
-
-Wochenplan (JSON):
-${JSON.stringify(plan.plan_json, null, 2)}
-
-Neueste Aktivität diese Woche:
+              const activitySection = latestAct
+                ? `Neueste Aktivität diese Woche:
 - Name: ${latestAct.name}
 - Typ: ${latestAct.type}
 - Datum: ${new Date(latestAct.date).toLocaleDateString('de-DE')}
 - Dauer: ${latestAct.duration_s ? Math.round(latestAct.duration_s / 60) : '?'} min
 - Ø HF: ${latestAct.avg_hr ? Math.round(latestAct.avg_hr) : 'k.A.'} bpm
-${latestAct.np_watts ? `- NP: ${Math.round(latestAct.np_watts)} W` : ''}
+${latestAct.np_watts ? `- NP: ${Math.round(latestAct.np_watts)} W` : ''}`
+                : 'Keine neue Aktivität diese Woche.'
 
+              const recoverySection = hasRecovery
+                ? `\nCoach-Erholungseinschätzungen der letzten 48h (noch nicht im Plan berücksichtigt):\n${
+                    (recoveryRows ?? []).map(d =>
+                      `- ${new Date(d.created_at).toLocaleDateString('de-DE')}: ${d.reasoning ?? d.decision_summary}`
+                    ).join('\n')
+                  }\n`
+                : ''
+
+              const checkPrompt = `Du bist der PeakForm Coach. Prüfe ob die folgende Situation den geplanten Wochenplan verletzt.
+
+Wochenplan (JSON):
+${JSON.stringify(plan.plan_json, null, 2)}
+
+${activitySection}
+${recoverySection}
 Antworte AUSSCHLIESSLICH mit einem JSON-Objekt (kein Text davor oder danach):
 {"conflict": true, "message": "Kurze Beschreibung was nicht passt (max 20 Wörter)"}
 oder
@@ -169,24 +216,77 @@ oder
   }, [navigate])
 
   async function handlePlanAnpassen() {
-    if (!currentPlanJson || !alert || !athleteId) return
-    setPlanModal({ loading: true, content: null })
+    if (!currentPlanJson || !alert || !athleteId || !planWeekStart) return
+    setPlanModal({ loading: true, status: null })
     try {
       const systemPrompt = await buildCoachSystemPrompt(athleteId)
       const res = await fetch('/api/analyse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          prompt: `Problem: ${alert.message}\n\nAktueller Wochenplan:\n${JSON.stringify(currentPlanJson, null, 2)}\n\nSchlage konkrete Anpassungen für die verbleibenden Tage dieser Woche vor. Kurz und umsetzbar, max 150 Wörter.`,
+          prompt: `Problem: ${alert.message}
+
+Aktueller Wochenplan (JSON):
+${JSON.stringify(currentPlanJson, null, 2)}
+
+Passe die verbleibenden (noch nicht absolvierten) Tage dieser Woche an, um den Konflikt zu lösen. Bereits vergangene Tage unverändert übernehmen.
+
+Antworte AUSSCHLIESSLICH mit einem JSON-Objekt im gleichen Format wie der Original-Plan — kein Text davor oder danach, kein Markdown:
+{
+  "summary": "Einzeiliger Wochen-Überblick (max 120 Zeichen)",
+  "days": {
+    "Mo": { "type": "Ruhetag|Radfahren|Laufen|Kraft", "duration_min": 0, "distance_km": null, "intensity": null, "description": "Kurze Beschreibung (oder 'Workout I/II/III' bei Kraft)" },
+    "Di": { "type": "...", "duration_min": 0, "distance_km": null, "intensity": null, "description": "..." },
+    "Mi": { "type": "...", "duration_min": 0, "distance_km": null, "intensity": null, "description": "..." },
+    "Do": { "type": "...", "duration_min": 0, "distance_km": null, "intensity": null, "description": "..." },
+    "Fr": { "type": "...", "duration_min": 0, "distance_km": null, "intensity": null, "description": "..." },
+    "Sa": { "type": "...", "duration_min": 0, "distance_km": null, "intensity": null, "description": "..." },
+    "So": { "type": "...", "duration_min": 0, "distance_km": null, "intensity": null, "description": "..." }
+  }
+}`,
           system: systemPrompt,
-          max_tokens: 600,
+          max_tokens: 2048,
         }),
       })
       if (!res.ok) throw new Error('API Fehler')
       const { text } = await res.json() as { text: string }
-      setPlanModal({ loading: false, content: text })
-    } catch {
-      setPlanModal({ loading: false, content: 'Empfehlung konnte nicht geladen werden.' })
+      const adjustedPlan = parsePlanJson(text)
+
+      const { data: existing } = await supabase
+        .from('weekly_plans')
+        .select('version')
+        .eq('athlete_id', athleteId)
+        .eq('week_start', planWeekStart)
+        .order('version', { ascending: false })
+        .limit(1)
+      const nextVersion = (existing?.[0]?.version ?? 0) + 1
+
+      const { data: inserted } = await supabase
+        .from('weekly_plans')
+        .insert({
+          athlete_id:    athleteId,
+          week_start:    planWeekStart,
+          version:       nextVersion,
+          plan_json:     adjustedPlan,
+          change_reason: `Echtzeit-Alert: ${alert.message}`,
+        })
+        .select()
+        .single()
+
+      await supabase.from('coach_decisions').insert({
+        athlete_id:       athleteId,
+        decision_type:    'plan_adjusted',
+        decision_summary: `Wochenplan v${nextVersion} nach Konflikt angepasst: ${alert.message}`,
+        reasoning:        adjustedPlan.summary,
+        related_plan_id:  (inserted as { id: string } | null)?.id ?? null,
+      })
+
+      setCurrentPlanJson(adjustedPlan)
+      setAlertDismissed(true)
+      setPlanModal({ loading: false, status: 'success' })
+    } catch (e) {
+      console.error(e)
+      setPlanModal({ loading: false, status: 'error' })
     }
   }
 
@@ -304,9 +404,20 @@ oder
               <div className="flex justify-center py-8">
                 <div className="w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full animate-spin" />
               </div>
+            ) : planModal.status === 'success' ? (
+              <div className="mb-5">
+                <p className="text-sm text-emerald-300 font-medium mb-4">Plan aktualisiert ✓</p>
+                <Link
+                  to="/plan"
+                  onClick={() => setPlanModal(null)}
+                  className="block text-center bg-brand-500 hover:bg-brand-600 text-white font-semibold py-2.5 rounded-xl transition-colors text-sm"
+                >
+                  Zum Wochenplan
+                </Link>
+              </div>
             ) : (
-              <p className="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap mb-5">
-                {planModal.content}
+              <p className="text-sm text-red-300 leading-relaxed mb-5">
+                Anpassung konnte nicht gespeichert werden. Bitte im Wochenplan manuell prüfen.
               </p>
             )}
             <button

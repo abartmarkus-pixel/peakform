@@ -1042,7 +1042,8 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 - LAUF_COACH_PROMPT, RAD_COACH_PROMPT, KRAFT_COACH_PROMPT in coachPrompt.ts
 - buildSpecialistContext(athleteId, sport) in coachContext.ts
 - Coach-Routing in ActivityDetail.tsx (getCoachPrompts, parallel context build)
-- Echtzeit-Alert in Dashboard.tsx (Claude-Konfliktcheck, sessionStorage-Gate, Amber-Banner + Modal)
+- Echtzeit-Alert in Dashboard.tsx (Claude-Konfliktcheck inkl. `recovery_required`-Kontext, sessionStorage-Gate, Amber-Banner + Modal)
+- "Plan anpassen" persistiert echten Wochenplan (INSERT `weekly_plans` + `coach_decisions` `plan_adjusted`, kein reiner Text-Modal mehr)
 - `coach_decisions.related_activity_id UUID` (FK→activities) — DB-Migration angewendet
 - `triggerRecoveryExtraction(analysisText, athleteId, activityId)` Helper in ActivityDetail
 - On-load Recovery-Check: fehlende Extractions für bestehende Analysen werden nachgeholt
@@ -1257,10 +1258,11 @@ Nach jedem Strava-Sync in `Dashboard.tsx`:
 
 **Ablauf (einmal pro Session via `sessionStorage`):**
 1. `sessionStorage.getItem('peakform_alert_{weekStart}')` prüfen
-2. Wenn nicht gesetzt: aktuellen Wochenplan (`weekly_plans`) + neueste Aktivität dieser Woche aus Supabase laden (parallel)
-3. Claude-Call (`max_tokens: 150`): Prompt enthält Plan-JSON + Aktivitätsdaten; Claude antwortet AUSSCHLIESSLICH mit `{"conflict": bool, "message": string|null}`
-4. `sessionStorage` als gecheckt markieren (verhindert wiederholten Call bei Reload)
-5. Bei `conflict: true`: Amber-Banner mit Claude-Message anzeigen
+2. Wenn nicht gesetzt: aktuellen Wochenplan (`weekly_plans`), neueste Aktivität dieser Woche UND `coach_decisions` mit `decision_type='recovery_required'` der letzten 48h parallel aus Supabase laden
+3. Check läuft, sobald ein Plan existiert UND (eine neue Aktivität diese Woche vorliegt ODER eine frische Recovery-Empfehlung existiert) — läuft also auch ohne neue Strava-Aktivität, wenn der Coach z.B. gerade erst eine `recovery_required`-Empfehlung aus einer Aktivitätsanalyse extrahiert hat
+4. Claude-Call (`max_tokens: 150`): Prompt enthält Plan-JSON + Aktivitätsdaten (oder Hinweis "keine neue Aktivität") + die Coach-eigenen Recovery-Einschätzungen der letzten 48h (Freitext, nicht nur Rohdaten); Claude antwortet AUSSCHLIESSLICH mit `{"conflict": bool, "message": string|null}`
+5. `sessionStorage` als gecheckt markieren (verhindert wiederholten Call bei Reload)
+6. Bei `conflict: true`: Amber-Banner mit Claude-Message anzeigen
 
 **Alert-Format (Amber-Banner):**
 ```
@@ -1268,9 +1270,13 @@ Nach jedem Strava-Sync in `Dashboard.tsx`:
    [Plan anpassen]   [Verwerfen]
 ```
 
-**"Plan anpassen":**
-- Claude-Call (`max_tokens: 600`) mit Plan-JSON + Konflikt-Beschreibung
-- Ergebnis in Bottom-Sheet Modal — "Schließen" Button
+**"Plan anpassen" — persistiert tatsächlich:**
+1. Claude-Call (`max_tokens: 2048`) mit Plan-JSON + Konflikt-Beschreibung → liefert einen strukturierten neuen Plan im gleichen JSON-Format wie `generatePlan()` (`{summary, days: {Mo…So}}`), nicht mehr nur Freitext
+2. `weekly_plans` INSERT (nie UPDATE) — gleiche Versionierungs-Logik wie `generatePlan()`/`startReview()` (`version = max(version)+1` je `week_start`), `change_reason = "Echtzeit-Alert: " + Konflikt-Message`
+3. `coach_decisions` INSERT: `decision_type='plan_adjusted'`, `reasoning` = Plan-Summary, `related_plan_id` → neue `weekly_plans`-Zeile
+4. Modal zeigt danach "Plan aktualisiert ✓" mit Button "Zum Wochenplan" (statt rohem Claude-Text); Amber-Banner wird automatisch verworfen
+5. `WeeklyPlan.tsx` lädt beim nächsten Öffnen automatisch die neueste Version (bestehende `order('version', desc).limit(1)`-Logik deckt das ab, keine Änderung nötig)
+6. Schlägt der Save fehl (z.B. ungültiges JSON von Claude): Modal zeigt Fehlermeldung, kein Teil-Save
 
 **Nicht-kritische Abweichungen:** Kein Alert — wird beim wöchentlichen Review besprochen.
 
@@ -1432,7 +1438,7 @@ Alle anderen                                           → kein Specialist, spor
 
 #### Echtzeit-Alert — implementiert ✅
 
-Beschreibung: siehe 18.3. Claude-basierter Check (nicht heuristisch-JS), einmal pro Session via sessionStorage.
+Beschreibung: siehe 18.3. Claude-basierter Check (nicht heuristisch-JS), einmal pro Session via sessionStorage. Bezieht `recovery_required`-Coach-Entscheidungen der letzten 48h mit ein (läuft auch ohne neue Strava-Aktivität). "Plan anpassen" persistiert eine neue `weekly_plans`-Version inkl. `coach_decisions`-Eintrag (`plan_adjusted`), statt nur Freitext anzuzeigen.
 
 ---
 
