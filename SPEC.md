@@ -519,9 +519,10 @@ Verpflichtender Wizard, läuft **einmalig** nach dem ersten Strava-Login. Kein S
 
 **Markdown-Renderer** (`renderMarkdown`): h1-h3, Bullet-Lists, Blockquotes, `**fett**`, HR, Skip-Tabellen und Code-Blöcke
 
-**Button-Layout „Neu analysieren" + „Feedback" + „Roast Me" (4. Juli 2026):**
-- **Zeile 1 — „Neu analysieren" + „Feedback":** gemeinsamer `flex gap-3`-Container. „Neu analysieren" bleibt jederzeit sichtbar, content-sized (kein `w-*`). „Feedback" erscheint daneben **nur wenn `claude_analysis` bereits existiert**: `IconCommentOutline` (noch kein Feedback für diese Aktivität) oder `IconCommentFilled` in `text-brand-400` (Feedback bereits vorhanden) + Label „Feedback geben" bzw. „Feedback bearbeiten"
+**Button-Layout „Neu analysieren" + „Feedback" + „Roast Me" (4. Juli 2026, Ausrichtung/Typografie korrigiert 4. Juli 2026):**
+- **Zeile 1 — „Neu analysieren" + „Feedback":** gemeinsamer `flex justify-between gap-3`-Container — „Neu analysieren" bleibt jederzeit sichtbar links, content-sized (kein `w-*`); „Feedback" erscheint rechtsbündig daneben **nur wenn `claude_analysis` bereits existiert**: `IconCommentOutline` (noch kein Feedback für diese Aktivität) oder `IconCommentFilled` in `text-brand-400` (Feedback bereits vorhanden) + Label „Feedback geben" bzw. „Feedback bearbeiten"
 - **Zeile 2 — „Roast Me":** eigene Zeile unterhalb der KI-Analyse-Card, **nur wenn `claude_analysis` bereits existiert**, zentriert via `flex justify-center` mit Button auf `w-1/2` (identische Breite zur vorherigen 50%-Grid-Spalte)
+- **Einheitliche Typografie:** alle drei Buttons nutzen `text-base font-semibold` (Referenz: „Neu analysieren"), Icons (`IconCommentOutline/Filled`, `IconRoast`) einheitlich `size={16}` (zuvor uneinheitlich: „Feedback"/„Roast Me" auf `text-sm`, „Roast Me" zusätzlich `font-bold`, Icons auf `size={14}`)
 
 **Roast Me (vereinfacht 3. Juli 2026, vormals „Spaß-Analyse" mit 3 Modi; nutzt seit 4. Juli 2026 vorhandenes Mid-Week-Feedback als Zusatz-Input, siehe unten):**
 - Optionaler, rein unterhaltsamer KI-Kommentar zur Aktivität — 1 Modus, kein Modus-Auswahl mehr (`buildRoastPrompt` in `src/lib/funModePrompts.ts`)

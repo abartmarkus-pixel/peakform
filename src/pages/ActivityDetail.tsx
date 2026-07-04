@@ -790,7 +790,7 @@ export default function ActivityDetail() {
       )}
 
       {/* ── Analyse-Button + Feedback ─────────────────────────── */}
-      <div className="mb-6 flex gap-3">
+      <div className="mb-6 flex justify-between gap-3">
         <button
           onClick={runAnalysis}
           disabled={analysing}
@@ -803,11 +803,11 @@ export default function ActivityDetail() {
         {analysis && (
           <button
             onClick={openFeedbackModal}
-            className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold text-slate-200 bg-slate-800 hover:bg-slate-700 transition-colors"
+            className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-base font-semibold text-slate-200 bg-slate-800 hover:bg-slate-700 transition-colors"
           >
             {feedback
-              ? <IconCommentFilled size={14} className="text-brand-400" />
-              : <IconCommentOutline size={14} />}
+              ? <IconCommentFilled size={16} className="text-brand-400" />
+              : <IconCommentOutline size={16} />}
             {feedback ? 'Feedback bearbeiten' : 'Feedback geben'}
           </button>
         )}
@@ -836,13 +836,13 @@ export default function ActivityDetail() {
             <button
               onClick={handleRoastClick}
               disabled={roastLoading}
-              className="w-1/2 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-orange-600 to-red-600 hover:shadow-lg hover:shadow-orange-500/50 active:shadow-orange-500/50 transition-shadow disabled:opacity-50"
+              className="w-1/2 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-base font-semibold text-white bg-gradient-to-r from-orange-600 to-red-600 hover:shadow-lg hover:shadow-orange-500/50 active:shadow-orange-500/50 transition-shadow disabled:opacity-50"
             >
               {roastLoading
                 ? <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                : <IconRoast size={14} />}
+                : <IconRoast size={16} />}
               Roast Me
-              {!roastLoading && <IconRoast size={14} />}
+              {!roastLoading && <IconRoast size={16} />}
             </button>
           </div>
 
