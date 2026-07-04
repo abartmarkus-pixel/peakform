@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   IconRunning, IconCycling, IconStrength,
-  IconChevronDown, IconWarning,
+  IconChevronDown, IconWarning, IconGrip,
   SPORT_DISPLAY,
 } from '../lib/icons'
 import {
@@ -221,17 +221,19 @@ function SortableMuscleItem({ id, label, rank }: { id: string; label: string; ra
         opacity: isDragging ? 0.4 : 1,
         zIndex: isDragging ? 10 : undefined,
       }}
-      className="flex items-center gap-3 bg-slate-700 hover:bg-slate-600 rounded-xl px-3 py-2.5 cursor-grab active:cursor-grabbing touch-none select-none"
-      {...attributes}
-      {...listeners}
+      className="flex items-center gap-3 bg-slate-700 hover:bg-slate-600 rounded-xl px-3 py-2.5 select-none"
     >
       <span className="text-xs font-bold text-brand-400 w-4 text-center shrink-0">{rank}</span>
       <span className="text-sm text-slate-100 font-medium flex-1">{label}</span>
-      <svg viewBox="0 0 16 16" className="w-4 h-4 text-slate-500 shrink-0" fill="currentColor">
-        <circle cx="5" cy="4" r="1.3"/><circle cx="11" cy="4" r="1.3"/>
-        <circle cx="5" cy="8" r="1.3"/><circle cx="11" cy="8" r="1.3"/>
-        <circle cx="5" cy="12" r="1.3"/><circle cx="11" cy="12" r="1.3"/>
-      </svg>
+      <button
+        type="button"
+        {...attributes}
+        {...listeners}
+        className="touch-none cursor-grab active:cursor-grabbing text-slate-500 shrink-0 p-1.5 -m-1.5"
+        aria-label={`${label} verschieben`}
+      >
+        <IconGrip size={14} />
+      </button>
     </div>
   )
 }
@@ -287,9 +289,11 @@ export default function Profile() {
   const [strengthOpen,    setStrengthOpen]     = useState(false)
 
 
-  // dnd-kit sensors (8px threshold prevents accidental drags on scroll)
+  // dnd-kit sensors: delay+tolerance statt distance — verhindert, dass
+  // normales vertikales Scrollen auf Mobile als Drag-Start interpretiert wird
+  // (der Griff-Button ist ohnehin die einzige Drag-Fläche, siehe SortableMuscleItem)
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(PointerSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
 

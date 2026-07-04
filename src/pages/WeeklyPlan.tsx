@@ -9,6 +9,7 @@ import {
   IconRunning, IconCycling, IconStrength, IconRest, IconOther,
   IconChevronLeft, IconChevronRight,
   IconCheck, IconMissed, IconWarning, IconPlan,
+  IconGrip, IconMore,
   SPORT_DISPLAY,
 } from '../lib/icons'
 import { AppHeader } from '../components/AppHeader'
@@ -22,6 +23,8 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DraggableAttributes,
+  type DraggableSyntheticListeners,
 } from '@dnd-kit/core'
 import {
   SortableContext,
@@ -252,9 +255,12 @@ function matchActivityToDay(
 type DayCardProps = {
   day: string; idx: number; monday: Date; plan: DayPlan | undefined
   match?: DayMatch; onPress?: () => void
+  onOpenMenu?: (day: string) => void
+  dragAttributes?: DraggableAttributes
+  dragListeners?: DraggableSyntheticListeners
 }
 
-function DayCard({ day, idx, monday, plan, match, onPress }: DayCardProps) {
+function DayCard({ day, idx, monday, plan, match, onPress, onOpenMenu, dragAttributes, dragListeners }: DayCardProps) {
   const isRest = !plan || REST_KEYWORDS.some(k => plan.type.toLowerCase().includes(k))
   const isKraft = plan ? SPORT_KEYWORDS.strength.some(k => plan.type.toLowerCase().includes(k)) : false
   const workoutLabel = isKraft && plan?.description
@@ -295,6 +301,27 @@ function DayCard({ day, idx, monday, plan, match, onPress }: DayCardProps) {
             <span className="text-[10px] font-semibold text-blue-400 bg-blue-400/10 px-1.5 py-0.5 rounded-full">
               Extra
             </span>
+          )}
+          {onOpenMenu && (
+            <button
+              type="button"
+              onClick={e => { e.stopPropagation(); onOpenMenu(day) }}
+              className="p-1.5 -m-1.5 text-slate-500 hover:text-slate-300"
+              aria-label={`Optionen für ${day}`}
+            >
+              <IconMore size={14} />
+            </button>
+          )}
+          {dragAttributes && dragListeners && (
+            <button
+              type="button"
+              {...dragAttributes}
+              {...dragListeners}
+              className="touch-none cursor-grab active:cursor-grabbing p-1.5 -m-1.5 text-slate-500"
+              aria-label={`${day} verschieben`}
+            >
+              <IconGrip size={14} />
+            </button>
           )}
         </div>
       </div>
@@ -349,50 +376,12 @@ function DayCard({ day, idx, monday, plan, match, onPress }: DayCardProps) {
   )
 }
 
-const LONG_PRESS_MS = 500
-const LONG_PRESS_MOVE_TOLERANCE_PX = 8
-
-function SortableDayCard(props: DayCardProps & { onLongPress: (day: string) => void }) {
-  const { day, onLongPress } = props
+// Drag wird ausschließlich über den Griff-Button in DayCard ausgelöst (dragAttributes/
+// dragListeners werden dorthin durchgereicht) — der Rest der Karte bleibt normal
+// scrollbar/tappbar, kein touch-none auf dem Wrapper.
+function SortableDayCard(props: DayCardProps) {
+  const { day } = props
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: day })
-  const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const pressStart = useRef<{ x: number; y: number } | null>(null)
-  const longPressFired = useRef(false)
-
-  function clearPressTimer() {
-    if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null }
-  }
-
-  function handlePointerDown(e: React.PointerEvent) {
-    longPressFired.current = false
-    pressStart.current = { x: e.clientX, y: e.clientY }
-    clearPressTimer()
-    pressTimer.current = setTimeout(() => {
-      longPressFired.current = true
-      onLongPress(day)
-    }, LONG_PRESS_MS)
-    listeners?.onPointerDown?.(e)
-  }
-
-  function handlePointerMove(e: React.PointerEvent) {
-    if (pressStart.current) {
-      const dx = e.clientX - pressStart.current.x
-      const dy = e.clientY - pressStart.current.y
-      if (Math.hypot(dx, dy) > LONG_PRESS_MOVE_TOLERANCE_PX) clearPressTimer()
-    }
-    listeners?.onPointerMove?.(e)
-  }
-
-  function handlePointerUp(e: React.PointerEvent) {
-    clearPressTimer()
-    listeners?.onPointerUp?.(e)
-  }
-
-  function handlePointerLeave(e: React.PointerEvent) {
-    clearPressTimer()
-    listeners?.onPointerLeave?.(e)
-  }
-
   return (
     <div
       ref={setNodeRef}
@@ -402,17 +391,8 @@ function SortableDayCard(props: DayCardProps & { onLongPress: (day: string) => v
         opacity: isDragging ? 0.4 : 1,
         zIndex: isDragging ? 10 : undefined,
       }}
-      className="touch-none"
-      {...attributes}
-      {...listeners}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerLeave={handlePointerLeave}
-      onContextMenu={e => e.preventDefault()}
-      onClickCapture={e => { if (longPressFired.current) { e.preventDefault(); e.stopPropagation() } }}
     >
-      <DayCard {...props} />
+      <DayCard {...props} dragAttributes={attributes} dragListeners={listeners} />
     </div>
   )
 }
@@ -449,9 +429,11 @@ export default function WeeklyPlan() {
   const isCurrentWeek = toDateStr(monday) === toDateStr(getISOMonday(new Date()))
   const weekStr = toDateStr(monday)
 
-  // dnd-kit sensors (8px threshold prevents accidental drags on scroll/click)
+  // dnd-kit sensors: delay+tolerance statt distance — verhindert, dass normales
+  // vertikales Scrollen auf Mobile als Drag-Start interpretiert wird (der Griff-Button
+  // in DayCard ist ohnehin die einzige Drag-Fläche, siehe SortableDayCard)
   const daySensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(PointerSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
 
@@ -987,7 +969,7 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
     applyManualEdit(swapDays(displayPlanJson, dayA, dayB), `Manuell verschoben: ${dayA} ↔ ${dayB}`)
   }
 
-  function handleLongPress(day: string) {
+  function handleOpenMenu(day: string) {
     setContextMenuDay(day)
     setMoveSubmenuOpen(false)
   }
@@ -1117,7 +1099,7 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
                     plan={dayPlan}
                     match={match}
                     onPress={match?.activity ? () => navigate(`/activity/${match.activity!.strava_id}`) : undefined}
-                    onLongPress={handleLongPress}
+                    onOpenMenu={handleOpenMenu}
                   />
                 )
               })}
@@ -1289,7 +1271,7 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
         </div>
       )}
 
-      {/* ── Day-Kontextmenü (Long-Press) ────────────────────── */}
+      {/* ── Day-Kontextmenü (über "•••"-Button) ─────────────── */}
       {contextMenuDay && displayPlanJson && (
         <div
           className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-50 p-4"
