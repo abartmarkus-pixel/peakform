@@ -519,13 +519,13 @@ Verpflichtender Wizard, läuft **einmalig** nach dem ersten Strava-Login. Kein S
 
 **Markdown-Renderer** (`renderMarkdown`): h1-h3, Bullet-Lists, Blockquotes, `**fett**`, HR, Skip-Tabellen und Code-Blöcke
 
-**Button-Reihe „Roast Me" + „Feedback" (4. Juli 2026):** Beide Buttons erscheinen **nur wenn `claude_analysis` bereits existiert**, direkt unterhalb der ernsten KI-Analyse-Card, nebeneinander in `grid grid-cols-2 gap-3` (je 50% Breite):
-- **Links — Roast Me:** unverändertes Design, siehe unten
-- **Rechts — Feedback:** `IconCommentOutline` (noch kein Feedback für diese Aktivität) oder `IconCommentFilled` in `text-brand-400` (Feedback bereits vorhanden) + Label „Feedback geben" bzw. „Feedback bearbeiten"
+**Button-Layout „Neu analysieren" + „Feedback" + „Roast Me" (4. Juli 2026):**
+- **Zeile 1 — „Neu analysieren" + „Feedback":** gemeinsamer `flex gap-3`-Container. „Neu analysieren" bleibt jederzeit sichtbar, content-sized (kein `w-*`). „Feedback" erscheint daneben **nur wenn `claude_analysis` bereits existiert**: `IconCommentOutline` (noch kein Feedback für diese Aktivität) oder `IconCommentFilled` in `text-brand-400` (Feedback bereits vorhanden) + Label „Feedback geben" bzw. „Feedback bearbeiten"
+- **Zeile 2 — „Roast Me":** eigene Zeile unterhalb der KI-Analyse-Card, **nur wenn `claude_analysis` bereits existiert**, zentriert via `flex justify-center` mit Button auf `w-1/2` (identische Breite zur vorherigen 50%-Grid-Spalte)
 
 **Roast Me (vereinfacht 3. Juli 2026, vormals „Spaß-Analyse" mit 3 Modi; nutzt seit 4. Juli 2026 vorhandenes Mid-Week-Feedback als Zusatz-Input, siehe unten):**
 - Optionaler, rein unterhaltsamer KI-Kommentar zur Aktivität — 1 Modus, kein Modus-Auswahl mehr (`buildRoastPrompt` in `src/lib/funModePrompts.ts`)
-- Button „🔥 Roast Me 🔥" (Flammen-Icon links+rechts, Gradient orange→rot, weißer fetter Text), linke Hälfte der Button-Reihe (siehe oben)
+- Button „🔥 Roast Me 🔥" (Flammen-Icon links+rechts, Gradient orange→rot, weißer fetter Text), eigene zentrierte Zeile (siehe oben)
 - Bei Klick: `getRoastAnalysis(activity, {name}, stats, exercises, userFeedback?)` (lokal in `ActivityDetail.tsx`) ruft `/api/analyse` **direkt** auf (`fetch`, `max_tokens: 500`) — **kein** `buildCoachSystemPrompt()`, **kein** `buildCoachContext()`, **kein** `buildSpecialistContext()`. System-Prompt kommt ausschließlich aus `buildRoastPrompt({name, sport, userFeedback})`
 - `sport` wird per `sportFromActivityType(activity.type)` aus `activity.type` abgeleitet — identisches Mapping zu `getSpecialistPrompt()` in `activityAnalysis.ts` (Run/VirtualRun/TrailRun→running, Ride/VirtualRide/MountainBikeRide/GravelRide→cycling, WeightTraining/Workout→strength)
 - User-Prompt (`buildRoastStatsText()`) ist ein sportart-spezifischer Rohdaten-Stats-Block dieser einen Aktivität: Laufen bekommt Ø-Pace (aus Distanz/Dauer berechnet via `speedToPace()`) + Ø-Kadenz in spm; Rad bekommt NP/Ø-Watt + Ø-Trittfrequenz in rpm; Kraft bekommt pro Übung Gewicht×Wiederholungen je Satz + Muskelgruppe (`primaryMuscleLabel()`) + Gesamtvolumen. Ohne erkannte Sportart (`sport === null`) bleibt es beim generischen Block (Distanz, Ø/Max HF)
@@ -539,7 +539,7 @@ Verpflichtender Wizard, läuft **einmalig** nach dem ersten Strava-Login. Kein S
 - Icon: `IconRoast` (`FaFire`) in `src/lib/icons.ts`; `IconSarcastic`/`IconSexy` entfernt
 
 **Mid-Week-Feedback (4. Juli 2026, aus `WeeklyPlan.tsx` hierher verschoben, siehe Kapitel 10):**
-- Rechte Hälfte der Button-Reihe (siehe oben). Klick öffnet ein Bottom-Sheet-Modal (`fixed inset-0 bg-black/70`, Klick auf Backdrop schließt) mit Freitextfeld, „Speichern" (disabled bei leerem Text) und „Abbrechen" — identisches Design wie zuvor in `WeeklyPlan.tsx`
+- Button neben „Neu analysieren" in Zeile 1 (siehe oben). Klick öffnet ein Bottom-Sheet-Modal (`fixed inset-0 bg-black/70`, Klick auf Backdrop schließt) mit Freitextfeld, „Speichern" (disabled bei leerem Text) und „Abbrechen" — identisches Design wie zuvor in `WeeklyPlan.tsx`
 - **Laden:** Beim Öffnen von `ActivityDetail.tsx` ein Query auf `coach_decisions` (`decision_type = 'midweek_feedback'`, `related_activity_id = activity.id`) via `.maybeSingle()` — einzelner Eintrag statt Map, da hier nur eine Aktivität relevant ist. State: `feedback: {id, reasoning} | null`
 - **Erneutes Öffnen:** Modal wird mit dem vorherigen `reasoning`-Text vorausgefüllt (`openFeedbackModal()`)
 - **Speicherung:** Klick auf „Speichern" → INSERT in `coach_decisions` (`decision_type: 'midweek_feedback'`, `decision_summary`: erste 100 Zeichen, `reasoning`: vollständiger Text, `related_activity_id: activity.id`) falls noch kein Eintrag existiert, sonst UPDATE auf `decision_summary`/`reasoning` — identische Logik wie zuvor in `WeeklyPlan.tsx`, nur der Ladeort hat sich geändert

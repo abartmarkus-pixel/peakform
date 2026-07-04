@@ -789,8 +789,8 @@ export default function ActivityDetail() {
         </div>
       )}
 
-      {/* ── Analyse-Button ─────────────────────────────────────── */}
-      <div className="mb-6">
+      {/* ── Analyse-Button + Feedback ─────────────────────────── */}
+      <div className="mb-6 flex gap-3">
         <button
           onClick={runAnalysis}
           disabled={analysing}
@@ -799,6 +799,18 @@ export default function ActivityDetail() {
           {analysing && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
           {analysing ? 'Analysiere…' : 'Neu analysieren'}
         </button>
+
+        {analysis && (
+          <button
+            onClick={openFeedbackModal}
+            className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold text-slate-200 bg-slate-800 hover:bg-slate-700 transition-colors"
+          >
+            {feedback
+              ? <IconCommentFilled size={14} className="text-brand-400" />
+              : <IconCommentOutline size={14} />}
+            {feedback ? 'Feedback bearbeiten' : 'Feedback geben'}
+          </button>
+        )}
       </div>
 
       {/* ── Hintergrund-Analyse läuft ──────────────────────────── */}
@@ -817,30 +829,20 @@ export default function ActivityDetail() {
         </div>
       )}
 
-      {/* ── Roast Me + Mid-Week-Feedback ──────────────────── */}
+      {/* ── Roast Me ─────────────────────────────────────────────── */}
       {analysis && (
         <div className="mt-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="flex justify-center">
             <button
               onClick={handleRoastClick}
               disabled={roastLoading}
-              className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-orange-600 to-red-600 hover:shadow-lg hover:shadow-orange-500/50 active:shadow-orange-500/50 transition-shadow disabled:opacity-50"
+              className="w-1/2 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-orange-600 to-red-600 hover:shadow-lg hover:shadow-orange-500/50 active:shadow-orange-500/50 transition-shadow disabled:opacity-50"
             >
               {roastLoading
                 ? <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 : <IconRoast size={14} />}
               Roast Me
               {!roastLoading && <IconRoast size={14} />}
-            </button>
-
-            <button
-              onClick={openFeedbackModal}
-              className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold text-slate-200 bg-slate-800 hover:bg-slate-700 transition-colors"
-            >
-              {feedback
-                ? <IconCommentFilled size={14} className="text-brand-400" />
-                : <IconCommentOutline size={14} />}
-              {feedback ? 'Feedback bearbeiten' : 'Feedback geben'}
             </button>
           </div>
 
