@@ -5,7 +5,7 @@ import { fetchRecentActivities, getValidAccessToken, syncActivitiesToSupabase, t
 import { supabase, type Athlete } from '../lib/supabase'
 import { buildCoachSystemPrompt } from '../lib/coachPrompt'
 import {
-  IconLogout, IconRunning, IconCycling, IconStrength, IconWarning,
+  IconLogout, IconRunning, IconCycling, IconStrength, IconWarning, IconCommentFilled,
 } from '../lib/icons'
 import { SPORT_DISPLAY } from '../lib/icons'
 import { AppHeader } from '../components/AppHeader'
@@ -50,6 +50,13 @@ function embeddedActivityDate(row: { activities?: unknown }): string | null {
   return (Array.isArray(a) ? a[0]?.date : a.date) ?? null
 }
 
+// See embeddedActivityDate above — same defensive handling for embedded joins.
+function embeddedStravaId(row: { activities?: unknown }): number | null {
+  const a = row.activities as { strava_id: number } | { strava_id: number }[] | null | undefined
+  if (!a) return null
+  return (Array.isArray(a) ? a[0]?.strava_id : a.strava_id) ?? null
+}
+
 function formatDuration(seconds: number) {
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)
@@ -81,6 +88,7 @@ export default function Dashboard() {
   const [filter,           setFilter]           = useState<string | null>(null)
   const [loading,          setLoading]          = useState(true)
   const [error,            setError]            = useState<string | null>(null)
+  const [feedbackMap,      setFeedbackMap]      = useState<Record<number, true>>({})
 
   const [athleteId,        setAthleteId]        = useState<string | null>(null)
   const [athlete,          setAthlete]          = useState<Athlete | null>(null)
@@ -114,6 +122,21 @@ export default function Dashboard() {
           setActivities(acts)
 
           await syncActivitiesToSupabase(acts, athlete.id)
+
+          if (acts.length > 0) {
+            const { data: fbRows } = await supabase
+              .from('coach_decisions')
+              .select('activities!related_activity_id!inner(strava_id)')
+              .eq('athlete_id', athlete.id)
+              .eq('decision_type', 'midweek_feedback')
+              .in('activities.strava_id', acts.map(a => a.id))
+            const fbMap: Record<number, true> = {}
+            for (const row of (fbRows ?? []) as { activities?: unknown }[]) {
+              const stravaId = embeddedStravaId(row)
+              if (stravaId != null) fbMap[stravaId] = true
+            }
+            setFeedbackMap(fbMap)
+          }
 
           // ── Echtzeit-Alert: einmal pro Session prüfen ──────────────────
           const thisWeek = mondayOf(new Date())
@@ -391,7 +414,8 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt im gleichen Format wie der Origin
               <div className="flex items-center gap-2 mb-1">
                 <ActivityIcon type={act.type} />
                 <span className="font-semibold text-slate-100 truncate">{act.name}</span>
-                <span className="ml-auto text-xs text-slate-400">
+                <span className="ml-auto flex items-center gap-1.5 text-xs text-slate-400">
+                  {feedbackMap[act.id] && <IconCommentFilled size={11} className="text-brand-400" />}
                   {new Date(act.start_date).toLocaleDateString('de-DE')}
                 </span>
               </div>

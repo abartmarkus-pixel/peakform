@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { IconChevronLeft, IconRoast } from '../lib/icons'
+import { IconChevronLeft, IconRoast, IconCommentOutline, IconCommentFilled } from '../lib/icons'
 import {
   ResponsiveContainer,
   AreaChart,
@@ -22,7 +22,7 @@ import {
   type ChartPoint,
   type ComputedStats,
 } from '../lib/activityAnalysis'
-import { supabase, type Activity, type Athlete } from '../lib/supabase'
+import { supabase, type Activity, type Athlete, type CoachDecision } from '../lib/supabase'
 import { AppHeader } from '../components/AppHeader'
 import { renderMarkdown } from '../lib/markdown'
 import { buildRoastPrompt, type SportFocus } from '../lib/funModePrompts'
@@ -202,7 +202,8 @@ async function getRoastAnalysis(
   activity: Activity,
   athlete: { name: string },
   stats: ComputedStats,
-  exercises: Exercise[]
+  exercises: Exercise[],
+  userFeedback?: string
 ): Promise<string> {
   const sport = sportFromActivityType(activity.type)
   const statsText = buildRoastStatsText(activity, sport, stats, exercises)
@@ -211,7 +212,7 @@ async function getRoastAnalysis(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      system: buildRoastPrompt({ name: athlete.name, sport }),
+      system: buildRoastPrompt({ name: athlete.name, sport, userFeedback }),
       prompt: statsText,
       max_tokens: 500,
     }),
@@ -254,6 +255,12 @@ export default function ActivityDetail() {
   const [roastResult, setRoastResult] = useState<string | null>(null)
   const [roastError, setRoastError] = useState<string | null>(null)
   const roastResultRef = useRef<HTMLDivElement>(null)
+  // mid-week feedback
+  const [feedback, setFeedback] = useState<{ id: string; reasoning: string } | null>(null)
+  const [feedbackModalOpen, setFeedbackModalOpen] = useState(false)
+  const [feedbackText, setFeedbackText] = useState('')
+  const [feedbackSaving, setFeedbackSaving] = useState(false)
+  const [feedbackToast, setFeedbackToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
   useEffect(() => {
     const stravaId = localStorage.getItem('athlete_strava_id')
@@ -284,6 +291,15 @@ export default function ActivityDetail() {
         // analysis (triggered by syncActivitiesToSupabase) may still be
         // running — poll for it instead of showing an empty state.
         if (!act.claude_analysis) setAwaitingBackgroundAnalysis(true)
+
+        const { data: fbData } = await supabase
+          .from('coach_decisions')
+          .select('id, reasoning')
+          .eq('athlete_id', athlete.id)
+          .eq('decision_type', 'midweek_feedback')
+          .eq('related_activity_id', act.id)
+          .maybeSingle()
+        if (fbData) setFeedback({ id: fbData.id, reasoning: fbData.reasoning ?? '' })
 
         // If analysis exists but recovery extraction may not have run yet, check and trigger
         if (act.claude_analysis) {
@@ -413,7 +429,7 @@ export default function ActivityDetail() {
     setRoastLoading(true)
     setRoastError(null)
     try {
-      const text = await getRoastAnalysis(activity, { name: athleteName }, stats, exercises)
+      const text = await getRoastAnalysis(activity, { name: athleteName }, stats, exercises, feedback?.reasoning)
       setRoastResult(text)
     } catch (e) {
       console.error(e)
@@ -421,6 +437,52 @@ export default function ActivityDetail() {
       setRoastResult(null)
     } finally {
       setRoastLoading(false)
+    }
+  }
+
+  function openFeedbackModal() {
+    setFeedbackText(feedback?.reasoning ?? '')
+    setFeedbackModalOpen(true)
+  }
+
+  async function saveFeedback() {
+    if (!activity || !athleteId) return
+    const text = feedbackText.trim()
+    if (!text) return
+    setFeedbackSaving(true)
+
+    try {
+      if (feedback) {
+        const { error } = await supabase
+          .from('coach_decisions')
+          .update({ decision_summary: text.slice(0, 100), reasoning: text })
+          .eq('id', feedback.id)
+        if (error) throw error
+        setFeedback({ id: feedback.id, reasoning: text })
+      } else {
+        const { data, error } = await supabase
+          .from('coach_decisions')
+          .insert({
+            athlete_id:          athleteId,
+            decision_type:       'midweek_feedback',
+            decision_summary:    text.slice(0, 100),
+            reasoning:           text,
+            related_activity_id: activity.id,
+          })
+          .select()
+          .single()
+        if (error) throw error
+        setFeedback({ id: (data as CoachDecision).id, reasoning: text })
+      }
+      setFeedbackModalOpen(false)
+      setFeedbackToast({ type: 'success', message: 'Danke — wird beim nächsten Plan berücksichtigt ✓' })
+      setTimeout(() => setFeedbackToast(null), 2500)
+    } catch (e) {
+      console.error(e)
+      setFeedbackToast({ type: 'error', message: 'Feedback konnte nicht gespeichert werden' })
+      setTimeout(() => setFeedbackToast(null), 2500)
+    } finally {
+      setFeedbackSaving(false)
     }
   }
 
@@ -755,20 +817,32 @@ export default function ActivityDetail() {
         </div>
       )}
 
-      {/* ── Roast Me (isoliert, nicht persistiert) ─────────── */}
+      {/* ── Roast Me + Mid-Week-Feedback ──────────────────── */}
       {analysis && (
         <div className="mt-4">
-          <button
-            onClick={handleRoastClick}
-            disabled={roastLoading}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-orange-600 to-red-600 hover:shadow-lg hover:shadow-orange-500/50 active:shadow-orange-500/50 transition-shadow disabled:opacity-50"
-          >
-            {roastLoading
-              ? <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              : <IconRoast size={14} />}
-            Roast Me
-            {!roastLoading && <IconRoast size={14} />}
-          </button>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={handleRoastClick}
+              disabled={roastLoading}
+              className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-orange-600 to-red-600 hover:shadow-lg hover:shadow-orange-500/50 active:shadow-orange-500/50 transition-shadow disabled:opacity-50"
+            >
+              {roastLoading
+                ? <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                : <IconRoast size={14} />}
+              Roast Me
+              {!roastLoading && <IconRoast size={14} />}
+            </button>
+
+            <button
+              onClick={openFeedbackModal}
+              className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold text-slate-200 bg-slate-800 hover:bg-slate-700 transition-colors"
+            >
+              {feedback
+                ? <IconCommentFilled size={14} className="text-brand-400" />
+                : <IconCommentOutline size={14} />}
+              {feedback ? 'Feedback bearbeiten' : 'Feedback geben'}
+            </button>
+          </div>
 
           {roastError && <p className="text-red-400 text-sm mt-3">{roastError}</p>}
 
@@ -780,6 +854,54 @@ export default function ActivityDetail() {
               <div className="space-y-1">{renderMarkdown(roastResult)}</div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Mid-Week Feedback Modal ────────────────────────── */}
+      {feedbackModalOpen && (
+        <div
+          className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-50 p-4"
+          onClick={e => { if (e.target === e.currentTarget && !feedbackSaving) setFeedbackModalOpen(false) }}
+        >
+          <div className="bg-slate-800 rounded-2xl p-5 w-full max-w-lg flex flex-col gap-4">
+            <h2 className="text-lg font-bold text-slate-100">Feedback zu {activity?.name}</h2>
+            <textarea
+              value={feedbackText}
+              onChange={e => setFeedbackText(e.target.value)}
+              placeholder="z.B. Pace war zu schnell für die HF-Vorgabe, Knie hat gezogen, fühlte sich super an…"
+              rows={4}
+              autoFocus
+              className="w-full bg-slate-900 text-slate-100 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none placeholder:text-slate-500"
+            />
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={() => setFeedbackModalOpen(false)}
+                disabled={feedbackSaving}
+                className="flex-1 py-2.5 rounded-xl text-sm text-slate-400 bg-slate-700 hover:bg-slate-600 transition-colors disabled:opacity-50"
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={saveFeedback}
+                disabled={feedbackSaving || !feedbackText.trim()}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-brand-500 hover:bg-brand-600 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {feedbackSaving && (
+                  <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                )}
+                Speichern
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Mid-Week Feedback Toast ────────────────────────── */}
+      {feedbackToast && (
+        <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl text-sm font-medium shadow-lg max-w-[90vw] text-center text-white ${
+          feedbackToast.type === 'success' ? 'bg-brand-500' : 'bg-red-500'
+        }`}>
+          {feedbackToast.message}
         </div>
       )}
     </div>

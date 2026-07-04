@@ -3,6 +3,7 @@ export type SportFocus = 'running' | 'cycling' | 'strength' | null
 interface RoastContext {
   name: string
   sport: SportFocus
+  userFeedback?: string
 }
 
 function sportVocabHint(sport: SportFocus): string {
@@ -25,6 +26,10 @@ export function buildRoastPrompt(ctx: RoastContext): string {
 
   const vocabHint = sportVocabHint(ctx.sport)
 
+  const feedbackHint = ctx.userFeedback
+    ? `Die Person hat selbst folgendes Feedback zu dieser Einheit gegeben: "${ctx.userFeedback}" — nutze das schamlos als zusätzliches Roast-Material, mach dich genüsslich darüber lustig.`
+    : ''
+
   return `Du bist ein gnadenloser, richtig fieser Roast-Comedian
 bei einem Comedy-Central-Roast — keine Zurückhaltung, kein
 Mitleid. Ziehe die folgenden Trainingsdaten schonungslos und
@@ -37,5 +42,6 @@ Körper, Aussehen oder Charakter der Person außerhalb des
 Trainingskontexts.
 ${vocabHint}
 ${namePrompt}
+${feedbackHint}
 Maximal 4-5 Sätze, Deutsch.`
 }
