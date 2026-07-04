@@ -59,6 +59,24 @@ function embeddedStravaId(row: { activities?: unknown }): number | null {
   return (Array.isArray(a) ? a[0]?.strava_id : a.strava_id) ?? null
 }
 
+// Shared by initial load and "Mehr laden" — batch-checks which of the given
+// Strava activities already have midweek feedback, keyed by Strava ID.
+async function loadFeedbackMap(acts: StravaActivity[], athleteId: string): Promise<Record<number, true>> {
+  if (acts.length === 0) return {}
+  const { data: fbRows } = await supabase
+    .from('coach_decisions')
+    .select('activities!related_activity_id!inner(strava_id)')
+    .eq('athlete_id', athleteId)
+    .eq('decision_type', 'midweek_feedback')
+    .in('activities.strava_id', acts.map(a => a.id))
+  const fbMap: Record<number, true> = {}
+  for (const row of (fbRows ?? []) as { activities?: unknown }[]) {
+    const stravaId = embeddedStravaId(row)
+    if (stravaId != null) fbMap[stravaId] = true
+  }
+  return fbMap
+}
+
 function formatDuration(seconds: number) {
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)
@@ -92,6 +110,10 @@ export default function Dashboard() {
   const [error,            setError]            = useState<string | null>(null)
   const [feedbackMap,      setFeedbackMap]      = useState<Record<number, true>>({})
 
+  const [page,             setPage]             = useState(1)
+  const [hasMore,          setHasMore]          = useState(true)
+  const [loadingMore,      setLoadingMore]      = useState(false)
+
   const [athleteId,        setAthleteId]        = useState<string | null>(null)
   const [athlete,          setAthlete]          = useState<Athlete | null>(null)
 
@@ -120,25 +142,12 @@ export default function Dashboard() {
 
         try {
           const token = await getValidAccessToken(athlete)
-          const acts = await fetchRecentActivities(token)
+          const acts = await fetchRecentActivities(token, 1)
           setActivities(acts)
+          if (acts.length < 10) setHasMore(false)
 
           await syncActivitiesToSupabase(acts, athlete.id)
-
-          if (acts.length > 0) {
-            const { data: fbRows } = await supabase
-              .from('coach_decisions')
-              .select('activities!related_activity_id!inner(strava_id)')
-              .eq('athlete_id', athlete.id)
-              .eq('decision_type', 'midweek_feedback')
-              .in('activities.strava_id', acts.map(a => a.id))
-            const fbMap: Record<number, true> = {}
-            for (const row of (fbRows ?? []) as { activities?: unknown }[]) {
-              const stravaId = embeddedStravaId(row)
-              if (stravaId != null) fbMap[stravaId] = true
-            }
-            setFeedbackMap(fbMap)
-          }
+          setFeedbackMap(await loadFeedbackMap(acts, athlete.id))
 
           // ── Echtzeit-Alert: einmal pro Session prüfen ──────────────────
           const thisWeek = mondayOf(new Date())
@@ -326,6 +335,28 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt im gleichen Format wie der Origin
     }
   }
 
+  async function handleLoadMore() {
+    if (!athlete) return
+    setLoadingMore(true)
+    try {
+      const nextPage = page + 1
+      const token = await getValidAccessToken(athlete)
+      const more = await fetchRecentActivities(token, nextPage)
+
+      if (more.length < 10) setHasMore(false)
+
+      setActivities(prev => [...prev, ...more])
+      await syncActivitiesToSupabase(more, athlete.id)
+      const moreFbMap = await loadFeedbackMap(more, athlete.id)
+      setFeedbackMap(prev => ({ ...prev, ...moreFbMap }))
+      setPage(nextPage)
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setLoadingMore(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -431,6 +462,23 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt im gleichen Format wie der Origin
           </li>
         ))}
       </ul>
+
+      {hasMore ? (
+        <button
+          onClick={handleLoadMore}
+          disabled={loadingMore}
+          className="mt-4 w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-300 text-sm font-medium py-2.5 rounded-xl transition-colors"
+        >
+          {loadingMore ? (
+            <>
+              <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+              Lädt…
+            </>
+          ) : 'Mehr laden'}
+        </button>
+      ) : activities.length > 10 && (
+        <p className="mt-4 text-center text-xs text-slate-500">Keine weiteren Aktivitäten</p>
+      )}
 
       {/* ── Plan-Anpassen Modal ────────────────────────────────── */}
       {planModal && (
