@@ -4,6 +4,8 @@ import { useNavigate, Link } from 'react-router-dom'
 import { fetchRecentActivities, getValidAccessToken, syncActivitiesToSupabase, type StravaActivity } from '../lib/strava'
 import { supabase, type Athlete } from '../lib/supabase'
 import { buildCoachSystemPrompt } from '../lib/coachPrompt'
+import { planJsonWithDates } from '../lib/coachContext'
+import { getISOMonday } from '../lib/dateUtils'
 import {
   IconLogout, IconRunning, IconCycling, IconStrength, IconOther, IconWarning, IconCommentFilled,
 } from '../lib/icons'
@@ -201,10 +203,11 @@ ${latestAct.np_watts ? `- NP: ${Math.round(latestAct.np_watts)} W` : ''}`
                   }\n`
                 : ''
 
+              const mondayDate = getISOMonday(new Date())
               const checkPrompt = `Du bist der PeakForm Coach. Prüfe ob die folgende Situation den geplanten Wochenplan verletzt.
 
 Wochenplan (JSON):
-${JSON.stringify(plan.plan_json, null, 2)}
+${JSON.stringify(planJsonWithDates(plan.plan_json, mondayDate), null, 2)}
 
 ${activitySection}
 ${recoverySection}

@@ -5,7 +5,7 @@ const WEEKDAY_ORDER = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
 
 /** Ergänzt die Mo–So-Tageskürzel im plan_json.days-Objekt um das jeweilige Kalenderdatum,
  *  damit Claude Wochentag↔Datum nicht selbst umrechnen muss. */
-function planJsonWithDates(planJson: unknown, monday: Date): unknown {
+export function planJsonWithDates(planJson: unknown, monday: Date): unknown {
   if (!planJson || typeof planJson !== 'object') return planJson
   const pj = planJson as Record<string, unknown>
   const days = pj.days as Record<string, unknown> | undefined
