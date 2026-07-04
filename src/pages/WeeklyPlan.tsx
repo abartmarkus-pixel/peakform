@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, type Athlete, type WeeklyPlan, type Activity, type SportConfig } from '../lib/supabase'
 import { buildCoachContext } from '../lib/coachContext'
@@ -14,6 +14,22 @@ import {
 import { AppHeader } from '../components/AppHeader'
 import { useFeatures } from '../lib/features'
 import { getISOMonday, getISOSunday, formatWeekRange } from '../lib/dateUtils'
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 
 // ── types ──────────────────────────────────────────────────────────────────
 
@@ -98,6 +114,45 @@ function validateConstraints(planJson: PlanJson, sportConfigs: SportConfig[], tr
   return issues
 }
 
+// ── manual-edit conflict check (client-seitig, kein Claude-Call) ───────────
+// "intensiv" folgt denselben sportwissenschaftlichen Regeln, die der Coach
+// beim Planen bekommt (siehe generatePlan()-Prompt, Regeln 3-4): Z3+-Ausdauer
+// UND schweres Krafttraining zählen beide als intensiv.
+
+function isRestDay(d: DayPlan): boolean {
+  return REST_KEYWORDS.some(k => d.type.toLowerCase().includes(k))
+}
+
+function isKraftDay(d: DayPlan): boolean {
+  return SPORT_KEYWORDS.strength.some(k => d.type.toLowerCase().includes(k))
+}
+
+function isIntensiveEndurance(d: DayPlan): boolean {
+  return !isRestDay(d) && !isKraftDay(d) && /^Z[3-5]/i.test(d.intensity ?? '')
+}
+
+function isIntensiveDay(d: DayPlan): boolean {
+  if (isRestDay(d)) return false
+  if (isKraftDay(d)) return true
+  return /^Z[3-5]/i.test(d.intensity ?? '')
+}
+
+function checkPlanConflicts(days: Record<string, DayPlan>): string | null {
+  for (let i = 0; i < DAYS.length - 1; i++) {
+    const today = days[DAYS[i]]
+    const tomorrow = days[DAYS[i + 1]]
+    if (!today || !tomorrow) continue
+
+    if (isKraftDay(today) && isIntensiveEndurance(tomorrow)) {
+      return `Krafttraining am ${DAYS[i]} liegt jetzt direkt vor einer intensiven Einheit am ${DAYS[i + 1]}.`
+    }
+    if (isIntensiveDay(today) && isIntensiveDay(tomorrow)) {
+      return `${DAYS[i]} und ${DAYS[i + 1]} sind jetzt beide intensiv — direkt hintereinander ohne Erholung.`
+    }
+  }
+  return null
+}
+
 // ── helpers ────────────────────────────────────────────────────────────────
 
 function addWeeks(date: Date, n: number): Date {
@@ -129,6 +184,15 @@ function parseReviewJson(text: string): ReviewJson {
   const match = text.match(/```(?:json)?\s*([\s\S]*?)```/)
   const raw = match ? match[1] : text
   return JSON.parse(raw.trim()) as ReviewJson
+}
+
+// Tauscht die Inhalte zweier Tage; die Wochentags-Schlüssel (Mo-So) bleiben fix.
+function swapDays(planJson: PlanJson, dayA: string, dayB: string): PlanJson {
+  const updated = { ...planJson, days: { ...planJson.days } }
+  const temp = updated.days[dayA]
+  updated.days[dayA] = updated.days[dayB]
+  updated.days[dayB] = temp
+  return updated
 }
 
 function TypeIcon({ type, size = 16 }: { type: string; size?: number }) {
@@ -185,10 +249,12 @@ function matchActivityToDay(
 
 // ── sub-components ─────────────────────────────────────────────────────────
 
-function DayCard({ day, idx, monday, plan, match, onPress }: {
+type DayCardProps = {
   day: string; idx: number; monday: Date; plan: DayPlan | undefined
   match?: DayMatch; onPress?: () => void
-}) {
+}
+
+function DayCard({ day, idx, monday, plan, match, onPress }: DayCardProps) {
   const isRest = !plan || REST_KEYWORDS.some(k => plan.type.toLowerCase().includes(k))
   const isKraft = plan ? SPORT_KEYWORDS.strength.some(k => plan.type.toLowerCase().includes(k)) : false
   const workoutLabel = isKraft && plan?.description
@@ -283,6 +349,74 @@ function DayCard({ day, idx, monday, plan, match, onPress }: {
   )
 }
 
+const LONG_PRESS_MS = 500
+const LONG_PRESS_MOVE_TOLERANCE_PX = 8
+
+function SortableDayCard(props: DayCardProps & { onLongPress: (day: string) => void }) {
+  const { day, onLongPress } = props
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: day })
+  const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pressStart = useRef<{ x: number; y: number } | null>(null)
+  const longPressFired = useRef(false)
+
+  function clearPressTimer() {
+    if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null }
+  }
+
+  function handlePointerDown(e: React.PointerEvent) {
+    longPressFired.current = false
+    pressStart.current = { x: e.clientX, y: e.clientY }
+    clearPressTimer()
+    pressTimer.current = setTimeout(() => {
+      longPressFired.current = true
+      onLongPress(day)
+    }, LONG_PRESS_MS)
+    listeners?.onPointerDown?.(e)
+  }
+
+  function handlePointerMove(e: React.PointerEvent) {
+    if (pressStart.current) {
+      const dx = e.clientX - pressStart.current.x
+      const dy = e.clientY - pressStart.current.y
+      if (Math.hypot(dx, dy) > LONG_PRESS_MOVE_TOLERANCE_PX) clearPressTimer()
+    }
+    listeners?.onPointerMove?.(e)
+  }
+
+  function handlePointerUp(e: React.PointerEvent) {
+    clearPressTimer()
+    listeners?.onPointerUp?.(e)
+  }
+
+  function handlePointerLeave(e: React.PointerEvent) {
+    clearPressTimer()
+    listeners?.onPointerLeave?.(e)
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.4 : 1,
+        zIndex: isDragging ? 10 : undefined,
+      }}
+      className="touch-none"
+      {...attributes}
+      {...listeners}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerLeave={handlePointerLeave}
+      onContextMenu={e => e.preventDefault()}
+      onClickCapture={e => { if (longPressFired.current) { e.preventDefault(); e.stopPropagation() } }}
+    >
+      <DayCard {...props} />
+    </div>
+  )
+}
+
 // ── main component ─────────────────────────────────────────────────────────
 
 export default function WeeklyPlan() {
@@ -297,6 +431,13 @@ export default function WeeklyPlan() {
   const [loadingMessage, setLoadingMessage] = useState<string | null>(null)
   const [pendingPlanJson, setPendingPlanJson] = useState<PlanJson | null>(null)
   const [violation, setViolation]     = useState<string[]>([])
+  const [manualPlanJson, setManualPlanJson] = useState<PlanJson | null>(null)
+  const [contextMenuDay, setContextMenuDay] = useState<string | null>(null)
+  const [moveSubmenuOpen, setMoveSubmenuOpen] = useState(false)
+  const [pendingManualConflict, setPendingManualConflict] = useState<string | null>(null)
+  const [pendingManualChangeReason, setPendingManualChangeReason] = useState<string | null>(null)
+  const [manualToast, setManualToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const previousManualPlanJson = useRef<PlanJson | null>(null)
   // review
   const [reviewFeedback, setReviewFeedback] = useState('')
   const [reviewing, setReviewing]     = useState(false)
@@ -307,6 +448,18 @@ export default function WeeklyPlan() {
 
   const isCurrentWeek = toDateStr(monday) === toDateStr(getISOMonday(new Date()))
   const weekStr = toDateStr(monday)
+
+  // dnd-kit sensors (8px threshold prevents accidental drags on scroll/click)
+  const daySensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+
+  useEffect(() => {
+    if (!manualToast) return
+    const t = setTimeout(() => setManualToast(null), 2500)
+    return () => clearTimeout(t)
+  }, [manualToast])
 
   // load athlete once
   useEffect(() => {
@@ -333,6 +486,9 @@ export default function WeeklyPlan() {
     setWeekActivities([])
     setReviewResult(null)
     setReviewFeedback('')
+    setManualPlanJson(null)
+    setPendingManualConflict(null)
+    setPendingManualChangeReason(null)
 
     ;(async () => {
       // Mini-sync: pull latest 10 activities from Strava → upsert to Supabase
@@ -748,7 +904,112 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
   }
 
   const planJson = plan?.plan_json as PlanJson | null
-  const displayPlanJson = pendingPlanJson ?? planJson
+  const basePlanJson = pendingPlanJson ?? planJson
+  const displayPlanJson = manualPlanJson ?? basePlanJson
+
+  // Wendet eine manuelle Planänderung an und prüft sie sofort auf Konflikte.
+  // Ohne Konflikt: sofort committen. Mit Konflikt: Änderung bleibt sichtbar,
+  // aber "ungesichert" bis der Athlet "Trotzdem speichern" oder "Abbrechen" wählt.
+  function applyManualEdit(updatedPlan: PlanJson, changeReason: string) {
+    previousManualPlanJson.current = manualPlanJson
+    setManualPlanJson(updatedPlan)
+    const conflict = checkPlanConflicts(updatedPlan.days)
+    if (conflict) {
+      setPendingManualConflict(conflict)
+      setPendingManualChangeReason(changeReason)
+    } else {
+      commitManualChange(changeReason)
+    }
+  }
+
+  // Gleiche Versionierungs-Logik wie savePlanJson()/saveReviewData(): INSERT-only, version++
+  async function saveManualPlanChange(updatedPlan: PlanJson, changeReason: string, hasViolation: boolean) {
+    if (!athlete) return
+    const { data: existing } = await supabase
+      .from('weekly_plans')
+      .select('version')
+      .eq('athlete_id', athlete.id)
+      .eq('week_start', weekStr)
+      .order('version', { ascending: false })
+      .limit(1)
+    const nextVersion = (existing?.[0]?.version ?? 0) + 1
+
+    const { data: inserted, error } = await supabase
+      .from('weekly_plans')
+      .insert({
+        athlete_id:    athlete.id,
+        week_start:    weekStr,
+        version:       nextVersion,
+        plan_json:     updatedPlan,
+        change_reason: changeReason,
+        ...(hasViolation && { plan_constraint_violation: true }),
+      })
+      .select()
+      .single()
+    if (error) throw error
+
+    await supabase.from('coach_decisions').insert({
+      athlete_id:       athlete.id,
+      decision_type:    'manual_plan_edit',
+      decision_summary: `Wochenplan v${nextVersion} für KW ${weekStr} manuell angepasst: ${changeReason}${hasViolation ? ' (Konflikt bestätigt)' : ''}`,
+      related_plan_id:  (inserted as WeeklyPlan)?.id ?? null,
+    })
+
+    setPlan(inserted as WeeklyPlan)
+    setManualPlanJson(null)
+  }
+
+  async function commitManualChange(changeReason: string) {
+    const hasViolation = !!pendingManualConflict
+    setPendingManualConflict(null)
+    setPendingManualChangeReason(null)
+    if (!manualPlanJson) return
+    try {
+      await saveManualPlanChange(manualPlanJson, changeReason, hasViolation)
+      setManualToast({ type: 'success', message: 'Plan aktualisiert ✓' })
+    } catch (e) {
+      console.error(e)
+      setManualToast({ type: 'error', message: 'Speichern fehlgeschlagen. Bitte erneut versuchen.' })
+    }
+  }
+
+  function cancelManualEdit() {
+    setManualPlanJson(previousManualPlanJson.current)
+    setPendingManualConflict(null)
+    setPendingManualChangeReason(null)
+  }
+
+  function handleDayDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id || !displayPlanJson) return
+    const dayA = String(active.id)
+    const dayB = String(over.id)
+    applyManualEdit(swapDays(displayPlanJson, dayA, dayB), `Manuell verschoben: ${dayA} ↔ ${dayB}`)
+  }
+
+  function handleLongPress(day: string) {
+    setContextMenuDay(day)
+    setMoveSubmenuOpen(false)
+  }
+
+  function closeContextMenu() {
+    setContextMenuDay(null)
+    setMoveSubmenuOpen(false)
+  }
+
+  function handleMarkAsRest(day: string) {
+    if (!displayPlanJson) return
+    const updated = { ...displayPlanJson, days: { ...displayPlanJson.days } }
+    updated.days[day] = { type: 'Ruhetag', duration_min: 0, distance_km: undefined, intensity: undefined, description: 'Manuell freigehalten' }
+    applyManualEdit(updated, `${day} als Ruhetag markiert`)
+    closeContextMenu()
+  }
+
+  function handleMoveDay(dayA: string, dayB: string) {
+    if (!displayPlanJson) return
+    applyManualEdit(swapDays(displayPlanJson, dayA, dayB), `Manuell verschoben: ${dayA} ↔ ${dayB}`)
+    closeContextMenu()
+  }
 
   const weekStats = useMemo(() => {
     if (!displayPlanJson) return null
@@ -840,28 +1101,56 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
           <div className="w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full animate-spin" />
         </div>
       ) : displayPlanJson ? (
-        <div className="flex flex-col gap-2 mb-6">
-          {DAYS.map((day, idx) => {
-            const dayPlan = displayPlanJson.days?.[day]
-            const date = new Date(monday); date.setDate(date.getDate() + idx)
-            const match = dayPlan ? matchActivityToDay(date, dayPlan, weekActivities) : undefined
-            return (
-              <DayCard
-                key={day}
-                day={day}
-                idx={idx}
-                monday={monday}
-                plan={dayPlan}
-                match={match}
-                onPress={match?.activity ? () => navigate(`/activity/${match.activity!.strava_id}`) : undefined}
-              />
-            )
-          })}
-        </div>
+        <DndContext sensors={daySensors} collisionDetection={closestCenter} onDragEnd={handleDayDragEnd}>
+          <SortableContext items={DAYS} strategy={verticalListSortingStrategy}>
+            <div className="flex flex-col gap-2 mb-6">
+              {DAYS.map((day, idx) => {
+                const dayPlan = displayPlanJson.days?.[day]
+                const date = new Date(monday); date.setDate(date.getDate() + idx)
+                const match = dayPlan ? matchActivityToDay(date, dayPlan, weekActivities) : undefined
+                return (
+                  <SortableDayCard
+                    key={day}
+                    day={day}
+                    idx={idx}
+                    monday={monday}
+                    plan={dayPlan}
+                    match={match}
+                    onPress={match?.activity ? () => navigate(`/activity/${match.activity!.strava_id}`) : undefined}
+                    onLongPress={handleLongPress}
+                  />
+                )
+              })}
+            </div>
+          </SortableContext>
+        </DndContext>
       ) : (
         <div className="text-center py-12 text-slate-500 mb-6">
           <IconPlan size={40} className="mx-auto mb-3 text-slate-600" />
           <p className="text-sm">Noch kein Plan für diese Woche.</p>
+        </div>
+      )}
+
+      {/* Manuelle Planänderung: Konflikt-Warnung (nicht-blockierend) */}
+      {pendingManualConflict && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 mb-4">
+          <p className="text-amber-400 text-sm font-semibold mb-3 flex items-center gap-1.5">
+            <IconWarning size={14} /> {pendingManualConflict}
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={cancelManualEdit}
+              className="flex-1 py-2.5 text-sm font-semibold text-white bg-brand-500 hover:bg-brand-600 rounded-xl transition-colors"
+            >
+              Abbrechen
+            </button>
+            <button
+              onClick={() => pendingManualChangeReason && commitManualChange(pendingManualChangeReason)}
+              className="flex-1 py-2.5 text-sm font-semibold text-slate-300 bg-slate-700 hover:bg-slate-600 rounded-xl transition-colors"
+            >
+              Trotzdem speichern
+            </button>
+          </div>
         </div>
       )}
 
@@ -997,6 +1286,79 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Day-Kontextmenü (Long-Press) ────────────────────── */}
+      {contextMenuDay && displayPlanJson && (
+        <div
+          className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-50 p-4"
+          onClick={e => { if (e.target === e.currentTarget) closeContextMenu() }}
+        >
+          <div className="bg-slate-800 rounded-2xl p-5 w-full max-w-lg flex flex-col gap-2">
+            {!moveSubmenuOpen ? (
+              <>
+                <h2 className="text-sm font-semibold text-slate-400 mb-2">
+                  {contextMenuDay} · {dayDate(monday, DAYS.indexOf(contextMenuDay))}
+                </h2>
+                <button
+                  onClick={() => handleMarkAsRest(contextMenuDay)}
+                  className="w-full text-left py-2.5 px-3 rounded-xl text-sm text-slate-200 bg-slate-700 hover:bg-slate-600 transition-colors"
+                >
+                  Als Ruhetag markieren
+                </button>
+                <button
+                  onClick={() => setMoveSubmenuOpen(true)}
+                  className="w-full text-left py-2.5 px-3 rounded-xl text-sm text-slate-200 bg-slate-700 hover:bg-slate-600 transition-colors"
+                >
+                  Verschieben nach...
+                </button>
+                <button
+                  onClick={closeContextMenu}
+                  className="w-full text-left py-2.5 px-3 rounded-xl text-sm text-slate-200 bg-slate-700 hover:bg-slate-600 transition-colors"
+                >
+                  Details anzeigen
+                </button>
+                <button
+                  onClick={closeContextMenu}
+                  className="text-xs text-slate-500 hover:text-slate-300 mt-2 self-center"
+                >
+                  Abbrechen
+                </button>
+              </>
+            ) : (
+              <>
+                <h2 className="text-sm font-semibold text-slate-400 mb-2">
+                  {contextMenuDay} verschieben nach…
+                </h2>
+                {DAYS.filter(d => d !== contextMenuDay).map(d => (
+                  <button
+                    key={d}
+                    onClick={() => handleMoveDay(contextMenuDay, d)}
+                    className="w-full text-left py-2.5 px-3 rounded-xl text-sm text-slate-200 bg-slate-700 hover:bg-slate-600 transition-colors flex items-center justify-between"
+                  >
+                    <span>{d}</span>
+                    <span className="text-xs text-slate-500">{dayDate(monday, DAYS.indexOf(d))}</span>
+                  </button>
+                ))}
+                <button
+                  onClick={() => setMoveSubmenuOpen(false)}
+                  className="text-xs text-slate-500 hover:text-slate-300 mt-2 self-center"
+                >
+                  Zurück
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Toast: manuelle Planänderung gespeichert ────────── */}
+      {manualToast && (
+        <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl text-sm font-medium shadow-lg max-w-[90vw] text-center text-white ${
+          manualToast.type === 'success' ? 'bg-brand-500' : 'bg-red-500'
+        }`}>
+          {manualToast.message}
         </div>
       )}
 
