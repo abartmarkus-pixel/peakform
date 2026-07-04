@@ -46,6 +46,10 @@ type DayPlan = {
   // ursprünglichen Taginhalt für "Aktivität wiederherstellen" mit; JSONB speichert
   // es klaglos mit, übersteht also Reload und Versionswechsel.
   _restoreFrom?: DayPlan
+  // Nur gesetzt, wenn eine an einem anderen Tag vorgezogen durchgeführte Aktivität
+  // diesen Tag erfüllt (Kontext-Vorschlag "Vorziehen erkannt", siehe Schritt 3).
+  // Der Tag selbst bleibt inhaltlich unverändert (type/description etc.).
+  _fulfilledBy?: { date: string; stravaId: number }
 }
 
 type PlanJson = {
@@ -64,6 +68,19 @@ type MatchStatus = 'completed' | 'missed' | 'pending' | 'extra'
 type DayMatch = {
   status: MatchStatus
   activity?: Activity
+  // Nur bei Trainingstagen gesetzt (nicht bei Ruhetagen, die haben ihr eigenes
+  // 'extra'-Status-Sonderverhalten): zusätzliche Aktivität am selben Kalendertag,
+  // deren Sportart nicht zum geplanten dayPlan.type passt — unabhängig vom
+  // regulären Status (completed/missed/pending).
+  extraActivity?: Activity
+}
+
+// Vorschlag "Vorziehen erkannt": eine extraActivity an fromDay passt zur noch
+// ausstehenden Sportart an toDay in derselben Woche.
+type PickupSuggestion = {
+  fromDay: string
+  toDay: string
+  activity: Activity
 }
 
 // PostgREST returns the embedded resource as an object for a many-to-one
@@ -78,6 +95,10 @@ function embeddedActivityDate(row: { activities?: unknown }): string | null {
 // ── constants ──────────────────────────────────────────────────────────────
 
 const DAYS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
+const DAY_FULL: Record<string, string> = {
+  Mo: 'Montag', Di: 'Dienstag', Mi: 'Mittwoch', Do: 'Donnerstag',
+  Fr: 'Freitag', Sa: 'Samstag', So: 'Sonntag',
+}
 
 
 // ── constraint validation ──────────────────────────────────────────────────
@@ -181,6 +202,13 @@ function dayDate(monday: Date, idx: number): string {
   return d.toLocaleDateString('de-DE', { day: 'numeric', month: 'numeric' })
 }
 
+// Parst ein "YYYY-MM-DD"-Datum explizit in Lokalzeit-Komponenten (nicht via
+// `new Date(dateStr)`, das UTC-Mitternacht annimmt — siehe toDateStr-Konvention).
+function formatFulfilledDate(dateStr: string): string {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'numeric' })
+}
+
 function parsePlanJson(text: string): PlanJson {
   const match = text.match(/```(?:json)?\s*([\s\S]*?)```/)
   const raw = match ? match[1] : text
@@ -250,6 +278,14 @@ function matchActivityToDay(
     return actDate.getTime() === d.getTime()
   }
 
+  // Vorgezogen erledigt (Schritt 3/4): Tag gilt als completed, auch wenn am
+  // eigentlichen Kalendertag selbst keine passende Aktivität liegt — activity
+  // wird über dieselbe Activity-Lookup-Logik wie sonst aus der stravaId aufgelöst.
+  if (dayPlan._fulfilledBy) {
+    const fulfillingActivity = activities.find(a => a.strava_id === dayPlan._fulfilledBy!.stravaId)
+    return { status: 'completed', activity: fulfillingActivity }
+  }
+
   if (REST_KEYWORDS.some(k => dayPlan.type.toLowerCase().includes(k))) {
     const extra = activities.find(isOnDate)
     return extra ? { status: 'extra', activity: extra } : { status: 'pending' }
@@ -258,10 +294,11 @@ function matchActivityToDay(
   const matchingTypes = SPORT_MATCH[dayPlan.type.toLowerCase()] ?? []
 
   const matched = activities.find(a => isOnDate(a) && matchingTypes.includes(a.type))
+  const extraActivity = activities.find(a => isOnDate(a) && a !== matched && !matchingTypes.includes(a.type))
 
-  if (matched) return { status: 'completed', activity: matched }
-  if (d < today) return { status: 'missed' }
-  return { status: 'pending' }
+  if (matched) return { status: 'completed', activity: matched, extraActivity }
+  if (d < today) return { status: 'missed', extraActivity }
+  return { status: 'pending', extraActivity }
 }
 
 // ── sub-components ─────────────────────────────────────────────────────────
@@ -360,6 +397,11 @@ function DayCard({ day, idx, monday, plan, match, onPress, onOpenMenu, dragAttri
               Extra
             </span>
           )}
+          {match?.extraActivity && (
+            <span className="text-[10px] font-semibold text-blue-400 bg-blue-400/10 px-1.5 py-0.5 rounded-full">
+              +1
+            </span>
+          )}
           {dragAttributes && dragListeners && (
             <button
               type="button"
@@ -404,6 +446,11 @@ function DayCard({ day, idx, monday, plan, match, onPress, onOpenMenu, dragAttri
               {match.activity.duration_s ? ` · ${Math.round(match.activity.duration_s / 60)} min` : ''}
             </p>
           )}
+          {plan?._fulfilledBy && (
+            <p className="text-xs text-slate-500 mt-1">
+              Vorgezogen am {formatFulfilledDate(plan._fulfilledBy.date)}
+            </p>
+          )}
           {match?.status === 'missed' && !isRest && (
             <p className="text-xs text-amber-400/70 mt-1.5 flex items-center gap-1">
               <IconMissed size={10} className="text-amber-400 shrink-0" />
@@ -414,6 +461,12 @@ function DayCard({ day, idx, monday, plan, match, onPress, onOpenMenu, dragAttri
             <p className="text-xs text-blue-400/70 mt-1.5 truncate flex items-center gap-1">
               <IconOther size={10} className="text-blue-400 shrink-0" />
               Zusätzlich trainiert: {match.activity.name}
+            </p>
+          )}
+          {match?.extraActivity && (
+            <p className="text-xs text-blue-400/70 mt-1.5 truncate flex items-center gap-1">
+              <IconOther size={10} className="text-blue-400 shrink-0" />
+              Außerdem: {match.extraActivity.name}
             </p>
           )}
         </>
@@ -467,6 +520,9 @@ export default function WeeklyPlan() {
   const [pendingManualChangeReason, setPendingManualChangeReason] = useState<string | null>(null)
   const [manualToast, setManualToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const previousManualPlanJson = useRef<PlanJson | null>(null)
+  // Schlüssel (stravaId-toDay) des zuletzt per "Nein danke" abgewiesenen
+  // Vorziehen-Vorschlags — verhindert erneutes Anzeigen desselben Vorschlags.
+  const [dismissedPickupKey, setDismissedPickupKey] = useState<string | null>(null)
   // review
   const [reviewFeedback, setReviewFeedback] = useState('')
   const [reviewing, setReviewing]     = useState(false)
@@ -520,6 +576,7 @@ export default function WeeklyPlan() {
     setManualPlanJson(null)
     setPendingManualConflict(null)
     setPendingManualChangeReason(null)
+    setDismissedPickupKey(null)
 
     ;(async () => {
       // Mini-sync: pull latest 10 activities from Strava → upsert to Supabase
@@ -1061,17 +1118,93 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
     closeContextMenu()
   }
 
+  // Entfernt _fulfilledBy wieder — der Tag zeigt danach seinen ursprünglichen
+  // Status (pending/missed je nach Kalenderdatum), da matchActivityToDay() dann
+  // wieder normal gegen den eigentlichen Kalendertag matcht.
+  function handleUnlinkFulfilled(day: string) {
+    if (!displayPlanJson) return
+    const current = displayPlanJson.days[day]
+    if (!current?._fulfilledBy) return
+    const updated = { ...displayPlanJson, days: { ...displayPlanJson.days } }
+    const { _fulfilledBy: _omit, ...rest } = current
+    updated.days[day] = rest
+    applyManualEdit(updated, `${day}: Verknüpfung aufgehoben`)
+    closeContextMenu()
+  }
+
+  // Ein zentraler Match-Durchlauf pro Tag — wird für Wochen-Kennzahlen, die
+  // DayCard-Anzeige und die Vorziehen-Erkennung (Schritt 2) gemeinsam genutzt.
+  const dayMatches = useMemo(() => {
+    const result: Record<string, DayMatch> = {}
+    if (!displayPlanJson) return result
+    DAYS.forEach((day, idx) => {
+      const dayPlan = displayPlanJson.days?.[day]
+      if (!dayPlan) return
+      const date = new Date(monday); date.setDate(date.getDate() + idx)
+      result[day] = matchActivityToDay(date, dayPlan, weekActivities)
+    })
+    return result
+  }, [displayPlanJson, weekActivities, monday])
+
+  // Vorziehen-Erkennung: eine extraActivity an fromDay, deren Sportart zum noch
+  // ausstehenden (pending) Plan eines anderen Tages toDay passt.
+  const pickupSuggestion = useMemo<PickupSuggestion | null>(() => {
+    if (!displayPlanJson) return null
+    for (const fromDay of DAYS) {
+      const extra = dayMatches[fromDay]?.extraActivity
+      if (!extra) continue
+      for (const toDay of DAYS) {
+        if (toDay === fromDay) continue
+        if (dayMatches[toDay]?.status !== 'pending') continue
+        const toPlan = displayPlanJson.days[toDay]
+        if (!toPlan) continue
+        const matchingTypes = SPORT_MATCH[toPlan.type.toLowerCase()] ?? []
+        if (matchingTypes.includes(extra.type)) {
+          return { fromDay, toDay, activity: extra }
+        }
+      }
+    }
+    return null
+  }, [displayPlanJson, dayMatches])
+
+  const pickupKey = pickupSuggestion ? `${pickupSuggestion.activity.strava_id}-${pickupSuggestion.toDay}` : null
+  const showPickupBanner = !!pickupSuggestion && pickupKey !== dismissedPickupKey
+  const pickupToPlan = pickupSuggestion ? displayPlanJson?.days[pickupSuggestion.toDay] : undefined
+  const pickupIsToday = pickupSuggestion
+    ? new Date(pickupSuggestion.activity.date).toDateString() === new Date().toDateString()
+    : false
+
+  function handleDismissPickup() {
+    if (pickupKey) setDismissedPickupKey(pickupKey)
+  }
+
+  // Verknüpft den Zieltag mit der vorgezogenen Aktivität, ohne dessen Inhalt
+  // (type/description/...) zu verändern — Persistierung über denselben
+  // applyManualEdit()/saveManualPlanChange()-Mechanismus wie Swap/Ruhetag.
+  function handleConfirmPickup() {
+    if (!pickupSuggestion || !displayPlanJson) return
+    const { fromDay, toDay, activity } = pickupSuggestion
+    const targetPlan = displayPlanJson.days[toDay]
+    if (!targetPlan) return
+    const updated = { ...displayPlanJson, days: { ...displayPlanJson.days } }
+    updated.days[toDay] = {
+      ...targetPlan,
+      _fulfilledBy: { date: toDateStr(new Date(activity.date)), stravaId: activity.strava_id },
+    }
+    applyManualEdit(updated, `${targetPlan.type} von ${toDay} auf ${fromDay} vorgezogen`)
+    if (pickupKey) setDismissedPickupKey(pickupKey)
+  }
+
   const weekStats = useMemo(() => {
     if (!displayPlanJson) return null
 
     let totalCount = 0
     let completedCount = 0
-    DAYS.forEach((day, idx) => {
+    DAYS.forEach(day => {
       const dayPlan = displayPlanJson.days?.[day]
       if (!dayPlan || REST_KEYWORDS.some(k => dayPlan.type.toLowerCase().includes(k))) return
       totalCount++
-      const date = new Date(monday); date.setDate(date.getDate() + idx)
-      if (matchActivityToDay(date, dayPlan, weekActivities).status === 'completed') completedCount++
+      if (dayMatches[day]?.status === 'completed') completedCount++
     })
 
     const runningKm = weekActivities
@@ -1085,7 +1218,7 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
       .reduce((sum, a) => sum + parseHevyDescription(a.description!).reduce((v, ex) => v + ex.totalVolume, 0), 0)
 
     return { totalCount, completedCount, runningKm, cyclingKm, strengthKg }
-  }, [displayPlanJson, weekActivities, monday])
+  }, [displayPlanJson, weekActivities, dayMatches])
 
   const showWeekStats = !!weekStats && (weekActivities.length > 0 || weekStats.completedCount > 0)
 
@@ -1145,6 +1278,30 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
         </div>
       )}
 
+      {/* Vorziehen erkannt: dezenter, dismissable Hinweis (Schritt 2) */}
+      {showPickupBanner && pickupSuggestion && (
+        <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 mb-4">
+          <p className="text-blue-300 text-sm mb-3">
+            Du hast dein {pickupToPlan?.type ?? ''} für {DAY_FULL[pickupSuggestion.toDay]} bereits{' '}
+            {pickupIsToday ? 'heute' : `am ${DAY_FULL[pickupSuggestion.fromDay]}`} gemacht — als erfüllt markieren?
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={handleConfirmPickup}
+              className="flex-1 py-2.5 text-sm font-semibold text-white bg-blue-500 hover:bg-blue-600 rounded-xl transition-colors"
+            >
+              Verknüpfen
+            </button>
+            <button
+              onClick={handleDismissPickup}
+              className="flex-1 py-2.5 text-sm font-semibold text-slate-300 bg-slate-700 hover:bg-slate-600 rounded-xl transition-colors"
+            >
+              Nein danke
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Day cards */}
       {loadingPlan ? (
         <div className="flex justify-center py-12">
@@ -1156,8 +1313,7 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
             <div className="flex flex-col gap-2 mb-6">
               {DAYS.map((day, idx) => {
                 const dayPlan = displayPlanJson.days?.[day]
-                const date = new Date(monday); date.setDate(date.getDate() + idx)
-                const match = dayPlan ? matchActivityToDay(date, dayPlan, weekActivities) : undefined
+                const match = dayMatches[day]
                 return (
                   <SortableDayCard
                     key={day}
@@ -1372,6 +1528,14 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
                 >
                   Verschieben nach...
                 </button>
+                {displayPlanJson.days[contextMenuDay]?._fulfilledBy && (
+                  <button
+                    onClick={() => handleUnlinkFulfilled(contextMenuDay)}
+                    className="w-full text-left py-2.5 px-3 rounded-xl text-sm text-slate-200 bg-slate-700 hover:bg-slate-600 transition-colors"
+                  >
+                    Verknüpfung aufheben
+                  </button>
+                )}
                 <button
                   onClick={closeContextMenu}
                   className="text-xs text-slate-500 hover:text-slate-300 mt-2 self-center"
