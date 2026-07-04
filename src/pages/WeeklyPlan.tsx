@@ -9,7 +9,7 @@ import {
   IconRunning, IconCycling, IconStrength, IconRest, IconOther,
   IconChevronLeft, IconChevronRight,
   IconCheck, IconMissed, IconWarning, IconPlan,
-  IconGrip, IconMore,
+  IconGrip,
   SPORT_DISPLAY,
 } from '../lib/icons'
 import { AppHeader } from '../components/AppHeader'
@@ -42,6 +42,10 @@ type DayPlan = {
   distance_km?: number
   intensity?: string
   description: string
+  // Nur gesetzt bei manuell erzeugten Ruhetagen (via markAsRestDay) — trägt den
+  // ursprünglichen Taginhalt für "Aktivität wiederherstellen" mit; JSONB speichert
+  // es klaglos mit, übersteht also Reload und Versionswechsel.
+  _restoreFrom?: DayPlan
 }
 
 type PlanJson = {
@@ -198,6 +202,16 @@ function swapDays(planJson: PlanJson, dayA: string, dayB: string): PlanJson {
   return updated
 }
 
+// Ersetzt einen Trainingstag durch einen Ruhetag, behält den ursprünglichen
+// Taginhalt aber eingebettet für spätere Wiederherstellung.
+function markAsRestDay(originalDayPlan: DayPlan): DayPlan {
+  return {
+    type: 'Ruhetag',
+    description: 'Manuell freigehalten',
+    _restoreFrom: originalDayPlan,
+  }
+}
+
 function TypeIcon({ type, size = 16 }: { type: string; size?: number }) {
   const t = type.toLowerCase()
   if (['ruhetag', 'erholung', 'regeneration'].some(k => t.includes(k)))
@@ -260,6 +274,13 @@ type DayCardProps = {
   dragListeners?: DraggableSyntheticListeners
 }
 
+// Long-Press (500ms, 8px Bewegungstoleranz) auf die Karte öffnet das Kontextmenü.
+// Reagiert nur außerhalb des Drag-Griffs (der hat eigene, separate Listener), daher
+// keine Kollision mit dem dnd-kit-Sensor. Bewegung über die Toleranz hinaus bricht
+// den Timer ab, damit normales Scrollen nicht als Long-Press missverstanden wird.
+const LONG_PRESS_MS = 500
+const LONG_PRESS_TOLERANCE_PX = 8
+
 function DayCard({ day, idx, monday, plan, match, onPress, onOpenMenu, dragAttributes, dragListeners }: DayCardProps) {
   const isRest = !plan || REST_KEYWORDS.some(k => plan.type.toLowerCase().includes(k))
   const isKraft = plan ? SPORT_KEYWORDS.strength.some(k => plan.type.toLowerCase().includes(k)) : false
@@ -273,10 +294,47 @@ function DayCard({ day, idx, monday, plan, match, onPress, onOpenMenu, dragAttri
     match?.status === 'extra'     ? 'border-l-[3px] border-l-blue-500' : ''
   const isClickable = (match?.status === 'completed' || match?.status === 'extra') && !!onPress
 
+  const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pressStart = useRef<{ x: number; y: number } | null>(null)
+  const longPressFired = useRef(false)
+
+  function clearPressTimer() {
+    if (pressTimer.current) clearTimeout(pressTimer.current)
+    pressTimer.current = null
+    pressStart.current = null
+  }
+
+  function handlePointerDown(e: React.PointerEvent) {
+    pressStart.current = { x: e.clientX, y: e.clientY }
+    longPressFired.current = false
+    pressTimer.current = setTimeout(() => {
+      longPressFired.current = true
+      onOpenMenu?.(day)
+    }, LONG_PRESS_MS)
+  }
+
+  function handlePointerMove(e: React.PointerEvent) {
+    if (!pressStart.current) return
+    const dx = Math.abs(e.clientX - pressStart.current.x)
+    const dy = Math.abs(e.clientY - pressStart.current.y)
+    if (dx > LONG_PRESS_TOLERANCE_PX || dy > LONG_PRESS_TOLERANCE_PX) clearPressTimer()
+  }
+
+  function handleCardClick() {
+    if (longPressFired.current) { longPressFired.current = false; return }
+    onPress?.()
+  }
+
   return (
     <div
       className={`rounded-xl p-3.5 ${isRest ? 'bg-slate-800/50' : 'bg-slate-800'} ${borderClass} ${isClickable ? 'cursor-pointer active:bg-slate-700' : ''}`}
-      onClick={isClickable ? onPress : undefined}
+      onClick={isClickable ? handleCardClick : undefined}
+      onPointerDown={onOpenMenu ? handlePointerDown : undefined}
+      onPointerMove={onOpenMenu ? handlePointerMove : undefined}
+      onPointerUp={onOpenMenu ? clearPressTimer : undefined}
+      onPointerCancel={onOpenMenu ? clearPressTimer : undefined}
+      onPointerLeave={onOpenMenu ? clearPressTimer : undefined}
+      onContextMenu={onOpenMenu ? e => e.preventDefault() : undefined}
     >
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-1.5">
@@ -301,16 +359,6 @@ function DayCard({ day, idx, monday, plan, match, onPress, onOpenMenu, dragAttri
             <span className="text-[10px] font-semibold text-blue-400 bg-blue-400/10 px-1.5 py-0.5 rounded-full">
               Extra
             </span>
-          )}
-          {onOpenMenu && (
-            <button
-              type="button"
-              onClick={e => { e.stopPropagation(); onOpenMenu(day) }}
-              className="p-1.5 -m-1.5 text-slate-500 hover:text-slate-300"
-              aria-label={`Optionen für ${day}`}
-            >
-              <IconMore size={14} />
-            </button>
           )}
           {dragAttributes && dragListeners && (
             <button
@@ -415,6 +463,7 @@ export default function WeeklyPlan() {
   const [contextMenuDay, setContextMenuDay] = useState<string | null>(null)
   const [moveSubmenuOpen, setMoveSubmenuOpen] = useState(false)
   const [pendingManualConflict, setPendingManualConflict] = useState<string | null>(null)
+  const [pendingManualPlan, setPendingManualPlan] = useState<PlanJson | null>(null)
   const [pendingManualChangeReason, setPendingManualChangeReason] = useState<string | null>(null)
   const [manualToast, setManualToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const previousManualPlanJson = useRef<PlanJson | null>(null)
@@ -898,9 +947,10 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
     const conflict = checkPlanConflicts(updatedPlan.days)
     if (conflict) {
       setPendingManualConflict(conflict)
+      setPendingManualPlan(updatedPlan)
       setPendingManualChangeReason(changeReason)
     } else {
-      commitManualChange(changeReason)
+      commitManualChange(updatedPlan, changeReason, false)
     }
   }
 
@@ -941,13 +991,18 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
     setManualPlanJson(null)
   }
 
-  async function commitManualChange(changeReason: string) {
-    const hasViolation = !!pendingManualConflict
+  // Einziger Aufrufweg zum Speichern: der zu speichernde Plan kommt immer als
+  // Parameter herein — nie aus dem manualPlanJson-State gelesen. Der State wird
+  // per setManualPlanJson() nur asynchron aktualisiert; würde commitManualChange
+  // ihn stattdessen selbst auslesen, bekäme der Direkt-Aufruf aus applyManualEdit()
+  // (synchron, im selben Tick) noch den alten Wert aus der Closure des laufenden
+  // Renders (Stale-Closure-Bug — betraf früher jede konfliktfreie manuelle Änderung).
+  async function commitManualChange(updatedPlan: PlanJson, changeReason: string, hasViolation: boolean) {
     setPendingManualConflict(null)
+    setPendingManualPlan(null)
     setPendingManualChangeReason(null)
-    if (!manualPlanJson) return
     try {
-      await saveManualPlanChange(manualPlanJson, changeReason, hasViolation)
+      await saveManualPlanChange(updatedPlan, changeReason, hasViolation)
       setManualToast({ type: 'success', message: 'Plan aktualisiert ✓' })
     } catch (e) {
       console.error(e)
@@ -958,6 +1013,7 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
   function cancelManualEdit() {
     setManualPlanJson(previousManualPlanJson.current)
     setPendingManualConflict(null)
+    setPendingManualPlan(null)
     setPendingManualChangeReason(null)
   }
 
@@ -981,9 +1037,21 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
 
   function handleMarkAsRest(day: string) {
     if (!displayPlanJson) return
+    const current = displayPlanJson.days[day]
+    if (!current) return
     const updated = { ...displayPlanJson, days: { ...displayPlanJson.days } }
-    updated.days[day] = { type: 'Ruhetag', duration_min: 0, distance_km: undefined, intensity: undefined, description: 'Manuell freigehalten' }
+    updated.days[day] = markAsRestDay(current)
     applyManualEdit(updated, `${day} als Ruhetag markiert`)
+    closeContextMenu()
+  }
+
+  function handleRestoreDay(day: string) {
+    if (!displayPlanJson) return
+    const current = displayPlanJson.days[day]
+    if (!current?._restoreFrom) return
+    const updated = { ...displayPlanJson, days: { ...displayPlanJson.days } }
+    updated.days[day] = current._restoreFrom
+    applyManualEdit(updated, `${day}: Aktivität wiederhergestellt`)
     closeContextMenu()
   }
 
@@ -1127,7 +1195,7 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
               Abbrechen
             </button>
             <button
-              onClick={() => pendingManualChangeReason && commitManualChange(pendingManualChangeReason)}
+              onClick={() => pendingManualPlan && pendingManualChangeReason && commitManualChange(pendingManualPlan, pendingManualChangeReason, true)}
               className="flex-1 py-2.5 text-sm font-semibold text-slate-300 bg-slate-700 hover:bg-slate-600 rounded-xl transition-colors"
             >
               Trotzdem speichern
@@ -1283,23 +1351,26 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
                 <h2 className="text-sm font-semibold text-slate-400 mb-2">
                   {contextMenuDay} · {dayDate(monday, DAYS.indexOf(contextMenuDay))}
                 </h2>
-                <button
-                  onClick={() => handleMarkAsRest(contextMenuDay)}
-                  className="w-full text-left py-2.5 px-3 rounded-xl text-sm text-slate-200 bg-slate-700 hover:bg-slate-600 transition-colors"
-                >
-                  Als Ruhetag markieren
-                </button>
+                {displayPlanJson.days[contextMenuDay]?._restoreFrom ? (
+                  <button
+                    onClick={() => handleRestoreDay(contextMenuDay)}
+                    className="w-full text-left py-2.5 px-3 rounded-xl text-sm text-slate-200 bg-slate-700 hover:bg-slate-600 transition-colors"
+                  >
+                    Aktivität wiederherstellen
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleMarkAsRest(contextMenuDay)}
+                    className="w-full text-left py-2.5 px-3 rounded-xl text-sm text-slate-200 bg-slate-700 hover:bg-slate-600 transition-colors"
+                  >
+                    Als Ruhetag markieren
+                  </button>
+                )}
                 <button
                   onClick={() => setMoveSubmenuOpen(true)}
                   className="w-full text-left py-2.5 px-3 rounded-xl text-sm text-slate-200 bg-slate-700 hover:bg-slate-600 transition-colors"
                 >
                   Verschieben nach...
-                </button>
-                <button
-                  onClick={closeContextMenu}
-                  className="w-full text-left py-2.5 px-3 rounded-xl text-sm text-slate-200 bg-slate-700 hover:bg-slate-600 transition-colors"
-                >
-                  Details anzeigen
                 </button>
                 <button
                   onClick={closeContextMenu}
