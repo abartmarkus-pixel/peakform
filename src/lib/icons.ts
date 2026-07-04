@@ -10,6 +10,7 @@ export { FaPersonRunning as IconRunning } from 'react-icons/fa6'
 export { FaPersonBiking as IconCycling } from 'react-icons/fa6'
 export { FaDumbbell as IconStrength } from 'react-icons/fa6'
 export { FaSpa as IconRest } from 'react-icons/fa6'
+export { FaStopwatch as IconOther } from 'react-icons/fa6'
 
 // UI Elemente
 export { FaChartLine as IconAnalytics } from 'react-icons/fa6'
@@ -48,4 +49,5 @@ export const SPORT_DISPLAY = {
   running:  { color: '#1D9E75', label: 'Laufen'        },
   strength: { color: '#F59E0B', label: 'Krafttraining'  },
   rest:     { color: '#6B7280', label: 'Ruhetag'       },
+  other:    { color: '#94A3B8', label: 'Sonstiges'     },
 } as const

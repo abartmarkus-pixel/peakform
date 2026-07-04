@@ -5,7 +5,7 @@ import { fetchRecentActivities, getValidAccessToken, syncActivitiesToSupabase, t
 import { supabase, type Athlete } from '../lib/supabase'
 import { buildCoachSystemPrompt } from '../lib/coachPrompt'
 import {
-  IconLogout, IconRunning, IconCycling, IconStrength, IconWarning, IconCommentFilled,
+  IconLogout, IconRunning, IconCycling, IconStrength, IconOther, IconWarning, IconCommentFilled,
 } from '../lib/icons'
 import { SPORT_DISPLAY } from '../lib/icons'
 import { AppHeader } from '../components/AppHeader'
@@ -77,7 +77,7 @@ function ActivityIcon({ type }: { type: string }) {
     return <IconCycling size={18} color={SPORT_DISPLAY.cycling.color} className="flex-shrink-0" />
   if (type === 'WeightTraining' || type === 'Workout')
     return <IconStrength size={18} color={SPORT_DISPLAY.strength.color} className="flex-shrink-0" />
-  return <IconRunning size={18} className="flex-shrink-0 text-slate-400" />
+  return <IconOther size={18} color={SPORT_DISPLAY.other.color} className="flex-shrink-0" />
 }
 
 // ── component ──────────────────────────────────────────────────────────────

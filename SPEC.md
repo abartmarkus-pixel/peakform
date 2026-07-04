@@ -98,7 +98,7 @@ peakform/
 │       │                        Einzige Implementierung — genutzt vom „Neu analysieren"-Button, vom Sync-Hintergrundjob und vom Plan/Review-Fallback
 │       ├── features.ts        # FeatureFlags Interface, DEFAULT_FEATURES, useFeatures(athlete)
 │       ├── icons.ts           # Zentrale Icon-Exports (FA6 via react-icons/fa6) + SPORT_DISPLAY Konstante
-│       │                        SPORT_DISPLAY: { cycling, running, strength, rest } → { color, label }
+│       │                        SPORT_DISPLAY: { cycling, running, strength, rest, other } → { color, label }
 │       ├── dateUtils.ts       # ISO 8601 Datums-Helpers (Woche beginnt Montag, Sonntag ist letzter Tag)
 │       │                        getISOMonday(date): Date — Montag der Woche in Lokalzeit
 │       │                        getISOSunday(monday): Date — Sonntag 23:59:59.999 in Lokalzeit
@@ -994,7 +994,8 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 - Bottom-Navigation (5 Tabs: Home / Plan / Coach / Ziele / Profil) — fix positioniert, außer auf /, /auth/callback und /onboarding
 - AppHeader (Logo links, h-14, frosted-glass) — Logo ist `Link` zu `/dashboard` (cursor-pointer); `rightAction?: React.ReactNode` Slot rechts; jede Page rendert ihn selbst
 - FA6 Icon-System (react-icons/fa6): alle Lucide/Emoji-Icons ersetzt
-- SPORT_DISPLAY Konstante in icons.ts (cycling/running/strength/rest → Farbe + Label)
+- SPORT_DISPLAY Konstante in icons.ts (cycling/running/strength/rest/other → Farbe + Label)
+- **`other`-Fallback (4. Juli 2026):** `SPORT_DISPLAY` wird im Code nirgends dynamisch indiziert (`SPORT_DISPLAY[sport]`) — alle Zugriffe sind statische Literal-Keys, TypeScript verhindert einen ungültigen Key ohnehin. Die eigentliche "unbekannte Sportart"-Behandlung liegt in zwei separaten Icon-Mapping-Funktionen mit hartcodiertem Fallback: `ActivityIcon()` in Dashboard.tsx und `TypeIcon()` in WeeklyPlan.tsx — beide nutzten zuvor fälschlich das graue Lauf-Icon als generischen Fallback, jetzt `IconOther` (`FaStopwatch`) + `SPORT_DISPLAY.other.color` (neutrales Grau). `ActivityDetail.tsx` rendert kein Sport-Icon und ist nicht betroffen. `sportFromActivityType()` (ActivityDetail.tsx) und `getSpecialistPrompt()` (activityAnalysis.ts) bleiben bewusst bei `null` für unbekannte Strava-Typen statt `'other'` — ihr `null` wird in `coachContext.ts`/`coachPrompt.ts` als "zeige alles" ausgewertet (`showCyclingPower = activeSport === 'cycling' || activeSport == null`); ein `'other'`-Rückgabewert hätte FTP/W-kg-Anzeige für z.B. Schwimmen/Yoga fälschlich unterdrückt.
 - page-content CSS-Klasse (padding-top: 72px + padding-bottom: 80px) auf allen Hauptseiten außer Chat
 
 **Branding / Assets:**
@@ -1058,11 +1059,12 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 - Review-Violations werden dem User angezeigt (nicht still gespeichert)
 - review_notes in coach context für Plan-Generierung der nächsten Woche
 - coach_decisions Logging
-- **Aktivitäts-Matching:** DayCards zeigen Status completed (grün) / missed (amber) / pending (neutral)
+- **Aktivitäts-Matching:** DayCards zeigen Status completed (grün) / missed (amber) / extra (blau) / pending (neutral)
   - `matchActivityToDay()`: Typ-Matching Laufen→Run/VirtualRun/TrailRun, Radfahren→Ride/..., Kraft→WeightTraining/Workout
   - completed: grüner linker Rand + ✓ Icon + Aktivitätsname + Dauer; Tap → `/activity/{strava_id}` (**nicht** `activity.id`/Supabase-UUID — `ActivityDetail.tsx` lädt via `.eq('strava_id', Number(id))`, siehe Kapitel 9 „Identifier-Konvention Aktivitäts-Navigation")
   - missed: amber linker Rand + ✗ Icon + "Nicht absolviert" (nur vergangene Tage)
-  - pending: neutrales Erscheinungsbild; Ruhetage haben keinen Status
+  - pending: neutrales Erscheinungsbild
+  - **extra** (4. Juli 2026): Ruhetage (`type` matcht `REST_KEYWORDS`) prüfen zusätzlich, ob trotzdem eine Aktivität auf dieses Datum fällt (unabhängig von Sportart-Matching, jeder `activity.type`) — falls ja: Status `extra` statt `pending`. Bewusst **kein** `completed` (ein Ruhetag wird nicht "geschafft", sondern durchbrochen): blauer linker Rand + "Extra"-Pill statt ✓/✗ + Zeile "Zusätzlich trainiert: {activity.name}"; Tap navigiert wie bei completed zu `/activity/{strava_id}`
   - Mini-Sync: beim Laden des Wochenplans werden zuerst die letzten 10 Strava-Aktivitäten via `syncActivitiesToSupabase()` in Supabase gesynct (silent, non-blocking bei Fehler) — stößt dabei automatisch auch die Hintergrund-Analyse unanalysierter Aktivitäten an (siehe Kapitel 9 „Auto-Analyse")
 - **Mid-Week Check-in:** Feedback-Button an completed DayCards, Modal, `coach_decisions` Insert/Update (`decision_type = 'midweek_feedback'`), Toast, kein zusätzlicher Claude-Call — siehe Kapitel 10
 - **Fallback `closeOutstandingAnalyses()`** (2. Juli 2026): `generatePlan()` und `startReview()` holen unanalysierte Aktivitäten der letzten 7 Tage synchron nach, bevor der Plan-/Review-Call startet — Sicherheitsnetz falls die Hintergrund-Analyse aus dem Sync noch nicht fertig war; `loadingMessage` zeigt währenddessen „Schließe X ausstehende Analyse(n) ab…" im Button — siehe Kapitel 10

@@ -6,7 +6,7 @@ import { buildCoachSystemPrompt } from '../lib/coachPrompt'
 import { getValidAccessToken, fetchRecentActivities, syncActivitiesToSupabase } from '../lib/strava'
 import { analyzeActivity, parseHevyDescription } from '../lib/activityAnalysis'
 import {
-  IconRunning, IconCycling, IconStrength, IconRest,
+  IconRunning, IconCycling, IconStrength, IconRest, IconOther,
   IconChevronLeft, IconChevronRight,
   IconCheck, IconMissed, IconWarning, IconPlan,
   SPORT_DISPLAY,
@@ -36,7 +36,7 @@ type ReviewJson = {
   next_week_plan: PlanJson
 }
 
-type MatchStatus = 'completed' | 'missed' | 'pending'
+type MatchStatus = 'completed' | 'missed' | 'pending' | 'extra'
 
 type DayMatch = {
   status: MatchStatus
@@ -141,7 +141,7 @@ function TypeIcon({ type, size = 16 }: { type: string; size?: number }) {
     return <IconCycling size={size} color={SPORT_DISPLAY.cycling.color} />
   if (['kraft', 'weighttraining', 'krafttraining'].some(k => t.includes(k)))
     return <IconStrength size={size} color={SPORT_DISPLAY.strength.color} />
-  return <IconRunning size={size} className="text-slate-400" />
+  return <IconOther size={size} color={SPORT_DISPLAY.other.color} />
 }
 
 const SPORT_MATCH: Record<string, string[]> = {
@@ -164,16 +164,19 @@ function matchActivityToDay(
   const today = new Date(); today.setHours(0, 0, 0, 0)
   const d = new Date(date); d.setHours(0, 0, 0, 0)
 
+  const isOnDate = (a: Activity) => {
+    const actDate = new Date(a.date); actDate.setHours(0, 0, 0, 0)
+    return actDate.getTime() === d.getTime()
+  }
+
   if (REST_KEYWORDS.some(k => dayPlan.type.toLowerCase().includes(k))) {
-    return { status: 'pending' }
+    const extra = activities.find(isOnDate)
+    return extra ? { status: 'extra', activity: extra } : { status: 'pending' }
   }
 
   const matchingTypes = SPORT_MATCH[dayPlan.type.toLowerCase()] ?? []
 
-  const matched = activities.find(a => {
-    const actDate = new Date(a.date); actDate.setHours(0, 0, 0, 0)
-    return actDate.getTime() === d.getTime() && matchingTypes.includes(a.type)
-  })
+  const matched = activities.find(a => isOnDate(a) && matchingTypes.includes(a.type))
 
   if (matched) return { status: 'completed', activity: matched }
   if (d < today) return { status: 'missed' }
@@ -194,8 +197,9 @@ function DayCard({ day, idx, monday, plan, match, onPress }: {
 
   const borderClass =
     match?.status === 'completed' ? 'border-l-[3px] border-l-brand-500' :
-    match?.status === 'missed'    ? 'border-l-[3px] border-l-amber-500' : ''
-  const isClickable = match?.status === 'completed' && !!onPress
+    match?.status === 'missed'    ? 'border-l-[3px] border-l-amber-500' :
+    match?.status === 'extra'     ? 'border-l-[3px] border-l-blue-500' : ''
+  const isClickable = (match?.status === 'completed' || match?.status === 'extra') && !!onPress
 
   return (
     <div
@@ -220,6 +224,11 @@ function DayCard({ day, idx, monday, plan, match, onPress }: {
           )}
           {match?.status === 'missed' && (
             <IconMissed size={12} className="text-amber-400" />
+          )}
+          {match?.status === 'extra' && (
+            <span className="text-[10px] font-semibold text-blue-400 bg-blue-400/10 px-1.5 py-0.5 rounded-full">
+              Extra
+            </span>
           )}
         </div>
       </div>
@@ -258,6 +267,12 @@ function DayCard({ day, idx, monday, plan, match, onPress }: {
             <p className="text-xs text-amber-400/70 mt-1.5 flex items-center gap-1">
               <IconMissed size={10} className="text-amber-400 shrink-0" />
               Nicht absolviert
+            </p>
+          )}
+          {match?.status === 'extra' && match.activity && (
+            <p className="text-xs text-blue-400/70 mt-1.5 truncate flex items-center gap-1">
+              <IconOther size={10} className="text-blue-400 shrink-0" />
+              Zusätzlich trainiert: {match.activity.name}
             </p>
           )}
         </>
