@@ -161,7 +161,7 @@ function NumberField({
           value={value}
           onChange={e => onChange(e.target.value)}
           placeholder={placeholder ?? '—'}
-          className="bg-slate-700 text-slate-100 rounded-xl px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-brand-500"
+          className="bg-slate-700 text-slate-100 rounded-xl px-3 py-2 text-base w-full focus:outline-none focus:ring-1 focus:ring-brand-500"
         />
         {unit && <span className="text-slate-400 text-sm shrink-0">{unit}</span>}
       </div>
@@ -634,7 +634,7 @@ export default function Profile() {
                 value={name}
                 onChange={e => setName(e.target.value)}
                 placeholder="Dein Vorname"
-                className="bg-slate-700 text-slate-100 rounded-xl px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-brand-500 placeholder:text-slate-500"
+                className="bg-slate-700 text-slate-100 rounded-xl px-3 py-2 text-base w-full focus:outline-none focus:ring-1 focus:ring-brand-500 placeholder:text-slate-500"
               />
             </div>
 
@@ -668,7 +668,7 @@ export default function Profile() {
                 min={1940}
                 max={2010}
                 step={1}
-                className="bg-slate-700 text-slate-100 rounded-xl px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-brand-500 placeholder:text-slate-500"
+                className="bg-slate-700 text-slate-100 rounded-xl px-3 py-2 text-base w-full focus:outline-none focus:ring-1 focus:ring-brand-500 placeholder:text-slate-500"
               />
               <p className="text-xs text-slate-500 mt-1">Wird für Altersberechnung und Max HF Schätzung verwendet</p>
             </div>
@@ -824,7 +824,7 @@ export default function Profile() {
                     setBest5kError(null)
                   }}
                   placeholder="25:51"
-                  className="bg-slate-700 text-slate-100 rounded-xl px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-brand-500"
+                  className="bg-slate-700 text-slate-100 rounded-xl px-3 py-2 text-base w-full focus:outline-none focus:ring-1 focus:ring-brand-500"
                 />
                 {best5kError
                   ? <p className="text-xs text-red-400 mt-1">{best5kError}</p>
@@ -890,7 +890,7 @@ export default function Profile() {
               onChange={e => setPersonaFocus(e.target.value)}
               placeholder="z.B. Ich neige zu Übertraining, bitte auf Regeneration achten…"
               rows={3}
-              className="w-full bg-slate-700 text-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none placeholder:text-slate-500"
+              className="w-full bg-slate-700 text-slate-100 rounded-xl px-3 py-2 text-base focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none placeholder:text-slate-500"
             />
           </div>
         </AccordionSection>
@@ -981,7 +981,7 @@ export default function Profile() {
                             value={equipment.dumbbells.max_kg ?? 20}
                             onChange={e => setDumbbellMaxKg(Number(e.target.value))}
                             min={5} max={200} step={5}
-                            className="w-16 bg-slate-700 text-slate-100 rounded-lg px-2 py-1 text-sm text-center focus:outline-none focus:ring-1 focus:ring-brand-500"
+                            className="w-16 bg-slate-700 text-slate-100 rounded-lg px-2 py-1 text-base text-center focus:outline-none focus:ring-1 focus:ring-brand-500"
                           />
                           <span className="text-xs text-slate-400">kg</span>
                         </div>
@@ -1033,7 +1033,7 @@ export default function Profile() {
                     onChange={e => setAestheticGoals(prev => ({ ...prev, notes: e.target.value }))}
                     placeholder="z.B. Linker Bizeps schwächer als rechter — ausgleichen"
                     rows={2}
-                    className="w-full bg-slate-700 text-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none placeholder:text-slate-500"
+                    className="w-full bg-slate-700 text-slate-100 rounded-xl px-3 py-2 text-base focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none placeholder:text-slate-500"
                   />
                 </div>
               </div>

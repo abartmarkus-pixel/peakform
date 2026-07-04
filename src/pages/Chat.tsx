@@ -265,7 +265,7 @@ Antworte auf die letzte Nachricht des Athleten. Beziehe dich auf seine spezifisc
             placeholder="Frag deinen Coach…"
             rows={1}
             disabled={sending}
-            className="flex-1 bg-slate-800 text-slate-100 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none placeholder:text-slate-500 disabled:opacity-50"
+            className="flex-1 bg-slate-800 text-slate-100 rounded-2xl px-4 py-3 text-base focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none placeholder:text-slate-500 disabled:opacity-50"
             style={{ maxHeight: '128px', overflowY: 'auto' }}
           />
           <button

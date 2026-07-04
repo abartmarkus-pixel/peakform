@@ -873,7 +873,7 @@ export default function ActivityDetail() {
               placeholder="z.B. Pace war zu schnell für die HF-Vorgabe, Knie hat gezogen, fühlte sich super an…"
               rows={4}
               autoFocus
-              className="w-full bg-slate-900 text-slate-100 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none placeholder:text-slate-500"
+              className="w-full bg-slate-900 text-slate-100 rounded-xl px-3 py-2.5 text-base focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none placeholder:text-slate-500"
             />
             <div className="flex gap-3 pt-1">
               <button

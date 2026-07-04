@@ -257,7 +257,7 @@ export default function Onboarding() {
                 onChange={e => setName(e.target.value)}
                 placeholder="Dein Vorname"
                 autoFocus
-                className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500 placeholder:text-slate-500"
+                className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-2.5 text-base focus:outline-none focus:ring-1 focus:ring-brand-500 placeholder:text-slate-500"
               />
             </div>
           </div>
@@ -356,7 +356,7 @@ export default function Onboarding() {
                   value={goalEventName}
                   onChange={e => setGoalEventName(e.target.value)}
                   placeholder="z.B. Ötztaler Radmarathon"
-                  className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500 placeholder:text-slate-500"
+                  className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-2 text-base focus:outline-none focus:ring-1 focus:ring-brand-500 placeholder:text-slate-500"
                 />
               </div>
 
@@ -366,7 +366,7 @@ export default function Onboarding() {
                   type="date"
                   value={goalEventDate}
                   onChange={e => setGoalEventDate(e.target.value)}
-                  className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
+                  className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-2 text-base focus:outline-none focus:ring-1 focus:ring-brand-500"
                 />
                 {goalEventDate && new Date(goalEventDate).getTime() <= Date.now() && (
                   <p className="text-xs text-red-400 mt-1">Das Datum muss in der Zukunft liegen</p>
@@ -378,7 +378,7 @@ export default function Onboarding() {
                 <select
                   value={goalSportType}
                   onChange={e => setGoalSportType(e.target.value)}
-                  className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
+                  className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-2 text-base focus:outline-none focus:ring-1 focus:ring-brand-500"
                 >
                   <option value="">—</option>
                   {sportConfigs.map(s => (
@@ -397,7 +397,7 @@ export default function Onboarding() {
                     value={goalDistanceKm}
                     onChange={e => setGoalDistanceKm(e.target.value)}
                     placeholder="170"
-                    className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500 placeholder:text-slate-500"
+                    className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-2 text-base focus:outline-none focus:ring-1 focus:ring-brand-500 placeholder:text-slate-500"
                   />
                 </div>
                 <div>
@@ -407,7 +407,7 @@ export default function Onboarding() {
                     value={goalElevationM}
                     onChange={e => setGoalElevationM(e.target.value)}
                     placeholder="4000"
-                    className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500 placeholder:text-slate-500"
+                    className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-2 text-base focus:outline-none focus:ring-1 focus:ring-brand-500 placeholder:text-slate-500"
                   />
                 </div>
               </div>
@@ -419,7 +419,7 @@ export default function Onboarding() {
                   onChange={e => setGoalNotes(e.target.value)}
                   placeholder="Besonderheiten, Anforderungen, Erwartungen…"
                   rows={2}
-                  className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none placeholder:text-slate-500"
+                  className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-2 text-base focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none placeholder:text-slate-500"
                 />
               </div>
             </div>
@@ -463,7 +463,7 @@ export default function Onboarding() {
                   min={1940}
                   max={2010}
                   step={1}
-                  className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500 placeholder:text-slate-500"
+                  className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-2 text-base focus:outline-none focus:ring-1 focus:ring-brand-500 placeholder:text-slate-500"
                 />
               </div>
 
@@ -477,7 +477,7 @@ export default function Onboarding() {
                         value={maxHr}
                         onChange={e => setMaxHr(e.target.value)}
                         placeholder="185"
-                        className="bg-slate-800 text-slate-100 rounded-xl px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-brand-500 placeholder:text-slate-500"
+                        className="bg-slate-800 text-slate-100 rounded-xl px-3 py-2 text-base w-full focus:outline-none focus:ring-1 focus:ring-brand-500 placeholder:text-slate-500"
                       />
                       <span className="text-slate-400 text-sm shrink-0">bpm</span>
                     </div>
@@ -502,7 +502,7 @@ export default function Onboarding() {
                     value={restingHr}
                     onChange={e => setRestingHr(e.target.value)}
                     placeholder="z.B. 52"
-                    className="bg-slate-800 text-slate-100 rounded-xl px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-brand-500 placeholder:text-slate-500"
+                    className="bg-slate-800 text-slate-100 rounded-xl px-3 py-2 text-base w-full focus:outline-none focus:ring-1 focus:ring-brand-500 placeholder:text-slate-500"
                   />
                   <span className="text-slate-400 text-sm shrink-0">bpm</span>
                 </div>
@@ -517,7 +517,7 @@ export default function Onboarding() {
                     value={weightKg}
                     onChange={e => setWeightKg(e.target.value)}
                     placeholder="70"
-                    className="bg-slate-800 text-slate-100 rounded-xl px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-brand-500 placeholder:text-slate-500"
+                    className="bg-slate-800 text-slate-100 rounded-xl px-3 py-2 text-base w-full focus:outline-none focus:ring-1 focus:ring-brand-500 placeholder:text-slate-500"
                   />
                   <span className="text-slate-400 text-sm shrink-0">kg</span>
                 </div>
@@ -532,7 +532,7 @@ export default function Onboarding() {
                       value={ftpWatts}
                       onChange={e => setFtpWatts(e.target.value)}
                       placeholder="250"
-                      className="bg-slate-800 text-slate-100 rounded-xl px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-brand-500 placeholder:text-slate-500"
+                      className="bg-slate-800 text-slate-100 rounded-xl px-3 py-2 text-base w-full focus:outline-none focus:ring-1 focus:ring-brand-500 placeholder:text-slate-500"
                     />
                     <span className="text-slate-400 text-sm shrink-0">W</span>
                   </div>
@@ -558,7 +558,7 @@ export default function Onboarding() {
                       setBest5kError(null)
                     }}
                     placeholder="25:51"
-                    className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500 placeholder:text-slate-500"
+                    className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-2 text-base focus:outline-none focus:ring-1 focus:ring-brand-500 placeholder:text-slate-500"
                   />
                   {best5kError
                     ? <p className="text-xs text-red-400 mt-1">{best5kError}</p>
@@ -604,7 +604,7 @@ export default function Onboarding() {
                 onChange={e => setPersonaFocus(e.target.value)}
                 placeholder="z.B. Ich neige zu Übertraining, bitte auf Regeneration achten…"
                 rows={3}
-                className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none placeholder:text-slate-500"
+                className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-2 text-base focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none placeholder:text-slate-500"
               />
             </div>
           </div>

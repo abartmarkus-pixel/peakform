@@ -56,7 +56,7 @@ function Input({ value, onChange, placeholder, type = 'text' }: {
       value={value}
       onChange={e => onChange(e.target.value)}
       placeholder={placeholder}
-      className="w-full bg-slate-700 text-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500 placeholder:text-slate-500"
+      className="w-full bg-slate-700 text-slate-100 rounded-xl px-3 py-2 text-base focus:outline-none focus:ring-1 focus:ring-brand-500 placeholder:text-slate-500"
     />
   )
 }
@@ -279,7 +279,7 @@ export default function Goals() {
                 <select
                   value={form.sport_type}
                   onChange={e => setForm(f => ({ ...f, sport_type: e.target.value }))}
-                  className="w-full bg-slate-700 text-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
+                  className="w-full bg-slate-700 text-slate-100 rounded-xl px-3 py-2 text-base focus:outline-none focus:ring-1 focus:ring-brand-500"
                 >
                   <option value="">—</option>
                   {SPORT_TYPES.map(s => <option key={s} value={s}>{s}</option>)}
@@ -321,7 +321,7 @@ export default function Goals() {
                 onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
                 placeholder="Besonderheiten, Anforderungen, Erwartungen…"
                 rows={2}
-                className="w-full bg-slate-700 text-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none placeholder:text-slate-500"
+                className="w-full bg-slate-700 text-slate-100 rounded-xl px-3 py-2 text-base focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none placeholder:text-slate-500"
               />
             </Field>
 
