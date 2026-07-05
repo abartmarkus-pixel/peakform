@@ -222,6 +222,25 @@ async function getRoastAnalysis(
   return data.text
 }
 
+const ROAST_UNLOCK_REQUIRED_ACTIVITIES = 3
+
+async function checkRoastUnlock(
+  athleteId: string,
+  createdAt: string
+): Promise<{ unlocked: boolean; remaining: number }> {
+  const { count } = await supabase
+    .from('activities')
+    .select('*', { count: 'exact', head: true })
+    .eq('athlete_id', athleteId)
+    .gte('date', createdAt) // nur Aktivitäten SEIT Account-Erstellung
+
+  const activityCount = count ?? 0
+  return {
+    unlocked: activityCount >= ROAST_UNLOCK_REQUIRED_ACTIVITIES,
+    remaining: Math.max(0, ROAST_UNLOCK_REQUIRED_ACTIVITIES - activityCount)
+  }
+}
+
 // ── sub-components ────────────────────────────────────────────────────────────
 
 type StatCardProps = { label: string; value: string }
@@ -254,6 +273,8 @@ export default function ActivityDetail() {
   const [roastLoading, setRoastLoading] = useState(false)
   const [roastResult, setRoastResult] = useState<string | null>(null)
   const [roastError, setRoastError] = useState<string | null>(null)
+  const [roastUnlock, setRoastUnlock] = useState<{ unlocked: boolean; remaining: number } | null>(null)
+  const [roastLockedNotice, setRoastLockedNotice] = useState<string | null>(null)
   const roastResultRef = useRef<HTMLDivElement>(null)
   // mid-week feedback
   const [feedback, setFeedback] = useState<{ id: string; reasoning: string } | null>(null)
@@ -277,6 +298,7 @@ export default function ActivityDetail() {
         const athlete = athleteData as Athlete
         setAthleteId(athlete.id)
         setAthleteName(athlete.name ?? '')
+        checkRoastUnlock(athlete.id, athlete.created_at).then(setRoastUnlock)
 
         const { data: actData } = await supabase
           .from('activities')
@@ -426,6 +448,14 @@ export default function ActivityDetail() {
 
   async function handleRoastClick() {
     if (!activity) return
+    if (roastUnlock && !roastUnlock.unlocked) {
+      const label = roastUnlock.remaining === 1
+        ? 'Noch 1 Aktivität synchronisieren, um Roast Me freizuschalten.'
+        : `Noch ${roastUnlock.remaining} Aktivitäten synchronisieren, um Roast Me freizuschalten.`
+      setRoastLockedNotice(label)
+      setTimeout(() => setRoastLockedNotice(null), 2500)
+      return
+    }
     setRoastLoading(true)
     setRoastError(null)
     try {
@@ -836,7 +866,11 @@ export default function ActivityDetail() {
             <button
               onClick={handleRoastClick}
               disabled={roastLoading}
-              className="w-1/2 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-base font-semibold text-white bg-gradient-to-r from-orange-600 to-red-600 hover:shadow-lg hover:shadow-orange-500/50 active:shadow-orange-500/50 transition-shadow disabled:opacity-50"
+              className={`w-1/2 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-base font-semibold text-white transition-shadow disabled:opacity-50 ${
+                roastUnlock && !roastUnlock.unlocked
+                  ? 'bg-slate-600 opacity-40 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-orange-600 to-red-600 hover:shadow-lg hover:shadow-orange-500/50 active:shadow-orange-500/50'
+              }`}
             >
               {roastLoading
                 ? <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -904,6 +938,13 @@ export default function ActivityDetail() {
           feedbackToast.type === 'success' ? 'bg-brand-500' : 'bg-red-500'
         }`}>
           {feedbackToast.message}
+        </div>
+      )}
+
+      {/* ── Roast Me Unlock-Hinweis ────────────────────────── */}
+      {roastLockedNotice && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl text-sm font-medium shadow-lg max-w-[90vw] text-center text-white bg-slate-700">
+          {roastLockedNotice}
         </div>
       )}
     </div>
