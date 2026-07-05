@@ -422,7 +422,7 @@ Verpflichtender Wizard, läuft **einmalig** nach dem ersten Strava-Login. Kein S
 | 2 | Sportarten | Trainingstage 1–7, Sportarten-Pills (alle drei, frei wählbar) mit Tage-Stepper; Amber-Warnung bei Σdays > Trainingstage (kein Blocker) | Trainingstage gesetzt + ≥1 Sportart |
 | 3 | Erstes Ziel | Event-Name, Datum (muss in Zukunft liegen), Sportart-Dropdown (nur aus Schritt 2 gewählte Sportarten), Distanz/Höhenmeter/Notizen optional; Priorität automatisch `A` | Event-Name, Datum, Sportart |
 | 4 | Leistungsdaten | Geschlecht, Geburtsjahr, Max HF (+ Tanaka-Button), Ruhe-HF, Gewicht, FTP (nur wenn Radfahren gewählt), 5k-Bestzeit MM:SS (nur wenn Laufen gewählt) — alles optional | keine (immer aktiv) |
-| 5 | Coach-Stil | 4 Presets (Motivierend/Analytisch/Direkt/Empathisch, Default "Analytisch"), Freitext-Fokus optional | ein Stil gewählt |
+| 5 | Coach-Stil | 3 Presets (Motivierend/Analytisch/Drill Sergeant, Default "Analytisch"), Freitext-Fokus optional | ein Stil gewählt |
 | 6 | Zusammenfassung | Kompakte Übersicht aller Eingaben; Button "Los geht's" | — |
 
 **"Los geht's" (Schritt 6):**
@@ -616,7 +616,7 @@ Verpflichtender Wizard, läuft **einmalig** nach dem ersten Strava-Login. Kein S
 
 *ZIEL & COACH:*
 - Ziele (Mehrfachauswahl): Event / Muskelaufbau / Gewicht reduzieren
-- Coach-Stil (Einfachauswahl): Motivierend / Analytisch / Direkt / Empathisch
+- Coach-Stil (Einfachauswahl): Motivierend / Analytisch / Drill Sergeant
 - Coach-Fokus: Freitext-Textarea
 
 *TRAININGSPHASE:*
@@ -1039,6 +1039,13 @@ Siehe Kapitel 18 für Details zur Coach-Architektur.
   - `calculateDynamicZ2Pace(runningActivities, hrZoneMin, hrZoneMax)` — distanzgewichtete Ist-Pace aus echten Läufen mit HF in der Z2-Range (letzte 8 qualifizierende, Mindestschwelle 3), sonst `null`
   - `calculatePaceReference(best5kSeconds, targetEventKm, dynamicZ2?)` — Zielpace/Schwellenpace immer aus 5k-PB; Z2-Trainingspace aus `dynamicZ2` (echte Läufe) wenn vorhanden, sonst Formel-Fallback aus 5k-PB (5. Juli 2026)
 - Wird bei JEDEM Claude-Call als `system`-Parameter übergeben (alle 4 Consumer: ActivityDetail, Chat, WeeklyPlan, Dashboard). Nur `ActivityDetail.tsx` (`runAnalysis()`) reicht `activeSport` durch (aus `getSpecialistPrompt(activityType)`-Routing); Chat/WeeklyPlan/Dashboard rufen weiterhin ohne zweiten Parameter auf, da dort kein einzelner Sport-Fokus besteht.
+
+**`COACH_STYLE_PROMPTS`** (5. Juli 2026 — 3 Stile, vormals 4 mit „Direkt"/„Empathisch"):
+- `Record<string, string>`, keyed nach dem in `athletes.coach_persona.style` persistierten Key (`motivierend` | `analytisch` | `drill_sergeant` — lowercase, identisch zu den Keys in `PERSONA_STYLES` in Profile.tsx/Onboarding.tsx), nicht nach dem Anzeige-Label
+- Jeder Eintrag enthält detaillierte Ton-Anweisungen (nicht nur ein Label) — wird in `buildCoachSystemPrompt()` als eigener `## COACH-STIL`-Abschnitt vor `## ANTWORTFORMAT` eingefügt: `COACH_STYLE_PROMPTS[athlete.coach_persona?.style ?? DEFAULT_STYLE] ?? COACH_STYLE_PROMPTS[DEFAULT_STYLE]` (Fallback greift auch für Alt-Werte `direkt`/`empathisch` aus vor dem 5. Juli 2026 angelegten Profilen — kein hartes DB-Update nötig)
+- `DEFAULT_STYLE = 'analytisch'`
+- `STYLE_LABELS: Record<string, string>` (separat exportiert) mappt Key → Anzeige-Label (`drill_sergeant` → „Drill Sergeant"), genutzt für die informative `Coach-Stil: …`-Zeile im `[DEIN ATHLET]`-Block sowie für Subtitle-Anzeigen in Profile.tsx/Onboarding.tsx (ersetzt eine vorherige naive `charAt(0).toUpperCase()`/CSS-`capitalize`-Logik, die bei einem mehrwortigen Key wie „Drill Sergeant" gebrochen hätte)
+- `Drill Sergeant`: harter, befehlsartiger Ton mit fester Grenze — greift nie die Person selbst an, Sicherheitsempfehlungen bleiben unverändert korrekt, weicht bei gemeldeten Schmerzen/Verletzung sofort einem ernsten, klaren Ton
 
 **`LAUF_COACH_PROMPT`** / **`RAD_COACH_PROMPT`** / **`KRAFT_COACH_PROMPT`** (Spezialcoaches — statisch):
 - Sportart-spezifisch, nicht athleten-spezifisch → bleiben statische Exports

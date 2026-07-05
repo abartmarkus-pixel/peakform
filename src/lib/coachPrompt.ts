@@ -32,6 +32,24 @@ function formatAestheticGoals(
   return goals.priorities.join(' > ') + (goals.notes ? ` | ${goals.notes}` : '')
 }
 
+// ── coach-style prompts (static — persona-specific tone, not athlete-specific) ──
+
+export const STYLE_LABELS: Record<string, string> = {
+  motivierend: 'Motivierend', analytisch: 'Analytisch', drill_sergeant: 'Drill Sergeant',
+}
+
+const DEFAULT_STYLE = 'analytisch'
+
+const COACH_STYLE_PROMPTS: Record<string, string> = {
+  motivierend: `Dein Ton ist positiv und ermutigend. Feiere Fortschritte explizit, auch kleine. Formuliere Kritik immer eingebettet in Zuspruch ("X war stark, Y können wir noch verbessern" statt nur "Y war schlecht"). Trotzdem bleibst du präzise und datengetrieben — Motivation ersetzt niemals konkrete Zahlen oder ehrliche Einschätzung.`,
+
+  analytisch: `Dein Ton ist sachlich und zahlengetrieben. Erkläre die Physiologie hinter deinen Empfehlungen (warum diese HF-Zone, warum diese Pace). Wenig Emotionalität, viel Substanz. Das ist der Standard-Ton der App.`,
+
+  drill_sergeant: `Du bist ein gnadenloser Drill Sergeant. Kurze, harte Befehle statt Vorschläge — niemals "vielleicht", "könntest du", "ich würde empfehlen". Stattdessen: "Du läufst jetzt X." / "Keine Ausreden." / "Das reicht nicht." Schroffer, lauter Ton, auch in Textform spürbar — notfalls mit GROSSSCHREIBUNG einzelner Wörter für Nachdruck. Null Geduld für Selbstmitleid oder Ausflüchte, wenn ein Ziel verfehlt wurde: das wird schonungslos und ohne Beschönigung benannt. Militärisches Vokabular durchgängig nutzen (Einsatz, Disziplin, Schwäche überwinden, keine Kompromisse, antreten). Kein Trost, keine Streicheleinheiten — Leistung zählt, sonst nichts.
+
+Feste Grenze, unabhängig von der Härte des Tons: Du greifst niemals die Person selbst, ihren Wert oder ihren Charakter an — Zielscheibe ist ausschließlich Leistung, Disziplin und Trainingsverhalten, nie die Person als Mensch. Sicherheitsrelevante Empfehlungen (Verletzungsprävention, Erholung, Belastungssteuerung) bleiben exakt so vorsichtig und korrekt wie in jedem anderen Stil — ein härterer Ton ändert niemals harte Fakten zur Sicherheit. Meldet der Athlet Schmerzen oder eine Verletzung: der Drill-Sergeant-Ton fällt sofort weg zugunsten einer klaren, ernsten Anweisung ohne jede Härte-Attitüde.`,
+}
+
 // ── specialist prompts (static — sport-specific, not athlete-specific) ─────
 
 // Specialist prompts are appended to buildCoachSystemPrompt() for sport-specific analysis.
@@ -213,10 +231,13 @@ export async function buildCoachSystemPrompt(
     `Ästhetik-Prioritäten: ${formatAestheticGoals(athlete?.aesthetic_goals as AestheticGoals | null, athlete?.body_goals as string[] | null)}`,
     `Equipment: ${formatEquipment(athlete?.equipment as EquipmentConfig | null)}`,
     (athlete?.coach_persona as Record<string, string> | null)?.style
-      ? `Coach-Stil: ${(athlete!.coach_persona as Record<string, string>).style}` : null,
+      ? `Coach-Stil: ${STYLE_LABELS[(athlete!.coach_persona as Record<string, string>).style] ?? (athlete!.coach_persona as Record<string, string>).style}` : null,
     (athlete?.coach_persona as Record<string, string> | null)?.focus
       ? `Coach-Fokus: ${(athlete!.coach_persona as Record<string, string>).focus}` : null,
   ].filter(Boolean).join('\n')
+
+  const styleKey = (athlete?.coach_persona as Record<string, string> | null)?.style ?? DEFAULT_STYLE
+  const stylePrompt = COACH_STYLE_PROMPTS[styleKey] ?? COACH_STYLE_PROMPTS[DEFAULT_STYLE]
 
   const goalSection = primaryGoal
     ? [
@@ -285,6 +306,9 @@ Beim wöchentlichen Review immer in dieser Struktur antworten:
 2. FORTSCHRITT: Wo steht der Athlet in der aktuellen Trainingsphase
 3. NÄCHSTE WOCHE: Konkreter Tagesplan Mo–So mit Sportart, Dauer, Intensität, Zielen
 4. FOKUSPUNKT: Ein konkreter technischer oder mentaler Coaching-Tipp
+
+## COACH-STIL
+${stylePrompt}
 
 ## ANTWORTFORMAT
 - Antworte immer auf Deutsch

@@ -54,10 +54,9 @@ const BODY_GOALS = [
 ]
 
 const PERSONA_STYLES = [
-  { key: 'motivierend', label: 'Motivierend' },
-  { key: 'analytisch',  label: 'Analytisch' },
-  { key: 'direkt',      label: 'Direkt' },
-  { key: 'empathisch',  label: 'Empathisch' },
+  { key: 'motivierend',    label: 'Motivierend' },
+  { key: 'analytisch',     label: 'Analytisch' },
+  { key: 'drill_sergeant', label: 'Drill Sergeant' },
 ]
 
 const EQUIPMENT_ITEMS: { key: keyof EquipmentConfig; label: string }[] = [
@@ -571,7 +570,7 @@ export default function Profile() {
   const goalCoachSubtitle = (() => {
     const parts: string[] = []
     if (bodyGoals.length > 0) parts.push(bodyGoals.join(', '))
-    if (personaStyle) parts.push(`Coach: ${personaStyle.charAt(0).toUpperCase() + personaStyle.slice(1)}`)
+    if (personaStyle) parts.push(`Coach: ${PERSONA_STYLES.find(p => p.key === personaStyle)?.label ?? personaStyle}`)
     return parts.join(' · ') || 'Noch nicht konfiguriert'
   })()
 

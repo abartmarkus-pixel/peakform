@@ -18,10 +18,9 @@ const SPORT_LABELS: Record<string, string> = {
 }
 
 const PERSONA_STYLES = [
-  { key: 'motivierend', label: 'Motivierend' },
-  { key: 'analytisch',  label: 'Analytisch' },
-  { key: 'direkt',      label: 'Direkt' },
-  { key: 'empathisch',  label: 'Empathisch' },
+  { key: 'motivierend',    label: 'Motivierend' },
+  { key: 'analytisch',     label: 'Analytisch' },
+  { key: 'drill_sergeant', label: 'Drill Sergeant' },
 ]
 
 function Stepper({ value, onDec, onInc, disableInc, titleInc }: {
@@ -652,7 +651,7 @@ export default function Onboarding() {
 
               <div className="bg-slate-800 rounded-2xl p-4">
                 <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Coach</p>
-                <p className="text-sm text-slate-100 capitalize">{personaStyle}</p>
+                <p className="text-sm text-slate-100">{PERSONA_STYLES.find(p => p.key === personaStyle)?.label ?? personaStyle}</p>
               </div>
             </div>
 
