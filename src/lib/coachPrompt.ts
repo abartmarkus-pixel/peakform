@@ -1,5 +1,5 @@
-import { supabase, type SportConfig, type EquipmentConfig, type AestheticGoals } from './supabase'
-import { calculateSeasonPhase, calculateHRZones, calculatePaceReference } from './coachContext'
+import { supabase, type Activity, type SportConfig, type EquipmentConfig, type AestheticGoals } from './supabase'
+import { calculateSeasonPhase, calculateHRZones, calculateZ2HRRange, calculatePaceReference, calculateDynamicZ2Pace } from './coachContext'
 
 // ── format helpers (private) ───────────────────────────────────────────────
 
@@ -124,7 +124,7 @@ export async function buildCoachSystemPrompt(
   athleteId: string,
   activeSport?: 'running' | 'cycling' | 'strength' | null,
 ): Promise<string> {
-  const [{ data: athlete }, { data: goalRows }] = await Promise.all([
+  const [{ data: athlete }, { data: goalRows }, { data: recentRuns }] = await Promise.all([
     supabase
       .from('athletes')
       .select('name, ftp_watts, max_hr, weight_kg, sport_types, coach_persona, body_goals, aesthetic_goals, equipment, season_phase_override, best_5k_seconds, gender, birth_year, resting_hr')
@@ -138,6 +138,13 @@ export async function buildCoachSystemPrompt(
       .eq('priority', 'A')
       .order('event_date', { ascending: true })
       .limit(1),
+    supabase
+      .from('activities')
+      .select('date, distance_m, duration_s, avg_hr')
+      .eq('athlete_id', athleteId)
+      .in('type', ['Run', 'VirtualRun', 'TrailRun'])
+      .order('date', { ascending: false })
+      .limit(30),
   ])
 
   const primaryGoal = goalRows?.[0] ?? null
@@ -163,9 +170,12 @@ export async function buildCoachSystemPrompt(
   const hrReserve = (effectiveMaxHR && restingHR) ? effectiveMaxHR - restingHR : null
 
   const hrZones  = calculateHRZones(effectiveMaxHR, restingHR)
+  const z2Range  = calculateZ2HRRange(effectiveMaxHR, restingHR)
+  const dynamicZ2 = calculateDynamicZ2Pace((recentRuns ?? []) as Activity[], z2Range.min, z2Range.max)
   const paceRef  = calculatePaceReference(
     athlete?.best_5k_seconds ?? null,
     primaryGoal?.distance_km ?? 8,
+    dynamicZ2,
   )
 
   const athleteName = athlete?.name ?? 'der Athlet'

@@ -1,4 +1,4 @@
-import { supabase, type SportConfig, type EquipmentConfig, type AestheticGoals } from './supabase'
+import { supabase, type Activity, type SportConfig, type EquipmentConfig, type AestheticGoals } from './supabase'
 import { getISOMonday, toLocalDateStr, toLocalWeekdayDateStr } from './dateUtils'
 
 const WEEKDAY_ORDER = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
@@ -90,40 +90,87 @@ export function calculateSeasonPhase(
   return PHASE_LABELS.taper
 }
 
+/** Berechnet die Z2-HF-Grenzen als Zahlen. Karvonen-Methode wenn restingHR vorhanden. */
+export function calculateZ2HRRange(maxHR: number, restingHR?: number | null): { min: number; max: number } {
+  if (restingHR) {
+    const hrr = maxHR - restingHR
+    return { min: Math.round(hrr * 0.60 + restingHR), max: Math.round(hrr * 0.75 + restingHR) }
+  }
+  return { min: Math.round(maxHR * 0.70), max: Math.round(maxHR * 0.81) }
+}
+
 /** Berechnet HF-Zonen-Text aus Max HF. Karvonen-Methode wenn restingHR vorhanden. */
 export function calculateHRZones(maxHR: number, restingHR?: number | null): string {
+  const z2 = calculateZ2HRRange(maxHR, restingHR)
   if (restingHR) {
     const hrr = maxHR - restingHR
     return [
-      `Z1 Regeneration:    < ${Math.round(hrr * 0.60 + restingHR)} bpm`,
-      `Z2 Grundlage:       ${Math.round(hrr * 0.60 + restingHR)}–${Math.round(hrr * 0.75 + restingHR)} bpm`,
-      `Z3 Tempo:           ${Math.round(hrr * 0.75 + restingHR)}–${Math.round(hrr * 0.85 + restingHR)} bpm`,
+      `Z1 Regeneration:    < ${z2.min} bpm`,
+      `Z2 Grundlage:       ${z2.min}–${z2.max} bpm`,
+      `Z3 Tempo:           ${z2.max}–${Math.round(hrr * 0.85 + restingHR)} bpm`,
       `Z4 Schwelle:        ${Math.round(hrr * 0.85 + restingHR)}–${Math.round(hrr * 0.92 + restingHR)} bpm`,
       `Z5 VO2max:          > ${Math.round(hrr * 0.92 + restingHR)} bpm`,
       `(Karvonen-Methode, Ruhe-HF ${restingHR} bpm)`,
     ].join('\n')
   }
   return [
-    `Z1 Regeneration:    < ${Math.round(maxHR * 0.70)} bpm`,
-    `Z2 Grundlage:       ${Math.round(maxHR * 0.70)}–${Math.round(maxHR * 0.81)} bpm`,
-    `Z3 Tempo:           ${Math.round(maxHR * 0.81)}–${Math.round(maxHR * 0.90)} bpm`,
+    `Z1 Regeneration:    < ${z2.min} bpm`,
+    `Z2 Grundlage:       ${z2.min}–${z2.max} bpm`,
+    `Z3 Tempo:           ${z2.max}–${Math.round(maxHR * 0.90)} bpm`,
     `Z4 Schwelle:        ${Math.round(maxHR * 0.90)}–${Math.round(maxHR * 0.96)} bpm`,
     `Z5 VO2max:          > ${Math.round(maxHR * 0.96)} bpm`,
   ].join('\n')
 }
 
-/** Berechnet Pace-Referenz aus 5k-Bestzeit (Sekunden) und Event-Distanz (km). */
+/**
+ * Berechnet die tatsächliche Z2-Pace aus echten Läufen mit HF im Z2-Bereich —
+ * distanzgewichteter Durchschnitt (nicht Mittelwert der Einzel-Paces), damit
+ * längere Läufe stärker einfließen. Mindestens 3 qualifizierende Läufe nötig,
+ * sonst Fallback auf die formelbasierte Berechnung (siehe calculatePaceReference()).
+ */
+export function calculateDynamicZ2Pace(
+  runningActivities: Activity[],
+  hrZoneMin: number,
+  hrZoneMax: number,
+): { paceSecPerKm: number; basedOnRuns: number } | null {
+  const qualifying = runningActivities
+    .filter(a => a.avg_hr != null && a.avg_hr <= hrZoneMax + 3 && a.avg_hr >= hrZoneMin - 5)
+    .filter(a => a.distance_m && a.duration_s)
+    .slice(0, 8)
+
+  if (qualifying.length < 3) return null
+
+  const totalDistanceKm = qualifying.reduce((sum, a) => sum + a.distance_m! / 1000, 0)
+  const totalDurationSec = qualifying.reduce((sum, a) => sum + a.duration_s!, 0)
+  const paceSecPerKm = totalDurationSec / totalDistanceKm
+
+  return { paceSecPerKm, basedOnRuns: qualifying.length }
+}
+
+/**
+ * Berechnet Pace-Referenz aus 5k-Bestzeit (Sekunden) und Event-Distanz (km).
+ * Zielpace und Schwellenpace sind Zielwerte für ein zukünftiges Event und
+ * bleiben immer formelbasiert aus der 5k-PB. Die Z2-Trainingspace nutzt
+ * stattdessen `dynamicZ2` (aus `calculateDynamicZ2Pace()`), sobald genug
+ * echte Läufe vorliegen — sonst Fallback auf dieselbe Formel wie bisher.
+ */
 export function calculatePaceReference(
   best5kSeconds: number | null,
   targetEventKm: number,
+  dynamicZ2?: { paceSecPerKm: number; basedOnRuns: number } | null,
 ): string {
   if (!best5kSeconds) return 'Noch keine 5k Bestzeit hinterlegt.'
   const pacePerKm = best5kSeconds / 5
   const formatPace = (s: number) =>
     `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`
+
+  const z2Line = dynamicZ2
+    ? `Z2 Trainingspace:   ${formatPace(dynamicZ2.paceSecPerKm - 15)}–${formatPace(dynamicZ2.paceSecPerKm + 15)} min/km (aus deinen letzten ${dynamicZ2.basedOnRuns} Läufen berechnet, nicht aus 5k-PB geschätzt)`
+    : `Z2 Trainingspace:   ${formatPace(Math.round(pacePerKm * 1.15))}–${formatPace(Math.round(pacePerKm * 1.30))} min/km (deutlich langsamer als gefühlt nötig)`
+
   return [
     `Zielpace ${targetEventKm}k:    ${formatPace(Math.round(pacePerKm * 0.98))}–${formatPace(Math.round(pacePerKm * 1.05))} min/km`,
-    `Z2 Trainingspace:   ${formatPace(Math.round(pacePerKm * 1.15))}–${formatPace(Math.round(pacePerKm * 1.30))} min/km (deutlich langsamer als gefühlt nötig)`,
+    z2Line,
     `Schwellenpace:      ${formatPace(Math.round(pacePerKm * 0.92))}–${formatPace(Math.round(pacePerKm * 0.97))} min/km`,
   ].join('\n')
 }
