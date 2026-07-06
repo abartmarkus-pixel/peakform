@@ -59,8 +59,6 @@ type PlanJson = {
 
 type ReviewJson = {
   review: string
-  coach_decision_reason: string
-  next_week_plan: PlanJson
 }
 
 type MatchStatus = 'completed' | 'missed' | 'pending' | 'extra'
@@ -182,12 +180,6 @@ function checkPlanConflicts(days: Record<string, DayPlan>): string | null {
 }
 
 // ── helpers ────────────────────────────────────────────────────────────────
-
-function addWeeks(date: Date, n: number): Date {
-  const d = new Date(date)
-  d.setDate(d.getDate() + n * 7)
-  return d
-}
 
 function toDateStr(d: Date): string {
   const year = d.getFullYear()
@@ -560,11 +552,6 @@ export default function WeeklyPlan() {
   const [reviewFeedback, setReviewFeedback] = useState('')
   const [reviewing, setReviewing]     = useState(false)
   const [reviewError, setReviewError] = useState<string | null>(null)
-  const [pendingReviewData, setPendingReviewData] = useState<ReviewJson | null>(null)
-  const [reviewViolationList, setReviewViolationList] = useState<string[]>([])
-  // weekly_plans-Datensatz der NÄCHSTEN Woche — trägt (falls vorhanden) review_notes/
-  // review_user_input des Reviews der HIER angezeigten Woche (Fall B, Schritt 3)
-  const [nextWeekPlan, setNextWeekPlan] = useState<WeeklyPlan | null>(null)
 
   const isCurrentWeek = toDateStr(monday) === toDateStr(getISOMonday(new Date()))
   const weekStr = toDateStr(monday)
@@ -606,7 +593,6 @@ export default function WeeklyPlan() {
     setLoadingPlan(true)
     setPlan(null)
     setWeekActivities([])
-    setNextWeekPlan(null)
     setReviewFeedback('')
     setManualPlanJson(null)
     setPendingManualConflict(null)
@@ -623,10 +609,8 @@ export default function WeeklyPlan() {
 
       // Fallback: alte Einträge wurden mit UTC-Datum gespeichert (1 Tag früher)
       const weekStrFallback = toDateStr(new Date(monday.getTime() - 86400000))
-      const nextWeekStr = toDateStr(addWeeks(monday, 1))
-      const nextWeekStrFallback = toDateStr(new Date(addWeeks(monday, 1).getTime() - 86400000))
 
-      const [planRes, actsRes, nextPlanRes] = await Promise.all([
+      const [planRes, actsRes] = await Promise.all([
         supabase
           .from('weekly_plans')
           .select('*')
@@ -641,21 +625,10 @@ export default function WeeklyPlan() {
           .gte('date', monday.toISOString())
           .lte('date', getISOSunday(monday).toISOString())
           .order('date', { ascending: true }),
-        // Fall B (Schritt 3): review_notes/review_user_input eines bereits
-        // abgeschlossenen Reviews DIESER Woche liegen auf dem Datensatz der
-        // NÄCHSTEN Woche — gleiche week_start-Fallback-Logik wie oben.
-        supabase
-          .from('weekly_plans')
-          .select('*')
-          .eq('athlete_id', athlete.id)
-          .in('week_start', [nextWeekStr, nextWeekStrFallback])
-          .order('version', { ascending: false })
-          .limit(1),
       ])
       setPlan(planRes.data?.[0] as WeeklyPlan ?? null)
       const acts = (actsRes.data ?? []) as Activity[]
       setWeekActivities(acts)
-      setNextWeekPlan(nextPlanRes.data?.[0] as WeeklyPlan ?? null)
 
       setLoadingPlan(false)
     })()
@@ -857,31 +830,35 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, 
     }
   }
 
-  async function saveReviewData(data: ReviewJson, hasViolation: boolean) {
+  // Speichert die Review-Bewertung als neue Version der BEWERTETEN Woche (weekStr)
+  // selbst — plan_json bleibt unverändert (NOT-NULL-Spalte, daher vom bisherigen
+  // plan übernommen), nur review_notes/review_user_input kommen neu hinzu.
+  async function saveReviewData(reviewText: string) {
     if (!athlete) return
-    const nextMonday = addWeeks(monday, 1)
-    const nextWeekStr = toDateStr(nextMonday)
+    if (!plan?.plan_json) {
+      setReviewError('Für diese Woche existiert noch kein Plan — ein Review kann erst nach "Plan generieren" gespeichert werden.')
+      return
+    }
 
-    const { data: existingNext } = await supabase
+    const { data: existing } = await supabase
       .from('weekly_plans')
       .select('version')
       .eq('athlete_id', athlete.id)
-      .eq('week_start', nextWeekStr)
+      .eq('week_start', weekStr)
       .order('version', { ascending: false })
       .limit(1)
-    const nextVersion = (existingNext?.[0]?.version ?? 0) + 1
+    const nextVersion = (existing?.[0]?.version ?? 0) + 1
 
     const { data: newPlan } = await supabase
       .from('weekly_plans')
       .insert({
-        athlete_id:              athlete.id,
-        week_start:              nextWeekStr,
-        version:                 nextVersion,
-        plan_json:               data.next_week_plan,
-        review_notes:            data.review,
-        review_user_input:       reviewFeedback.trim() || null,
-        change_reason:           `Review KW ${weekStr}: ${data.coach_decision_reason}`,
-        ...(hasViolation && { plan_constraint_violation: true }),
+        athlete_id:         athlete.id,
+        week_start:         weekStr,
+        version:            nextVersion,
+        plan_json:          plan.plan_json,
+        review_notes:       reviewText,
+        review_user_input:  reviewFeedback.trim() || null,
+        change_reason:      'Wochenreview durchgeführt',
       })
       .select()
       .single()
@@ -889,62 +866,26 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, 
     await supabase.from('coach_decisions').insert({
       athlete_id:       athlete.id,
       decision_type:    'weekly_review',
-      decision_summary: `Review KW ${weekStr} → Plan für KW ${nextWeekStr} v${nextVersion}`,
-      reasoning:        data.coach_decision_reason,
+      decision_summary: `Wochenreview KW ${weekStr} durchgeführt`,
+      reasoning:        reviewText,
       related_plan_id:  (newPlan as WeeklyPlan)?.id ?? null,
     })
 
-    // Fall B greift ab sofort (nicht erst nach Reload) — die Review-Card ersetzt
-    // ab jetzt das Eingabe-Formular für die gerade angezeigte Woche.
-    setNextWeekPlan(newPlan as WeeklyPlan)
-    setPendingReviewData(null)
-    setReviewViolationList([])
+    setPlan(newPlan as WeeklyPlan)
   }
 
   async function startReview() {
     if (!athlete) return
     setReviewing(true)
     setReviewError(null)
-    setPendingReviewData(null)
-    setReviewViolationList([])
-
-    const sportConfigs = (athlete.sport_types as SportConfig[] | null) ?? []
-    const trainingDaysRequired = athlete.training_days_per_week ?? 0
-    const calendarRestDays = 7 - trainingDaysRequired
-    const sportConstraintLines = sportConfigs.map(s =>
-      `- ${SPORT_LABEL[s.type] ?? s.type}: exakt ${s.days} ${s.days === 1 ? 'Tag' : 'Tage'}`
-    ).join('\n')
-    const selfCheckLines = sportConfigs.map(s =>
-      `- ${SPORT_LABEL[s.type] ?? s.type}: exakt ${s.days} ${s.days === 1 ? 'Tag' : 'Tage'} geplant?`
-    ).join('\n')
 
     try {
       await closeOutstandingAnalyses()
 
-      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-
-      const [context, systemPrompt, { data: recoveryRows }] = await Promise.all([
+      const [context, systemPrompt] = await Promise.all([
         buildCoachContext(athlete.id),
         buildCoachSystemPrompt(athlete.id),
-        supabase
-          .from('coach_decisions')
-          .select('decision_summary, reasoning, created_at, activities!related_activity_id!inner(date)')
-          .eq('athlete_id', athlete.id)
-          .eq('decision_type', 'recovery_required')
-          .gte('activities.date', sevenDaysAgo)
-          .order('date', { referencedTable: 'activities', ascending: false }),
       ])
-
-      const reviewRecoverySection = recoveryRows?.length
-        ? `\nAKTUELLE ERHOLUNGS-EINSCHRÄNKUNGEN (höchste Priorität — überschreiben alle anderen Regeln):\n${
-            recoveryRows.map(d =>
-              `- ${new Date(embeddedActivityDate(d) ?? d.created_at).toLocaleDateString('de-DE')}: ${d.reasoning ?? d.decision_summary}`
-            ).join('\n')
-          }\n`
-        : ''
-
-      const nextMonday = addWeeks(monday, 1)
-      const nextSunday = getISOSunday(nextMonday)
 
       const actsText = weekActivities.length > 0
         ? weekActivities.map(a =>
@@ -958,20 +899,6 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, 
 
       const currentPlanJson = plan?.plan_json as PlanJson | null
 
-      const constraintSection = trainingDaysRequired > 0 ? `
-
-HARTE REGELN für next_week_plan (nicht verhandelbar):
-1. Gesamttage: Der Plan enthält exakt ${trainingDaysRequired} Trainingstage und ${calendarRestDays} Ruhetage (Mo–So = 7 Tage).
-2. Sportarten-Verteilung (exakt einhalten):
-${sportConstraintLines}
-${reviewRecoverySection}
-SELF-CHECK für next_week_plan vor Ausgabe — prüfe intern:
-- Gesamttage: stimmt mit ${trainingDaysRequired} Trainingstagen überein?
-${selfCheckLines}
-- Keine zwei intensiven Tage aufeinanderfolgend?
-- Kraft-description exakt "Workout I", "Workout II" oder "Workout III" und korrekte Rotation?
-Wenn eine Prüfung fehlschlägt, korrigiere den Plan BEVOR du ihn ausgibst.` : ''
-
       const prompt = `${context}
 
 ---
@@ -984,54 +911,24 @@ ${currentPlanJson ? `\nGeplant war: ${currentPlanJson.summary}` : ''}
 
 Feedback des Athleten:
 ${reviewFeedback.trim() || 'Kein Feedback angegeben.'}
-${constraintSection}
 
-Erstelle nun:
-1. Eine direkte Wochenbewertung (3-4 Sätze): Belastungssteuerung, Ausführung vs. Plan, was gut lief, was nicht
-2. Den optimierten Trainingsplan für nächste Woche (${nextMonday.toLocaleDateString('de-DE')} – ${nextSunday.toLocaleDateString('de-DE')})
-3. Eine kurze Begründung der Anpassungen
+Erstelle eine direkte Wochenbewertung (3-4 Sätze): Belastungssteuerung, Ausführung vs. Plan, was gut lief, was nicht.
 
 Antworte AUSSCHLIESSLICH mit diesem JSON (kein Text davor/danach, kein Markdown):
 {
-  "review": "Deine Wochenbewertung (3-4 Sätze, direkt und konkret, auf Deutsch)",
-  "coach_decision_reason": "Begründung der wichtigsten Anpassungen für nächste Woche (1-2 Sätze)",
-  "next_week_plan": {
-    "summary": "Einzeiliger Überblick nächste Woche (max 120 Zeichen)",
-    "days": {
-      "Mo": { "type": "Ruhetag|Ride|Run|Kraft|Schwimmen|Hike|Lockerung", "duration_min": 0, "distance_km": null, "intensity": null, "description": "Kurze Beschreibung (bei Kraft NUR 'Workout I', 'Workout II' oder 'Workout III')" },
-      "Di": { "type": "...", "duration_min": 0, "distance_km": null, "intensity": null, "description": "..." },
-      "Mi": { "type": "...", "duration_min": 0, "distance_km": null, "intensity": null, "description": "..." },
-      "Do": { "type": "...", "duration_min": 0, "distance_km": null, "intensity": null, "description": "..." },
-      "Fr": { "type": "...", "duration_min": 0, "distance_km": null, "intensity": null, "description": "..." },
-      "Sa": { "type": "...", "duration_min": 0, "distance_km": null, "intensity": null, "description": "..." },
-      "So": { "type": "...", "duration_min": 0, "distance_km": null, "intensity": null, "description": "..." }
-    }
-  }
-}
-
-WICHTIG für Krafttraining: Das 'description'-Feld bei Kraft-Einheiten enthält NUR "Workout I", "Workout II" oder "Workout III" (Rotation fortsetzen, nie dasselbe wie die letzte Kraft-Einheit).
-WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER null. Nur duration_min angeben.`
+  "review": "Deine Wochenbewertung (3-4 Sätze, direkt und konkret, auf Deutsch)"
+}`
 
       const res = await fetch('/api/analyse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, max_tokens: 3000, system: systemPrompt }),
+        body: JSON.stringify({ prompt, max_tokens: 600, system: systemPrompt }),
       })
       if (!res.ok) throw new Error('API Fehler')
       const { text } = await res.json() as { text: string }
 
       const parsed = parseReviewJson(text)
-      const violations = trainingDaysRequired > 0
-        ? validateConstraints(parsed.next_week_plan, sportConfigs, trainingDaysRequired)
-        : []
-
-      if (violations.length > 0) {
-        setPendingReviewData(parsed)
-        setReviewViolationList(violations)
-        return
-      }
-
-      await saveReviewData(parsed, false)
+      await saveReviewData(parsed.review)
     } catch (e) {
       console.error(e)
       setReviewError('Review fehlgeschlagen. Bitte erneut versuchen.')
@@ -1301,13 +1198,6 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
 
       {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
 
-      {/* Fall A (Schritt 3): der Plan DIESER Woche wurde durch ein Review der
-          Vorwoche erzeugt — dessen review_notes/review_user_input liegen direkt
-          auf `plan`. Ergänzt den Plan-Inhalt, ersetzt ihn nicht. */}
-      {plan?.review_notes && (
-        <WeeklyReviewCard key={`current-${weekStr}`} reviewNotes={plan.review_notes} userInput={plan.review_user_input} />
-      )}
-
       {/* Plan summary */}
       {displayPlanJson?.summary && (
         <div className="bg-brand-500/10 border border-brand-500/20 rounded-xl px-4 py-3 mb-4">
@@ -1466,11 +1356,11 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
             Wochenreview
           </h2>
 
-          {/* Fall B (Schritt 3): review_notes/review_user_input liegen auf dem
-              Datensatz der NÄCHSTEN Woche — vorhanden heißt: diese Woche wurde
-              bereits reviewt. Ersetzt das Eingabe-Formular komplett. */}
-          {nextWeekPlan?.review_notes ? (
-            <WeeklyReviewCard key={`week-${weekStr}`} reviewNotes={nextWeekPlan.review_notes} userInput={nextWeekPlan.review_user_input} />
+          {/* review_notes liegt jetzt direkt auf dem Plan DIESER Woche (der
+              bewerteten Woche) — ein einziger Check ersetzt die frühere
+              Fall-A/Fall-B-Unterscheidung. */}
+          {plan?.review_notes ? (
+            <WeeklyReviewCard key={`week-${weekStr}`} reviewNotes={plan.review_notes} userInput={plan.review_user_input} />
           ) : (
             <>
               {/* Absolvierte Aktivitäten */}
@@ -1491,7 +1381,7 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
                 </div>
               )}
 
-              {/* Feedback-Textarea + Review-Button / Violation-Banner */}
+              {/* Feedback-Textarea + Review-Button */}
               <textarea
                 value={reviewFeedback}
                 onChange={e => setReviewFeedback(e.target.value)}
@@ -1500,41 +1390,16 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
                 className="w-full bg-slate-800 text-slate-100 rounded-xl px-3 py-2.5 text-base focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none placeholder:text-slate-500 mb-3"
               />
               {reviewError && <p className="text-red-400 text-xs mb-2">{reviewError}</p>}
-              {reviewViolationList.length > 0 && pendingReviewData ? (
-                <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">
-                  <p className="text-amber-400 text-sm font-semibold mb-1 flex items-center gap-1.5">
-                    <IconWarning size={14} /> Review-Plan weicht von deinen Einstellungen ab:
-                  </p>
-                  <ul className="text-xs text-amber-300/80 mb-3 space-y-0.5">
-                    {reviewViolationList.map((d, i) => <li key={i}>• {d}</li>)}
-                  </ul>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => { setPendingReviewData(null); setReviewViolationList([]); startReview() }}
-                      className="flex-1 py-2.5 text-sm font-semibold text-white bg-brand-500 hover:bg-brand-600 rounded-xl transition-colors"
-                    >
-                      Neu generieren
-                    </button>
-                    <button
-                      onClick={() => saveReviewData(pendingReviewData, true)}
-                      className="flex-1 py-2.5 text-sm font-semibold text-slate-300 bg-slate-700 hover:bg-slate-600 rounded-xl transition-colors"
-                    >
-                      Trotzdem speichern
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <button
-                  onClick={startReview}
-                  disabled={reviewing}
-                  className="w-full py-3 rounded-xl text-sm font-semibold text-white bg-brand-500 hover:bg-brand-600 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
-                >
-                  {reviewing && (
-                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  )}
-                  {reviewing ? (loadingMessage ?? 'Review läuft…') : 'Wochenreview starten'}
-                </button>
-              )}
+              <button
+                onClick={startReview}
+                disabled={reviewing}
+                className="w-full py-3 rounded-xl text-sm font-semibold text-white bg-brand-500 hover:bg-brand-600 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+              >
+                {reviewing && (
+                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                )}
+                {reviewing ? (loadingMessage ?? 'Review läuft…') : 'Wochenreview starten'}
+              </button>
             </>
           )}
         </div>
