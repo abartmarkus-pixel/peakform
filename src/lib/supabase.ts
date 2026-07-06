@@ -82,6 +82,7 @@ export type WeeklyPlan = {
   version: number
   plan_json: Record<string, unknown>
   review_notes: string | null
+  review_user_input: string | null
   change_reason: string | null
   plan_constraint_violation: boolean | null
   created_at: string

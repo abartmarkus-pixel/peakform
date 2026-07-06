@@ -7,7 +7,7 @@ import { getValidAccessToken, fetchRecentActivities, syncActivitiesToSupabase } 
 import { analyzeActivity, parseHevyDescription } from '../lib/activityAnalysis'
 import {
   IconRunning, IconCycling, IconStrength, IconRest, IconOther,
-  IconChevronLeft, IconChevronRight,
+  IconChevronLeft, IconChevronRight, IconChevronUp, IconChevronDown,
   IconCheck, IconMissed, IconWarning, IconPlan,
   IconGrip,
   SPORT_DISPLAY,
@@ -498,6 +498,39 @@ function SortableDayCard(props: DayCardProps) {
   )
 }
 
+// Aufklappbare Review-Ergebnis-Karte — zeigt Nutzer-Notizen + Coach-Bewertung
+// eines abgeschlossenen Wochenreviews. Lokaler expanded-State statt Prop, damit
+// ein neues Mount (z.B. via key={weekStr} beim Wochenwechsel) immer wieder
+// ausgeklappt startet, ohne dass die Elternkomponente einen State verwalten muss.
+function WeeklyReviewCard({ reviewNotes, userInput }: { reviewNotes: string; userInput: string | null }) {
+  const [expanded, setExpanded] = useState(true)
+  return (
+    <div className="bg-slate-800 rounded-xl p-4 mb-4">
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="w-full flex items-center justify-between text-left"
+      >
+        <span className="text-sm font-semibold text-slate-200">Wochenreview</span>
+        {expanded ? <IconChevronUp size={12} className="text-slate-400" /> : <IconChevronDown size={12} className="text-slate-400" />}
+      </button>
+      {expanded && (
+        <div className="mt-3 flex flex-col gap-3">
+          {userInput && (
+            <div>
+              <p className="text-xs text-slate-500 mb-1">Deine Notizen:</p>
+              <p className="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap">{userInput}</p>
+            </div>
+          )}
+          <div>
+            <p className="text-xs text-slate-500 mb-1">Coach-Bewertung:</p>
+            <p className="text-sm text-slate-300 leading-relaxed">{reviewNotes}</p>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── main component ─────────────────────────────────────────────────────────
 
 export default function WeeklyPlan() {
@@ -526,10 +559,12 @@ export default function WeeklyPlan() {
   // review
   const [reviewFeedback, setReviewFeedback] = useState('')
   const [reviewing, setReviewing]     = useState(false)
-  const [reviewResult, setReviewResult] = useState<string | null>(null)
   const [reviewError, setReviewError] = useState<string | null>(null)
   const [pendingReviewData, setPendingReviewData] = useState<ReviewJson | null>(null)
   const [reviewViolationList, setReviewViolationList] = useState<string[]>([])
+  // weekly_plans-Datensatz der NÄCHSTEN Woche — trägt (falls vorhanden) review_notes/
+  // review_user_input des Reviews der HIER angezeigten Woche (Fall B, Schritt 3)
+  const [nextWeekPlan, setNextWeekPlan] = useState<WeeklyPlan | null>(null)
 
   const isCurrentWeek = toDateStr(monday) === toDateStr(getISOMonday(new Date()))
   const weekStr = toDateStr(monday)
@@ -571,7 +606,7 @@ export default function WeeklyPlan() {
     setLoadingPlan(true)
     setPlan(null)
     setWeekActivities([])
-    setReviewResult(null)
+    setNextWeekPlan(null)
     setReviewFeedback('')
     setManualPlanJson(null)
     setPendingManualConflict(null)
@@ -588,8 +623,10 @@ export default function WeeklyPlan() {
 
       // Fallback: alte Einträge wurden mit UTC-Datum gespeichert (1 Tag früher)
       const weekStrFallback = toDateStr(new Date(monday.getTime() - 86400000))
+      const nextWeekStr = toDateStr(addWeeks(monday, 1))
+      const nextWeekStrFallback = toDateStr(new Date(addWeeks(monday, 1).getTime() - 86400000))
 
-      const [planRes, actsRes] = await Promise.all([
+      const [planRes, actsRes, nextPlanRes] = await Promise.all([
         supabase
           .from('weekly_plans')
           .select('*')
@@ -604,10 +641,21 @@ export default function WeeklyPlan() {
           .gte('date', monday.toISOString())
           .lte('date', getISOSunday(monday).toISOString())
           .order('date', { ascending: true }),
+        // Fall B (Schritt 3): review_notes/review_user_input eines bereits
+        // abgeschlossenen Reviews DIESER Woche liegen auf dem Datensatz der
+        // NÄCHSTEN Woche — gleiche week_start-Fallback-Logik wie oben.
+        supabase
+          .from('weekly_plans')
+          .select('*')
+          .eq('athlete_id', athlete.id)
+          .in('week_start', [nextWeekStr, nextWeekStrFallback])
+          .order('version', { ascending: false })
+          .limit(1),
       ])
       setPlan(planRes.data?.[0] as WeeklyPlan ?? null)
       const acts = (actsRes.data ?? []) as Activity[]
       setWeekActivities(acts)
+      setNextWeekPlan(nextPlanRes.data?.[0] as WeeklyPlan ?? null)
 
       setLoadingPlan(false)
     })()
@@ -831,6 +879,7 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, 
         version:                 nextVersion,
         plan_json:               data.next_week_plan,
         review_notes:            data.review,
+        review_user_input:       reviewFeedback.trim() || null,
         change_reason:           `Review KW ${weekStr}: ${data.coach_decision_reason}`,
         ...(hasViolation && { plan_constraint_violation: true }),
       })
@@ -845,7 +894,9 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, 
       related_plan_id:  (newPlan as WeeklyPlan)?.id ?? null,
     })
 
-    setReviewResult(data.review)
+    // Fall B greift ab sofort (nicht erst nach Reload) — die Review-Card ersetzt
+    // ab jetzt das Eingabe-Formular für die gerade angezeigte Woche.
+    setNextWeekPlan(newPlan as WeeklyPlan)
     setPendingReviewData(null)
     setReviewViolationList([])
   }
@@ -853,7 +904,6 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, 
   async function startReview() {
     if (!athlete) return
     setReviewing(true)
-    setReviewResult(null)
     setReviewError(null)
     setPendingReviewData(null)
     setReviewViolationList([])
@@ -1251,6 +1301,13 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
 
       {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
 
+      {/* Fall A (Schritt 3): der Plan DIESER Woche wurde durch ein Review der
+          Vorwoche erzeugt — dessen review_notes/review_user_input liegen direkt
+          auf `plan`. Ergänzt den Plan-Inhalt, ersetzt ihn nicht. */}
+      {plan?.review_notes && (
+        <WeeklyReviewCard key={`current-${weekStr}`} reviewNotes={plan.review_notes} userInput={plan.review_user_input} />
+      )}
+
       {/* Plan summary */}
       {displayPlanJson?.summary && (
         <div className="bg-brand-500/10 border border-brand-500/20 rounded-xl px-4 py-3 mb-4">
@@ -1409,27 +1466,32 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
             Wochenreview
           </h2>
 
-          {/* Absolvierte Aktivitäten */}
-          {weekActivities.length > 0 && (
-            <div className="mb-4 flex flex-col gap-1.5">
-              <p className="text-xs text-slate-500 mb-1">Absolvierte Aktivitäten</p>
-              {weekActivities.map(a => (
-                <div key={a.id} className="flex items-center gap-2 text-xs text-slate-400">
-                  <span className="text-slate-600">
-                    {new Date(a.date).toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'numeric' })}
-                  </span>
-                  <span className="text-slate-300 font-medium truncate">{a.name}</span>
-                  {a.duration_s && <span>{Math.round(a.duration_s / 60)} min</span>}
-                  {a.distance_m && a.distance_m > 0 && <span>{(a.distance_m / 1000).toFixed(1)} km</span>}
-                  {a.avg_hr && <span>Ø {Math.round(a.avg_hr)} bpm</span>}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Feedback-Textarea + Review-Button / Violation-Banner */}
-          {!reviewResult && (
+          {/* Fall B (Schritt 3): review_notes/review_user_input liegen auf dem
+              Datensatz der NÄCHSTEN Woche — vorhanden heißt: diese Woche wurde
+              bereits reviewt. Ersetzt das Eingabe-Formular komplett. */}
+          {nextWeekPlan?.review_notes ? (
+            <WeeklyReviewCard key={`week-${weekStr}`} reviewNotes={nextWeekPlan.review_notes} userInput={nextWeekPlan.review_user_input} />
+          ) : (
             <>
+              {/* Absolvierte Aktivitäten */}
+              {weekActivities.length > 0 && (
+                <div className="mb-4 flex flex-col gap-1.5">
+                  <p className="text-xs text-slate-500 mb-1">Absolvierte Aktivitäten</p>
+                  {weekActivities.map(a => (
+                    <div key={a.id} className="flex items-center gap-2 text-xs text-slate-400">
+                      <span className="text-slate-600">
+                        {new Date(a.date).toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'numeric' })}
+                      </span>
+                      <span className="text-slate-300 font-medium truncate">{a.name}</span>
+                      {a.duration_s && <span>{Math.round(a.duration_s / 60)} min</span>}
+                      {a.distance_m && a.distance_m > 0 && <span>{(a.distance_m / 1000).toFixed(1)} km</span>}
+                      {a.avg_hr && <span>Ø {Math.round(a.avg_hr)} bpm</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Feedback-Textarea + Review-Button / Violation-Banner */}
               <textarea
                 value={reviewFeedback}
                 onChange={e => setReviewFeedback(e.target.value)}
@@ -1474,23 +1536,6 @@ WICHTIG für Laufeinheiten: Bei type "Run" oder "Laufen" — distance_km IMMER n
                 </button>
               )}
             </>
-          )}
-
-          {/* Review-Ergebnis */}
-          {reviewResult && (
-            <div className="bg-slate-800 rounded-xl p-4 flex flex-col gap-3">
-              <p className="text-sm text-slate-300 leading-relaxed">{reviewResult}</p>
-              <div className="flex items-center gap-2 pt-1 border-t border-slate-700">
-                <IconCheck size={12} className="text-brand-400 shrink-0" />
-                <p className="text-xs text-slate-500">Plan für nächste Woche wurde generiert und gespeichert.</p>
-              </div>
-              <button
-                onClick={() => { setReviewResult(null); setReviewFeedback('') }}
-                className="text-xs text-slate-500 hover:text-slate-300 self-start"
-              >
-                Neues Review starten
-              </button>
-            </div>
           )}
         </div>
       )}
