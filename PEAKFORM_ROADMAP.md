@@ -115,9 +115,8 @@ isPastWeek-Check (monday < aktuelle Woche) — Button entfällt komplett für ve
 ### ✅ Fehlende Uhrzeit/Tageszeit in Coach-Analysen (behoben 8.7.2026)
 Konkret entdeckt: Coach behauptete "Krafttraining am Morgen", tatsächlich war es der Vorabend — Root Cause: Claude bekam nie Uhrzeit oder Tag-Relation (heute/gestern), nur ein rohes Datum, und musste die Differenz selbst berechnen (mit Fehlern). Neue Helper toLocalWeekdayDateTimeStr() + relativeDayLabel() (bewusst ohne Intl-API, konsistent zum bestehenden Lokalzeit-Stil), zusätzlich explizite Anti-Halluzinations-Regel im System-Prompt ("nutze nur explizit gegebene Zeit-/Tag-Angaben, erfinde nichts selbst").
 
-### 🐛 On-load Recovery-Check läuft bei jedem Öffnen erneut (genehmigt, Umsetzung nicht bestätigt)
-Diagnose bestätigt: bei Aktivitäten OHNE erkannte Erholungsrestriktion (die Mehrheit) hinterlässt has_restriction:false keinen persistenten Marker — der Mini-Claude-Call (max_tokens:150) feuert dadurch bei jedem einzelnen Seitenaufruf erneut, unnötige wiederholte API-Calls/Kosten (kein sichtbarer Content-Fehler). Fix genehmigt: neue Spalte activities.recovery_checked (Boolean), gesetzt sobald der Check einmal erfolgreich durchgelaufen ist, unabhängig vom Ergebnis — On-load-Check vereinfacht sich auf if (act.claude_analysis && !act.recovery_checked). Bestandsaktivitäten bekommen dadurch einmalig noch einen Nachhol-Check, danach nie wieder. Status: von Claude Code vorgeschlagen und von mir genehmigt, aber keine Umsetzungsbestätigung in SPEC.md auffindbar — nächstes Mal nachfragen ob das noch aussteht.
-Aufwand: Klein
+### ✅ On-load Recovery-Check läuft bei jedem Öffnen erneut (behoben 8.7.2026, Commit 8e01ce4)
+Diagnose bestätigt: bei Aktivitäten OHNE erkannte Erholungsrestriktion (die Mehrheit) hinterließ has_restriction:false keinen persistenten Marker — der Mini-Claude-Call (max_tokens:150) feuerte dadurch bei jedem einzelnen Seitenaufruf erneut, unnötige wiederholte API-Calls/Kosten (kein sichtbarer Content-Fehler). Fix: neue Spalte activities.recovery_checked (Boolean), gesetzt sobald der Check einmal erfolgreich durchgelaufen ist, unabhängig vom Ergebnis — On-load-Check vereinfacht auf if (act.claude_analysis && !act.recovery_checked). Bestandsaktivitäten bekamen dadurch einmalig noch einen Nachhol-Check, danach nie wieder. Bei einem Fehler im Claude-Call bleibt recovery_checked bewusst false, damit der Check beim nächsten Laden erneut versucht wird.
 
 ### 🐛 Kraft-Workout-Label wird nie gegen echten Aktivitätsnamen validiert (offen, entdeckt 8.7.2026)
 matchActivityToDay() prüft für Kraft-Tage nur den Sportart-Typ (WeightTraining), nie ob die geplante Workout-Nummer (I/II/III) zur tatsächlich absolvierten passt — beide Strings (Plan-Label vs. echter Aktivitätsname) sind komplett unabhängig und werden nie gegeneinander geprüft. Führte am 6.7. zu einem stillen Auseinanderlaufen (Mi zeigte "Workout II" geplant, aber "✓ Workout I" absolviert) — ausgelöst durch ein einmaliges Datenintegritäts-Ereignis (siehe unten), aber der strukturelle Gap bleibt latent bestehen und kann jederzeit wieder auftreten sobald Plan-Rotation und reale Reihenfolge divergieren.
@@ -127,12 +126,10 @@ Aufwand: Klein
 ### ✅ Datenintegritäts-Vorfall: Plan einer Woche versehentlich in eine andere geschrieben (korrigiert 8.7.2026, kein Code-Fix)
 Durch einen Deploy-Timing-Zufall (Stale-Tab mit altem JS-Bundle, 6 Minuten nach dem Entkopplungs-Commit) wurde der komplette plan_json der aktuellen Woche (KW 07-06) byte-identisch in die Historie der Vorwoche (KW 06-29) geschrieben — inkl. change_reason im alten, längst abgelösten Format. Betraf nur einen einzelnen historischen Datensatz, nicht den aktiven Code-Pfad (der fehlerhafte Schreibpfad existiert nach der Entkopplung nicht mehr). Per gezieltem SQL-INSERT auf Basis der letzten unkontaminierten Version (v18) korrigiert — reine Datenkorrektur, kein Code-Fix nötig.
 
-### 🔧 Manuelles Verschieben von Trainingstagen (in Umsetzung 4.7.2026)
-Ursprüngliche Idee "fixe Sperrtage im Profil" verworfen — Konflikte (Wetter, spontane Termine) sind per Definition unvorhersehbar, eine feste Regel ("nie montags") hätte das eigentliche Problem nicht gelöst. Stattdessen direkt die Phase-2-Idee umgesetzt: manuelles Verschieben im laufenden Wochenplan wird zur Hauptlösung.
+### ✅ Manuelles Verschieben von Trainingstagen (implementiert 4.7.2026)
+Ursprüngliche Idee "fixe Sperrtage im Profil" verworfen — Konflikte (Wetter, spontane Termine) sind per Definition unvorhersehbar, eine feste Regel ("nie montags") hätte das eigentliche Problem nicht gelöst. Stattdessen direkt die Phase-2-Idee umgesetzt: manuelles Verschieben im laufenden Wochenplan ist jetzt die Hauptlösung.
 
-Finales Konzept: Drag-and-Drop zum Tauschen zweier Tage (swapDays(), nutzt bereits installiertes @dnd-kit wie beim Ästhetik-Ranking im Profil) + Long-Press-Kontextmenü ("Als Ruhetag markieren", "Verschieben nach...", "Details anzeigen") als Fallback für alle, die Drag-Gesten vermeiden wollen. Client-seitige, nicht-blockierende Konflikt-Prüfung (checkPlanConflicts(), kein Claude-Call — mechanische Prüfung derselben harten Regeln, die der Coach beim Planen bekommt: keine zwei intensiven Tage nebeneinander, kein Kraft direkt vor intensiver Ausdauer). Jede Änderung erzeugt eine neue weekly_plans-Version (INSERT, wie gehabt).
-
-Aufwand: Mittel — Prompt an Claude Code übergeben, Ergebnis ausstehend.
+Finales Konzept umgesetzt: Drag-and-Drop zum Tauschen zweier Tage (swapDays(), nutzt bereits installiertes @dnd-kit wie beim Ästhetik-Ranking im Profil, Commit 723fc47) + Long-Press-Kontextmenü (500ms, 8px Bewegungstoleranz — "Als Ruhetag markieren", "Verschieben nach...", "Details anzeigen") als Fallback für alle, die Drag-Gesten vermeiden wollen. Client-seitige, nicht-blockierende Konflikt-Prüfung (checkPlanConflicts(), kein Claude-Call — mechanische Prüfung derselben harten Regeln, die der Coach beim Planen bekommt: keine zwei intensiven Tage nebeneinander, kein Kraft direkt vor intensiver Ausdauer). Jede Änderung erzeugt eine neue weekly_plans-Version (INSERT, wie gehabt). Follow-up-Fix am selben Tag (Commit c2f8c24): Drag-Sensor auf delay+tolerance umgestellt, expliziter Griff statt ganzer Karte.
 
 ### 🟢 Kraftcoach-Ästhetik-Bewertung (Phase D)
 Automatisches Übungs-Matching: Kraftcoach identifiziert Lücken in Workout I/II/III und schlägt Ersetzungen vor basierend auf Ästhetik-Prioritäten und Equipment.
@@ -325,7 +322,8 @@ Aufwand: Mittel
 | ✅ Uhrzeit/Tageszeit-Halluzination | Behoben | — | 8.7.2026 |
 | ✅ Datenintegritäts-Vorfall korrigiert | Behoben | — | 8.7.2026 |
 | 🐛 Kraft-Workout-Label-Validierung | Mittel | Klein | Offen |
-| 🐛 recovery_checked Cache-Fix | Mittel | Klein | Genehmigt, unbestätigt |
+| ✅ recovery_checked Cache-Fix | Behoben | — | 8.7.2026 |
+| ✅ Manuelles Verschieben von Trainingstagen | Umgesetzt | — | 4.7.2026 |
 | ✅ Roast Me Freischalt-Logik | Umgesetzt | — | 5.7.2026 |
 | Push Notifications | Hoch | Mittel | 🟡 Prompt bereit |
 | ✅ OAuth CSRF-Schutz | Behoben | — | 1.7.2026 |
