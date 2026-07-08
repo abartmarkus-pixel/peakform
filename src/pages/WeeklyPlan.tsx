@@ -356,7 +356,8 @@ function DayCard({ day, idx, monday, plan, match, onPress, onOpenMenu, dragAttri
 
   return (
     <div
-      className={`rounded-xl p-3.5 ${isRest ? 'bg-slate-800/50' : 'bg-slate-800'} ${borderClass} ${isClickable ? 'cursor-pointer active:bg-slate-700' : ''}`}
+      className={`rounded-xl p-3.5 ${isRest ? 'bg-slate-800/50' : 'bg-slate-800'} ${borderClass} ${isClickable ? 'cursor-pointer active:bg-slate-700' : ''} ${onOpenMenu ? 'select-none' : ''}`}
+      style={onOpenMenu ? { WebkitTouchCallout: 'none' } : undefined}
       onClick={isClickable ? handleCardClick : undefined}
       onPointerDown={onOpenMenu ? handlePointerDown : undefined}
       onPointerMove={onOpenMenu ? handlePointerMove : undefined}
