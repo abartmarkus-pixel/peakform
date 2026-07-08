@@ -47,7 +47,10 @@ activities (id uuid PK, athlete_id uuid FK→athletes, strava_id bigint UNIQUE,
             distance_m numeric, duration_s int, avg_hr numeric, max_hr numeric,
             np_watts numeric, tss numeric, streams_json jsonb,
             description text,       ← Strava description (Hevy-Daten); beim 1. Öffnen gecacht
-            claude_analysis text, created_at timestamptz)
+            claude_analysis text, created_at timestamptz,
+            laps_json jsonb, splits_metric_json jsonb,
+            recovery_checked bool)   ← true nach erstem Recovery-Check, unabhängig vom Ergebnis;
+                                      -- verhindert wiederholten Mini-Claude-Call bei jedem Seitenaufruf
 
 season_goals (id uuid PK, athlete_id uuid FK→athletes, event_name text,
               event_date date, distance_km numeric, elevation_m int,
@@ -56,6 +59,7 @@ season_goals (id uuid PK, athlete_id uuid FK→athletes, event_name text,
 
 weekly_plans (id uuid PK, athlete_id uuid FK→athletes, week_start date,
               version int, plan_json jsonb, review_notes text,
+              review_user_input text,  ← persistenter Freitext-Input des Users beim Wochenreview
               change_reason text, plan_constraint_violation bool,
               created_at timestamptz)
 -- INSERT-only, niemals UPDATE bestehender Pläne; version wird inkrementiert
@@ -159,7 +163,7 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 - [x] `LAUF_COACH_PROMPT` / `RAD_COACH_PROMPT` / `KRAFT_COACH_PROMPT`: statische Spezialcoaches
 - [x] Coach-Routing (`getSpecialistPrompt(activityType)`) in ActivityDetail.tsx
 - [x] `calculateSeasonPhase()`, `calculateHRZones()`, `calculatePaceReference()` in coachContext.ts
-- [x] Recovery-Extraktion: `triggerRecoveryExtraction(analysisText, athleteId, activityId)` — fire-and-forget nach Analyse ODER beim Laden bestehender Analyse (on-load check)
+- [x] Recovery-Extraktion: `triggerRecoveryExtraction(analysisText, athleteId, activityId)` — fire-and-forget nach Analyse ODER beim Laden bestehender Analyse (on-load check: `if (act.claude_analysis && !act.recovery_checked)`); setzt `activities.recovery_checked=true` nach jedem Lauf unabhängig vom Ergebnis, bleibt bei Fehler `false` für Retry
 
 ### Profil
 - [x] Name, FTP, Max HF, Gewicht, Trainingstage (1–7)
@@ -184,7 +188,8 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 - [x] DayCard: Kraft zeigt violettes Badge "Workout I/II/III" (kein Freitext), Laufen zeigt nie distance_km
 - [x] Frontend-Constraint-Validierung + Violation-Banner
 - [x] INSERT-only mit version++
-- [x] Wochen-Navigation (±1 Woche), Wochenreview mit Folgeplan
+- [x] Wochen-Navigation (±1 Woche), Wochenreview mit eigener Versionierung der bewerteten Woche (`review_notes`/`review_user_input`)
+- [x] Manuelles Verschieben von Trainingstagen: Drag & Drop (`swapDays()`, @dnd-kit) zum Tauschen zweier Tage + Long-Press-Kontextmenü (500ms, 8px Toleranz — "Als Ruhetag markieren"/"Verschieben nach..."/"Details anzeigen") als Fallback; Client-seitige Konflikt-Prüfung `checkPlanConflicts()` (kein Claude-Call); iOS-natives Textauswahl-Menü bei Long-Press unterdrückt via `select-none` + `WebkitTouchCallout: 'none'` auf der DayCard
 - [x] ISO 8601 Wochengrenzen: getISOMonday/getISOSunday in dateUtils.ts; Lokalzeit statt UTC für week_start
 - [x] Activity-Query mit vollen ISO-Timestamps (gte/lte) statt Datums-Strings — Sonntage korrekt der Vorwoche zugeordnet
 
