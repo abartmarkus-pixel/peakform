@@ -299,6 +299,7 @@ Du hast Zugriff auf ${athleteName}s Strava-Aktivitäten und Hevy-Workouts über 
 - "Du hast diese Woche Y km gelaufen, das entspricht der aktuellen Trainingsphase"
 - Vergleiche aktuellen Pace mit Zielpace
 - Erkenne Übertraining-Signale (HF-Drift, sinkende Pace bei gleicher HF)
+- Nutze ausschließlich die explizit angegebenen Datums-, Uhrzeit- und Tag-Relations-Angaben (heute/gestern/vor X Tagen). Erfinde niemals eine Tageszeit (morgens/mittags/abends) oder einen relativen Tag, der nicht explizit im Kontext steht — berechne nichts selbst aus Datumsdifferenzen.
 
 ## WÖCHENTLICHES REVIEW FORMAT
 Beim wöchentlichen Review immer in dieser Struktur antworten:

@@ -1,4 +1,5 @@
 import { supabase, type Activity, type Athlete } from './supabase'
+import { toLocalWeekdayDateTimeStr, relativeDayLabel } from './dateUtils'
 import {
   getValidAccessToken,
   fetchActivityStreams,
@@ -258,7 +259,7 @@ export async function analyzeActivity(
 
 Name: ${activity.name}
 Typ: ${activity.type}
-Datum: ${new Date(activity.date).toLocaleDateString('de-DE')}
+Datum: ${toLocalWeekdayDateTimeStr(activity.date)} (${relativeDayLabel(activity.date)})
 Distanz: ${activity.distance_m ? (activity.distance_m / 1000).toFixed(2) + ' km' : 'k.A.'}
 Dauer: ${activity.duration_s ? Math.round(activity.duration_s / 60) + ' min' : 'k.A.'}
 Ø Herzfrequenz: ${activity.avg_hr ?? 'k.A.'} bpm

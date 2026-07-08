@@ -964,9 +964,10 @@ Funktion in `src/lib/coachContext.ts`. Signatur: `buildCoachContext(athleteId: s
 
 [LETZTE AKTIVITÄTS-ANALYSE]            ~300 tokens  (nur wenn claude_analysis vorhanden)
   Neueste Aktivität mit claude_analysis aus activities
-  Format: "{name} ({date}, {type}):\n{claude_analysis}" — {date} via `toLocalDateStr()`
-  (Lokalzeit-sicher; NICHT `date.slice(0, 10)` auf dem rohen UTC-ISO-String, siehe Bugfix
-  2. Juli 2026)
+  Format: "{name} ({weekdayDateTime} — {relDay}, {type}):\n{claude_analysis}" — {weekdayDateTime}
+  via `toLocalWeekdayDateTimeStr()` (Wochentag + Datum + Uhrzeit, z. B. "Mo 6.7.2026, 18:08 Uhr"),
+  {relDay} via `relativeDayLabel()` ("heute"/"gestern"/"vor X Tagen"/"morgen"/"in X Tagen") —
+  siehe Bugfix 8. Juli 2026
   → "Diese Analyse MUSS bei der Wochenplanung berücksichtigt werden."
 
 [TRAININGSHISTORIE — LETZTE 4 WOCHEN]  ~600 tokens
@@ -1000,6 +1001,19 @@ Funktion in `src/lib/coachContext.ts`. Signatur: `buildCoachContext(athleteId: s
 2. `[AKTUELLER WOCHENPLAN]` gab Claude nur Wochentags-Kürzel (Mo–So) ohne Kalenderdatum mit — die Zuordnung musste Claude selbst berechnen und hat sich dabei verrechnet.
 
 **Fix:** `[COACH-ENTSCHEIDUNGEN]` löst jetzt zusätzlich das Datum der `related_activity_id` auf und weist es getrennt von `created_at` aus (siehe Format oben). `[AKTUELLER WOCHENPLAN]` bekommt über `planJsonWithDates()` das Kalenderdatum direkt in die Tages-Schlüssel eingebettet. `[LETZTE AKTIVITÄTS-ANALYSE]` nutzt zusätzlich `toLocalDateStr()` statt `date.slice(0, 10)` (war bislang unauffällig, da kein Testfall die lokale Mitternachtsgrenze kreuzte, aber derselbe Bug-Typ wie der bereits behobene Wochengrenzen-Bug). Neue Helper `toLocalDateStr()` / `toLocalWeekdayDateStr()` in `dateUtils.ts`.
+
+### Bugfix 8. Juli 2026 — erfundene Tageszeit in Coach-Analysen
+
+**Symptom:** Die Analyse eines Abendlaufs (Di 7.7.2026, 18:30) behauptete, er sei "nach einem Krafttraining am Morgen" erfolgt. Das tatsächliche Krafttraining fand am Vorabend statt (Mo 6.7.2026, 18:08 — nicht morgens, nicht am selben Tag).
+
+**Root Cause:** Kein Timezone-/Datenbug — `activities.date` war korrekt und wurde korrekt lokal aufgelöst (Mo 6.7. 18:08 / Di 7.7. 18:30, beides Abend). Weder der `activityBlock` der gerade analysierten Aktivität (`activityAnalysis.ts`) noch `[LETZTE AKTIVITÄTS-ANALYSE]` gaben je eine Uhrzeit, einen Wochentag oder eine explizite Tag-Relation mit — nur ein rohes `TT.MM.JJJJ`-Datum (`toLocalDateStr()`). Claude musste die Tagesdifferenz zwischen den beiden Daten selbst berechnen und hat dabei sowohl den Tag (Vortag → "heute") als auch die Tageszeit (Abend → "Morgen") frei erfunden, statt sie aus echten Daten abzuleiten.
+
+**Fix:**
+- Neue Helper in `dateUtils.ts`: `toLocalWeekdayDateTimeStr()` (baut auf `toLocalWeekdayDateStr()` auf, hängt manuell formatierte Uhrzeit an — bewusst kein `toLocaleDateString()`/`toLocaleTimeString()`, um beim bestehenden Lokalzeit-sicheren Stil ohne Intl-Abhängigkeit zu bleiben) und `relativeDayLabel()` (liefert "heute"/"gestern"/"vor X Tagen"/"morgen"/"in X Tagen").
+- `[LETZTE AKTIVITÄTS-ANALYSE]` (`coachContext.ts`) nutzt jetzt `toLocalWeekdayDateTimeStr()` + `relativeDayLabel()` statt nur `toLocalDateStr()` (siehe Format oben).
+- `activityBlock` (`activityAnalysis.ts`, `analyzeActivity()`) — die Datumszeile der gerade analysierten Aktivität selbst — nutzt dieselben zwei Helper statt `new Date(activity.date).toLocaleDateString('de-DE')`: `Datum: {weekdayDateTime} ({relDay})`.
+- `buildCoachSystemPrompt()` (`coachPrompt.ts`, Abschnitt `## DATENNUTZUNG`) bekommt eine explizite Anti-Halluzinations-Regel: Claude darf nur explizit angegebene Datums-/Uhrzeit-/Tag-Relations-Angaben nutzen und keine Tageszeit oder relativen Tag selbst aus Datumsdifferenzen berechnen/erfinden.
+- `[AKTUELLER WOCHENPLAN]` (`planJsonWithDates()`) und `[COACH-ENTSCHEIDUNGEN]` (`toLocalWeekdayDateStr()`) bleiben unverändert — beide hatten bereits Wochentag bzw. Kalenderdatum, nur `[LETZTE AKTIVITÄTS-ANALYSE]` und der `activityBlock` fehlten Uhrzeit/Tag-Relation.
 
 **Ziel: unter ~3.000 tokens, immer gleiche Struktur.**
 

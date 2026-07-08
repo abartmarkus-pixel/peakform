@@ -1,5 +1,5 @@
 import { supabase, type Activity, type SportConfig, type EquipmentConfig, type AestheticGoals } from './supabase'
-import { getISOMonday, toLocalDateStr, toLocalWeekdayDateStr } from './dateUtils'
+import { getISOMonday, toLocalDateStr, toLocalWeekdayDateStr, toLocalWeekdayDateTimeStr, relativeDayLabel } from './dateUtils'
 
 const WEEKDAY_ORDER = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
 
@@ -349,7 +349,7 @@ export async function buildCoachContext(
   if (lastAct?.claude_analysis) {
     sections.push([
       '[LETZTE AKTIVITÄTS-ANALYSE]',
-      `${lastAct.name} (${toLocalDateStr(lastAct.date)}, ${lastAct.type}):`,
+      `${lastAct.name} (${toLocalWeekdayDateTimeStr(lastAct.date)} — ${relativeDayLabel(lastAct.date)}, ${lastAct.type}):`,
       lastAct.claude_analysis,
       '→ Diese Analyse MUSS bei der Wochenplanung berücksichtigt werden.',
     ].join('\n'))
