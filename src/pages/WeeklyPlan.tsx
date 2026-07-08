@@ -554,6 +554,7 @@ export default function WeeklyPlan() {
   const [reviewError, setReviewError] = useState<string | null>(null)
 
   const isCurrentWeek = toDateStr(monday) === toDateStr(getISOMonday(new Date()))
+  const isPastWeek = monday < getISOMonday(new Date())
   const weekStr = toDateStr(monday)
 
   // dnd-kit sensors: delay+tolerance statt distance — verhindert, dass normales
@@ -1333,21 +1334,31 @@ Antworte AUSSCHLIESSLICH mit diesem JSON (kein Text davor/danach, kein Markdown)
         </div>
       )}
 
-      {/* Generate button */}
-      <button
-        onClick={generatePlan}
-        disabled={generating}
-        className={`w-full py-3 rounded-xl font-semibold text-sm transition-colors flex items-center justify-center gap-2 ${
-          plan
-            ? 'bg-slate-700 hover:bg-slate-600 text-slate-200'
-            : 'bg-brand-500 hover:bg-brand-600 text-white'
-        } disabled:opacity-50`}
-      >
-        {generating && (
-          <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-        )}
-        {generating ? (loadingMessage ?? 'Generiere Plan…') : plan ? 'Plan neu generieren' : 'Plan für diese Woche generieren'}
-      </button>
+      {/* Generate button — für abgelaufene Wochen entfällt die Möglichkeit,
+          (neu) zu generieren, ersatzlos; nur ohne Plan gibt es dafür einen
+          neutralen Hinweistext, da der Plan sonst ohnehin schon sichtbar ist. */}
+      {isPastWeek ? (
+        !plan && (
+          <p className="text-center text-sm text-slate-500 py-3">
+            Für diese Woche wurde kein Plan erstellt
+          </p>
+        )
+      ) : (
+        <button
+          onClick={generatePlan}
+          disabled={generating}
+          className={`w-full py-3 rounded-xl font-semibold text-sm transition-colors flex items-center justify-center gap-2 ${
+            plan
+              ? 'bg-slate-700 hover:bg-slate-600 text-slate-200'
+              : 'bg-brand-500 hover:bg-brand-600 text-white'
+          } disabled:opacity-50`}
+        >
+          {generating && (
+            <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+          )}
+          {generating ? (loadingMessage ?? 'Generiere Plan…') : plan ? 'Plan neu generieren' : 'Plan für diese Woche generieren'}
+        </button>
+      )}
 
       {/* ── Wochenreview (nur für aktuelle + vergangene Wochen) ── */}
       {!loadingPlan && monday <= getISOMonday(new Date()) && (
