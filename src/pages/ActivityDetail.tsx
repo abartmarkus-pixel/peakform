@@ -323,17 +323,9 @@ export default function ActivityDetail() {
           .maybeSingle()
         if (fbData) setFeedback({ id: fbData.id, reasoning: fbData.reasoning ?? '' })
 
-        // If analysis exists but recovery extraction may not have run yet, check and trigger
-        if (act.claude_analysis) {
-          const { count } = await supabase
-            .from('coach_decisions')
-            .select('id', { count: 'exact', head: true })
-            .eq('athlete_id', athlete.id)
-            .eq('related_activity_id', act.id)
-            .eq('decision_type', 'recovery_required')
-          if ((count ?? 0) === 0) {
-            triggerRecoveryExtraction(act.claude_analysis, athlete.id, act.id)
-          }
+        // If analysis exists but recovery extraction hasn't run yet, check and trigger
+        if (act.claude_analysis && !act.recovery_checked) {
+          triggerRecoveryExtraction(act.claude_analysis, athlete.id, act.id)
         }
 
         const token = await getValidAccessToken(athlete)

@@ -128,5 +128,6 @@ export type Activity = {
   splits_metric_json: unknown | null
   description: string | null
   claude_analysis: string | null
+  recovery_checked: boolean
   created_at: string
 }

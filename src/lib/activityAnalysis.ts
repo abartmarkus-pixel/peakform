@@ -174,17 +174,22 @@ export function triggerRecoveryExtraction(analysisText: string, athleteId: strin
         restriction_until: string | null
         description: string
       }
-      if (!restriction.has_restriction || !restriction.description) return
-      await supabase.from('coach_decisions').insert({
-        athlete_id:          athleteId,
-        decision_type:       'recovery_required',
-        decision_summary:    restriction.description.split(/[.!?]/)[0]?.trim() ?? restriction.description,
-        reasoning:           restriction.description + (restriction.restriction_until ? ` (bis ${restriction.restriction_until})` : ''),
-        related_plan_id:     null,
-        related_activity_id: activityId,
-      })
+      if (restriction.has_restriction && restriction.description) {
+        await supabase.from('coach_decisions').insert({
+          athlete_id:          athleteId,
+          decision_type:       'recovery_required',
+          decision_summary:    restriction.description.split(/[.!?]/)[0]?.trim() ?? restriction.description,
+          reasoning:           restriction.description + (restriction.restriction_until ? ` (bis ${restriction.restriction_until})` : ''),
+          related_plan_id:     null,
+          related_activity_id: activityId,
+        })
+      }
+      // Mark checked regardless of outcome so ActivityDetail.tsx's on-load
+      // check doesn't re-trigger this call on every future page load.
+      await supabase.from('activities').update({ recovery_checked: true }).eq('id', activityId)
     })
-    .catch(() => { /* silent — recovery extraction is best-effort */ })
+    .catch(() => { /* silent — recovery extraction is best-effort; leaves
+      recovery_checked false so it's retried on the next load */ })
 }
 
 // Runs the full Claude analysis for an activity: loads/caches whatever raw
