@@ -49,8 +49,11 @@ activities (id uuid PK, athlete_id uuid FK→athletes, strava_id bigint UNIQUE,
             description text,       ← Strava description (Hevy-Daten); beim 1. Öffnen gecacht
             claude_analysis text, created_at timestamptz,
             laps_json jsonb, splits_metric_json jsonb,
-            recovery_checked bool)   ← true nach erstem Recovery-Check, unabhängig vom Ergebnis;
+            recovery_checked bool,   ← true nach erstem Recovery-Check, unabhängig vom Ergebnis;
                                       -- verhindert wiederholten Mini-Claude-Call bei jedem Seitenaufruf
+            analysis_claimed_at timestamptz)  ← Lease für automatische Analyse (claimActivityForAnalysis);
+                                      -- verhindert doppelte Claude-Calls bei gleichzeitigen Syncs (StrictMode
+                                      -- Doppel-Mount, Dashboard+WeeklyPlan); nach 2 Min als abgelaufen behandelt
 
 season_goals (id uuid PK, athlete_id uuid FK→athletes, event_name text,
               event_date date, distance_km numeric, elevation_m int,
@@ -164,6 +167,7 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 - [x] Coach-Routing (`getSpecialistPrompt(activityType)`) in ActivityDetail.tsx
 - [x] `calculateSeasonPhase()`, `calculateHRZones()`, `calculatePaceReference()` in coachContext.ts
 - [x] Recovery-Extraktion: `triggerRecoveryExtraction(analysisText, athleteId, activityId)` — fire-and-forget nach Analyse ODER beim Laden bestehender Analyse (on-load check: `if (act.claude_analysis && !act.recovery_checked)`); setzt `activities.recovery_checked=true` nach jedem Lauf unabhängig vom Ergebnis, bleibt bei Fehler `false` für Retry
+- [x] Automatische Analyse nach Sync (`syncActivitiesToSupabase()` fire-and-forget-Sweep über `claude_analysis IS NULL`, sowie `WeeklyPlan.tsx`s `closeOutstandingAnalyses()`-Fallback) läuft pro Aktivität exakt einmal: `claimActivityForAnalysis(activityId)` claimt atomar über `analysis_claimed_at` (conditional UPDATE), bevor `analyzeActivity()` aufgerufen wird — verhindert doppelte Claude-Calls bei gleichzeitigen Syncs (React StrictMode Doppel-Mount, Dashboard+WeeklyPlan). Claim wird nach Erfolg/Fehlschlag zurückgesetzt; nach 2 Min als abgelaufen behandelt (Selbstheilung bei abgebrochenem Tab). Manueller "Neu analysieren"-Button in ActivityDetail.tsx umgeht den Claim bewusst (soll immer laufen)
 
 ### Profil
 - [x] Name, FTP, Max HF, Gewicht, Trainingstage (1–7)

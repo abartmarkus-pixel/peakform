@@ -193,6 +193,33 @@ export function triggerRecoveryExtraction(analysisText: string, athleteId: strin
       recovery_checked false so it's retried on the next load */ })
 }
 
+// A claim older than this is considered abandoned (e.g. tab closed or network
+// dropped mid-analysis) and can be re-claimed — comfortably above how long a
+// single Claude analysis call actually takes, so a still-running claim is
+// never pre-empted.
+const ANALYSIS_CLAIM_STALE_MS = 2 * 60 * 1000
+
+// Atomically claims an activity for automatic background analysis by writing
+// analysis_claimed_at in one conditional UPDATE. Postgres applies the WHERE
+// check and the write as a single atomic operation per row, so when two
+// automatic sweeps race for the same unanalyzed activity (React StrictMode's
+// dev-mode double-mount, or Dashboard and WeeklyPlan syncing around the same
+// time), only one UPDATE actually matches — the loser gets an empty result
+// and skips it, instead of both calling analyzeActivity() and paying for two
+// Claude calls. Not used by the manual "Neu analysieren" button, which should
+// always run regardless of any in-flight claim.
+export async function claimActivityForAnalysis(activityId: string): Promise<boolean> {
+  const staleBefore = new Date(Date.now() - ANALYSIS_CLAIM_STALE_MS).toISOString()
+  const { data } = await supabase
+    .from('activities')
+    .update({ analysis_claimed_at: new Date().toISOString() })
+    .eq('id', activityId)
+    .is('claude_analysis', null)
+    .or(`analysis_claimed_at.is.null,analysis_claimed_at.lt.${staleBefore}`)
+    .select('id')
+  return (data?.length ?? 0) > 0
+}
+
 // Runs the full Claude analysis for an activity: loads/caches whatever raw
 // Strava data the prompt needs (streams for watt/elevation stats, laps,
 // description for Hevy exercises), builds the specialist-routed prompt,
@@ -311,13 +338,18 @@ ${exercises.length > 0
     const json = await res.json() as { text: string }
     const text = json.text
 
-    await supabase.from('activities').update({ claude_analysis: text }).eq('strava_id', activity.strava_id)
+    await supabase.from('activities').update({ claude_analysis: text, analysis_claimed_at: null }).eq('strava_id', activity.strava_id)
 
     triggerRecoveryExtraction(text, athleteId, activity.id)
 
     return { success: true }
   } catch (e) {
     console.error(e)
+    try {
+      // Release the claim so a future sync can retry this activity; best-effort —
+      // claude_analysis is still null either way, so nothing is lost if this fails too.
+      await supabase.from('activities').update({ analysis_claimed_at: null }).eq('id', activity.id)
+    } catch { /* best effort */ }
     return { success: false, error: e instanceof Error ? e.message : 'Analyse fehlgeschlagen' }
   }
 }

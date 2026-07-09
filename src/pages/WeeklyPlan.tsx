@@ -4,7 +4,7 @@ import { supabase, type Athlete, type WeeklyPlan, type Activity, type SportConfi
 import { buildCoachContext } from '../lib/coachContext'
 import { buildCoachSystemPrompt } from '../lib/coachPrompt'
 import { getValidAccessToken, fetchRecentActivities, syncActivitiesToSupabase } from '../lib/strava'
-import { analyzeActivity, parseHevyDescription } from '../lib/activityAnalysis'
+import { analyzeActivity, claimActivityForAnalysis, parseHevyDescription } from '../lib/activityAnalysis'
 import {
   IconRunning, IconCycling, IconStrength, IconRest, IconOther,
   IconChevronLeft, IconChevronRight, IconChevronUp, IconChevronDown,
@@ -692,6 +692,11 @@ export default function WeeklyPlan() {
 
       setLoadingMessage(`Schließe ${stillUnanalyzed.length} ausstehende Analyse(n) ab…`)
       for (const act of stillUnanalyzed as Activity[]) {
+        // Skip if the background sweep from syncActivitiesToSupabase (a few
+        // lines above) already claimed this activity — avoids a duplicate
+        // Claude call for the same activity.
+        if (!(await claimActivityForAnalysis(act.id))) continue
+
         const result = await analyzeActivity(act, athlete.id)
         if (!result.success) {
           console.error(`Fallback analysis failed for activity ${act.strava_id}:`, result.error)

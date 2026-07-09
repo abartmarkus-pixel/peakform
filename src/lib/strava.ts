@@ -1,6 +1,6 @@
 import type { Athlete, Activity } from './supabase'
 import { supabase } from './supabase'
-import { analyzeActivity } from './activityAnalysis'
+import { analyzeActivity, claimActivityForAnalysis } from './activityAnalysis'
 
 const CLIENT_ID = import.meta.env.VITE_STRAVA_CLIENT_ID as string
 const REDIRECT_URI = import.meta.env.VITE_STRAVA_REDIRECT_URI as string
@@ -208,6 +208,11 @@ export async function syncActivitiesToSupabase(
       if (!unanalyzed?.length) return
 
       for (const activity of unanalyzed as Activity[]) {
+        // Skip if another concurrent sync already claimed this activity (e.g.
+        // StrictMode's dev double-mount, or WeeklyPlan's mini-sync running
+        // around the same time) — prevents double Claude calls for one activity.
+        if (!(await claimActivityForAnalysis(activity.id))) continue
+
         const result = await analyzeActivity(activity, athleteId)
         if (!result.success) {
           console.error(`Background analysis failed for activity ${activity.strava_id}:`, result.error)
