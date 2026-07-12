@@ -186,6 +186,7 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 - [x] Ästhetik-Ziele: Drag & Drop Ranking (via @dnd-kit) — nur wenn "Muskelaufbau" oder "Gewicht reduzieren" aktiv
 - [x] Trainingsphase: Auto-Anzeige + Segmented Control (Auto/Override); `season_phase_override` in DB
 - [x] Auto-Save 800ms Debounce
+- [x] Konto löschen: rot abgesetzte Sektion ganz unten, Bottom-Sheet-Modal mit Zwei-Stufen-Bestätigung ("Ja, endgültig löschen"); Ablauf: `deauthorizeStrava()` (POST `/api/strava-token` mit `grant_type: 'deauthorize'`, proxied zu `strava.com/oauth/deauthorize` — schlägt der Call fehl z.B. bei bereits abgelaufenem Token, wird trotzdem fortgefahren, Athlet bekommt am Ende Hinweis auf manuelles Trennen unter strava.com/settings/apps) → danach `supabase.rpc('delete_athlete_account', { p_athlete_id })`; Supabase-Funktion `delete_athlete_account(p_athlete_id UUID)` (SECURITY DEFINER, siehe Kapitel 18) löscht in einer Transaktion chat_messages → coach_decisions → weekly_plans → activities → season_goals → athletes (FK-Reihenfolge), Rückgabe = Anzahl gelöschter athletes-Zeilen (Client verifiziert `=== 1`); bei Fehler automatischer Rollback, Athlet bleibt eingeloggt mit Fehlermeldung im Modal; `p_athlete_id` kommt ausschließlich aus dem geladenen Session-Athleten, nie aus Query-Parametern; bei Erfolg identischer Cleanup wie Logout (`localStorage`/`sessionStorage`/`pf_athlete_id`-Cookie) + Redirect zu `/`
 
 ### Saison-Ziele
 - [x] A/B/C-Priorität, Countdown in Tagen, Add/Edit-Modal

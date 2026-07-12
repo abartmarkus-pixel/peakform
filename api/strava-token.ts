@@ -3,13 +3,25 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
-  const { grant_type, code, refresh_token } = req.body as {
-    grant_type: 'authorization_code' | 'refresh_token'
+  const { grant_type, code, refresh_token, access_token } = req.body as {
+    grant_type: 'authorization_code' | 'refresh_token' | 'deauthorize'
     code?: string
     refresh_token?: string
+    access_token?: string
   }
 
   if (!grant_type) return res.status(400).json({ error: 'Missing grant_type' })
+
+  if (grant_type === 'deauthorize') {
+    if (!access_token) return res.status(400).json({ error: 'Missing access_token' })
+    const response = await fetch('https://www.strava.com/oauth/deauthorize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ access_token }),
+    })
+    if (!response.ok) return res.status(response.status).json({ error: 'Strava deauthorize error' })
+    return res.status(200).json({ success: true })
+  }
 
   const clientId = process.env.VITE_STRAVA_CLIENT_ID
   const clientSecret = process.env.STRAVA_CLIENT_SECRET

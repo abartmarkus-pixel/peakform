@@ -230,6 +230,23 @@ export async function syncActivitiesToSupabase(
   })()
 }
 
+// Revokes the app's Strava access for this athlete (used by account deletion).
+// Fault-tolerant: returns false instead of throwing on failure (e.g. already-expired
+// token) — the caller proceeds with DB deletion regardless and informs the athlete
+// to disconnect manually via strava.com/settings/apps if this returns false.
+export async function deauthorizeStrava(accessToken: string): Promise<boolean> {
+  try {
+    const res = await fetch('/api/strava-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ grant_type: 'deauthorize', access_token: accessToken }),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
 // Returns a valid access token, refreshing automatically if expired (with 60s buffer).
 // Also sets the athlete context for RLS policies.
 export async function getValidAccessToken(athlete: Athlete): Promise<string> {

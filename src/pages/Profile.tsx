@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   IconRunning, IconCycling, IconStrength,
-  IconChevronDown, IconWarning, IconGrip,
+  IconChevronDown, IconWarning, IconGrip, IconDelete,
   SPORT_DISPLAY,
 } from '../lib/icons'
 import {
@@ -31,6 +31,7 @@ import {
   type AestheticGoals,
 } from '../lib/supabase'
 import { calculateSeasonPhase, estimateBest5kFromActivities } from '../lib/coachContext'
+import { deauthorizeStrava } from '../lib/strava'
 import { AppHeader } from '../components/AppHeader'
 import { useFeatures } from '../lib/features'
 
@@ -269,6 +270,10 @@ export default function Profile() {
   const [seasonPhaseOverride, setSeasonPhaseOverride] = useState<'readaptation' | 'base' | 'race' | 'taper' | null>(null)
   const [primaryEventDate,   setPrimaryEventDate]   = useState<string | null>(null)
 
+  // account deletion
+  const [deleteState, setDeleteState] = useState<'closed' | 'confirm' | 'deleting' | 'error' | 'strava-warning'>('closed')
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
   // _updated_at state
   const [ftpUpdatedAt,    setFtpUpdatedAt]    = useState<string | null>(null)
   const [maxHrUpdatedAt,  setMaxHrUpdatedAt]  = useState<string | null>(null)
@@ -486,6 +491,41 @@ export default function Profile() {
     setMaxHrUpdatedAt(now)
     setSaveState('saved')
     setTimeout(() => setSaveState('idle'), 2000)
+  }
+
+  // ── account deletion ────────────────────────────────────────────────────
+  // Uses only `athlete.id` from the loaded session state (never a param/form
+  // field) — the RPC deletes exactly that athlete's rows across all 6 tables.
+
+  function finishLogoutAndRedirect() {
+    localStorage.clear(); sessionStorage.clear()
+    document.cookie = 'pf_athlete_id=; max-age=0; path=/'
+    navigate('/')
+  }
+
+  async function handleDeleteAccount() {
+    if (!athlete) return
+    setDeleteState('deleting')
+    setDeleteError(null)
+
+    const deauthOk = athlete.strava_access_token
+      ? await deauthorizeStrava(athlete.strava_access_token)
+      : true
+
+    const { data, error } = await supabase.rpc('delete_athlete_account', { p_athlete_id: athlete.id })
+
+    if (error || data !== 1) {
+      setDeleteError(error?.message ?? 'Löschung fehlgeschlagen — bitte erneut versuchen.')
+      setDeleteState('error')
+      return
+    }
+
+    if (!deauthOk) {
+      setDeleteState('strava-warning')
+      return
+    }
+
+    finishLogoutAndRedirect()
   }
 
   // ── sport helpers ───────────────────────────────────────────────────────
@@ -1067,8 +1107,99 @@ export default function Profile() {
           </AccordionSection>
         )}
 
+        {/* ── 7. KONTO LÖSCHEN ───────────────────────────────── */}
+        <div className="mt-6 pt-5 border-t border-red-900/40">
+          <h2 className="text-xs font-semibold text-red-400 uppercase tracking-wider mb-2">Konto löschen</h2>
+          <p className="text-xs text-slate-500 mb-3">
+            Löscht unwiderruflich alle deine Aktivitäten, Trainingspläne, Coach-Analysen und dein Profil.
+          </p>
+          <button
+            onClick={() => setDeleteState('confirm')}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-red-400 bg-red-500/10 hover:bg-red-500/20 ring-1 ring-red-900/50 transition-colors"
+          >
+            <IconDelete size={14} /> Konto löschen
+          </button>
+        </div>
+
       </div>
     </div>
+
+    {/* ── Konto-löschen Bestätigungs-Modal ─────────────────── */}
+    {deleteState !== 'closed' && (
+      <div
+        className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-50 p-4"
+        onClick={e => { if (e.target === e.currentTarget && deleteState !== 'deleting') setDeleteState('closed') }}
+      >
+        <div className="bg-slate-800 rounded-2xl p-5 w-full max-w-lg flex flex-col gap-3">
+          {(deleteState === 'confirm' || deleteState === 'deleting') && (
+            <>
+              <h2 className="text-sm font-semibold text-red-400 flex items-center gap-2">
+                <IconWarning size={14} /> Konto endgültig löschen?
+              </h2>
+              <p className="text-sm text-slate-300">
+                Dabei werden unwiderruflich gelöscht: alle Aktivitäten, Trainingspläne, Coach-Chats, Coach-Entscheidungen,
+                Saisonziele und dein Profil. Die Strava-Verbindung wird ebenfalls getrennt. Das kann nicht rückgängig gemacht werden.
+              </p>
+              <div className="flex gap-2 mt-2">
+                <button
+                  onClick={() => setDeleteState('closed')}
+                  disabled={deleteState === 'deleting'}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-medium text-slate-300 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 transition-colors"
+                >
+                  Abbrechen
+                </button>
+                <button
+                  onClick={handleDeleteAccount}
+                  disabled={deleteState === 'deleting'}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-red-600 hover:bg-red-700 disabled:opacity-60 transition-colors flex items-center justify-center gap-2"
+                >
+                  {deleteState === 'deleting' && (
+                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  )}
+                  {deleteState === 'deleting' ? 'Wird gelöscht…' : 'Ja, endgültig löschen'}
+                </button>
+              </div>
+            </>
+          )}
+
+          {deleteState === 'error' && (
+            <>
+              <h2 className="text-sm font-semibold text-red-400 flex items-center gap-2">
+                <IconWarning size={14} /> Löschung fehlgeschlagen
+              </h2>
+              <p className="text-sm text-slate-300">
+                {deleteError} Dein Konto wurde nicht verändert.
+              </p>
+              <button
+                onClick={() => setDeleteState('closed')}
+                className="w-full py-2.5 rounded-xl text-sm font-medium text-slate-300 bg-slate-700 hover:bg-slate-600 transition-colors mt-2"
+              >
+                Schließen
+              </button>
+            </>
+          )}
+
+          {deleteState === 'strava-warning' && (
+            <>
+              <h2 className="text-sm font-semibold text-amber-400 flex items-center gap-2">
+                <IconWarning size={14} /> Konto gelöscht
+              </h2>
+              <p className="text-sm text-slate-300">
+                Deine PeakForm-Daten wurden gelöscht. Die Strava-Verbindung konnte allerdings nicht automatisch getrennt werden
+                (z.B. weil der Zugriffstoken bereits abgelaufen war) — bitte trenne PeakForm zusätzlich manuell unter{' '}
+                <span className="text-slate-100 font-medium">strava.com/settings/apps</span>.
+              </p>
+              <button
+                onClick={finishLogoutAndRedirect}
+                className="w-full py-2.5 rounded-xl text-sm font-semibold text-white bg-brand-500 hover:bg-brand-600 transition-colors mt-2"
+              >
+                Verstanden
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    )}
     </>
   )
 }

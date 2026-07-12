@@ -52,9 +52,26 @@ export default defineConfig(({ mode }) => {
               req.on('data', (chunk: Buffer) => { body += chunk.toString() })
               req.on('end', async () => {
                 try {
-                  const { grant_type, code, refresh_token } = JSON.parse(body) as {
-                    grant_type: string; code?: string; refresh_token?: string
+                  const { grant_type, code, refresh_token, access_token } = JSON.parse(body) as {
+                    grant_type: string; code?: string; refresh_token?: string; access_token?: string
                   }
+
+                  if (grant_type === 'deauthorize') {
+                    if (!access_token) {
+                      res.statusCode = 400
+                      res.end(JSON.stringify({ error: 'Missing access_token' })); return
+                    }
+                    const r = await fetch('https://www.strava.com/oauth/deauthorize', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                      body: new URLSearchParams({ access_token }),
+                    })
+                    res.statusCode = r.ok ? 200 : r.status
+                    res.setHeader('Content-Type', 'application/json')
+                    res.end(r.ok ? JSON.stringify({ success: true }) : JSON.stringify({ error: 'Strava deauthorize error' }))
+                    return
+                  }
+
                   const clientId = env.VITE_STRAVA_CLIENT_ID
                   const clientSecret = env.STRAVA_CLIENT_SECRET
                   if (!clientId || !clientSecret) {
