@@ -153,10 +153,11 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 ### Dashboard & Aktivitäten
 - [x] Dashboard: letzte 10 Aktivitäten, in Supabase gecacht
 - [x] Dashboard: 4 quadratische Nav-Kacheln (💬 Coach / 📅 Plan / 🎯 Ziele / 👤 Profil)
-- [x] Dashboard: Filter nach Trainingsart (🏋️🚴🏃), Logout-Icon
+- [x] Dashboard: Filter nach Trainingsart (🏋️🚴🏃), Logout-Icon; Filter-Wert in `sessionStorage` (`dashboard_filter`) gespiegelt — überlebt damit das Unmount/Remount von `Dashboard` beim Navigieren zu `/activity/:id` und zurück
 - [x] Home.tsx: Auto-Redirect zu `/dashboard` wenn `athlete_strava_id` in localStorage
 - [x] Dashboard: Echtzeit-Alert (Claude-Konflikt-Check nach Strava-Sync, sessionStorage-Gate, Amber-Banner + Modal)
 - [x] Aktivitäts-Detail: Stats-Grid, Charts, Rundentabelle, Claude-Analyse
+- [x] Aktivitäts-Detail: "Zurück"-Button nutzt `navigate(-1)` (echtes History-Back) statt hartem Redirect zu `/dashboard`; Fallback auf `/dashboard` nur wenn keine SPA-eigene History existiert (`window.history.state?.idx > 0`-Guard, z. B. bei Deep-Links)
 - [x] Markdown-Renderer
 
 ### Krafttraining-Detailansicht (WeightTraining)

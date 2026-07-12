@@ -131,6 +131,9 @@ Ursprüngliche Idee "fixe Sperrtage im Profil" verworfen — Konflikte (Wetter, 
 
 Finales Konzept umgesetzt: Drag-and-Drop zum Tauschen zweier Tage (swapDays(), nutzt bereits installiertes @dnd-kit wie beim Ästhetik-Ranking im Profil, Commit 723fc47) + Long-Press-Kontextmenü (500ms, 8px Bewegungstoleranz — "Als Ruhetag markieren", "Verschieben nach...", "Details anzeigen") als Fallback für alle, die Drag-Gesten vermeiden wollen. Client-seitige, nicht-blockierende Konflikt-Prüfung (checkPlanConflicts(), kein Claude-Call — mechanische Prüfung derselben harten Regeln, die der Coach beim Planen bekommt: keine zwei intensiven Tage nebeneinander, kein Kraft direkt vor intensiver Ausdauer). Jede Änderung erzeugt eine neue weekly_plans-Version (INSERT, wie gehabt). Follow-up-Fix am selben Tag (Commit c2f8c24): Drag-Sensor auf delay+tolerance umgestellt, expliziter Griff statt ganzer Karte. Weiterer Follow-up-Fix (8.7.2026, Commit 8cb388d): Long-Press auf der Karte löste auf iOS zusätzlich das native Textauswahl-Menü ("Kopieren | Nachschlagen") über dem eigenen Kontextmenü aus — behoben via `select-none` + `WebkitTouchCallout: 'none'` auf der DayCard.
 
+### ✅ "Zurück"-Button in ActivityDetail.tsx führte immer zum Dashboard statt zur echten Vorseite (behoben 12.7.2026)
+War als `<Link to="/dashboard">` hart verdrahtet statt echtes History-Back — z. B. vom Coach-Chat oder aus dem Wochenplan kommend landete man beim Zurückgehen trotzdem immer auf dem Dashboard. Fix: `navigate(-1)` (react-router), aber nur wenn tatsächlich SPA-eigene History existiert (`window.history.state?.idx > 0`) — bei Deep-Links (z. B. direkter URL-Aufruf, Push-Benachrichtigung) ohne vorherige App-Navigation bleibt der Fallback auf `/dashboard`, da `navigate(-1)` sonst aus der App heraus navigiert hätte. Nebenbei aufgefallen: der Dashboard-Sportart-Filter (`filter`-State) war reiner `useState` und wurde beim Unmount/Remount der Route ohnehin gelöscht — `navigate(-1)` allein hätte den Filter also nicht gerettet. Deshalb zusätzlich in `sessionStorage` (`dashboard_filter`) persistiert, damit "Dashboard mit Filter → Aktivität öffnen → Zurück" den Filter jetzt tatsächlich erhält.
+
 ### 🟢 Kraftcoach-Ästhetik-Bewertung (Phase D)
 Automatisches Übungs-Matching: Kraftcoach identifiziert Lücken in Workout I/II/III und schlägt Ersetzungen vor basierend auf Ästhetik-Prioritäten und Equipment.
 Aufwand: Mittel
@@ -347,3 +350,4 @@ Aufwand: Mittel
 | Coach-Modus | Hoch | Groß | 💡 Zukunft |
 | iOS Safari Service-Worker-Cache | Niedrig | Mittel | 💡 Laufend beobachten |
 | Apple Health / Garmin | Hoch | Groß | 💡 Zukunft |
+| ✅ "Zurück"-Button ActivityDetail (Hard-Redirect) | Behoben | — | 12.7.2026 |
