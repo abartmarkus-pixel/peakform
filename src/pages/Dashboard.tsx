@@ -105,7 +105,7 @@ function ActivityIcon({ type }: { type: string }) {
 export default function Dashboard() {
   const navigate = useNavigate()
   const [activities,       setActivities]       = useState<StravaActivity[]>([])
-  const [filter,           setFilter]           = useState<string | null>(null)
+  const [filter,           setFilter]           = useState<string | null>(() => sessionStorage.getItem('dashboard_filter'))
   const [loading,          setLoading]          = useState(true)
   const [error,            setError]            = useState<string | null>(null)
   const [feedbackMap,      setFeedbackMap]      = useState<Record<number, true>>({})
@@ -452,7 +452,12 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt im gleichen Format wie der Origin
           {FILTER_BUTTONS.map(([type, icon]) => (
             <button
               key={type}
-              onClick={() => setFilter(f => f === type ? null : type)}
+              onClick={() => setFilter(f => {
+                const next = f === type ? null : type
+                if (next) sessionStorage.setItem('dashboard_filter', next)
+                else sessionStorage.removeItem('dashboard_filter')
+                return next
+              })}
               className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${
                 filter === type
                   ? 'bg-brand-500/30 ring-1 ring-brand-500 text-brand-400'

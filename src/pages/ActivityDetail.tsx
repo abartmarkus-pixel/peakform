@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { IconChevronLeft, IconRoast, IconCommentOutline, IconCommentFilled } from '../lib/icons'
 import {
   ResponsiveContainer,
@@ -257,6 +257,7 @@ function StatCard({ label, value }: StatCardProps) {
 
 export default function ActivityDetail() {
   const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const [activity, setActivity] = useState<Activity | null>(null)
   const [chartData, setChartData] = useState<ChartPoint[]>([])
   const [stats, setStats] = useState<ComputedStats>({})
@@ -531,9 +532,16 @@ export default function ActivityDetail() {
     <>
       <AppHeader />
       <div className="min-h-screen p-4 max-w-2xl mx-auto page-content">
-      <Link to="/dashboard" className="inline-flex items-center gap-1 text-brand-500 hover:text-brand-400 text-sm mb-4">
+      <button
+        onClick={() => {
+          const hasHistory = typeof window.history.state?.idx === 'number' && window.history.state.idx > 0
+          if (hasHistory) navigate(-1)
+          else navigate('/dashboard')
+        }}
+        className="inline-flex items-center gap-1 text-brand-500 hover:text-brand-400 text-sm mb-4"
+      >
         <IconChevronLeft size={14} /> Zurück
-      </Link>
+      </button>
 
       <h1 className="text-xl font-bold text-slate-100 mb-1">{activity?.name}</h1>
       <p className="text-slate-400 text-sm mb-5">
