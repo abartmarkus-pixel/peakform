@@ -122,6 +122,8 @@ export type Activity = {
   avg_hr: number | null
   max_hr: number | null
   np_watts: number | null
+  avg_watts: number | null
+  elevation_m: number | null
   tss: number | null
   streams_json: Record<string, unknown> | null
   laps_json: unknown | null

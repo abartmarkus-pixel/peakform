@@ -175,7 +175,7 @@ function buildRoastStatsText(activity: Activity, sport: SportFocus, stats: Compu
   } else if (sport === 'cycling') {
     if (activity.distance_m) lines.push(`Distanz: ${(activity.distance_m / 1000).toFixed(2)} km`)
     if (activity.np_watts) lines.push(`NP: ${activity.np_watts} W`)
-    if (stats.avgWatts != null) lines.push(`Ø Watt: ${stats.avgWatts} W`)
+    if (activity.avg_watts != null) lines.push(`Ø Watt: ${activity.avg_watts} W`)
     if (stats.avgCadence != null) lines.push(`Ø Trittfrequenz: ${stats.avgCadence} rpm`)
     if (activity.avg_hr != null) lines.push(`Ø HF: ${Math.round(activity.avg_hr)} bpm`)
     if (activity.max_hr != null) lines.push(`Max HF: ${Math.round(activity.max_hr)} bpm`)
@@ -581,8 +581,8 @@ export default function ActivityDetail() {
           {!isWeightTraining && activity?.distance_m != null && activity.distance_m > 0 && (
             <StatCard label="Distanz" value={`${(activity.distance_m / 1000).toFixed(2)} km`} />
           )}
-          {!isWeightTraining && stats.elevationGain != null && (
-            <StatCard label="Höhenmeter" value={`${stats.elevationGain} m`} />
+          {!isWeightTraining && activity?.elevation_m != null && (
+            <StatCard label="Höhenmeter" value={`${Math.round(activity.elevation_m)} m`} />
           )}
           {isRide && stats.avgSpeed != null && (
             <StatCard label="Ø Tempo" value={`${stats.avgSpeed} km/h`} />
@@ -596,8 +596,8 @@ export default function ActivityDetail() {
           {!isWeightTraining && activity?.np_watts != null && (
             <StatCard label="Norm. Power" value={`${Math.round(activity.np_watts)} W`} />
           )}
-          {isRide && stats.avgWatts != null && (
-            <StatCard label="Ø Watt" value={`${stats.avgWatts} W`} />
+          {isRide && activity?.avg_watts != null && (
+            <StatCard label="Ø Watt" value={`${Math.round(activity.avg_watts)} W`} />
           )}
           {isRide && stats.maxWatts != null && (
             <StatCard label="Max Watt" value={`${stats.maxWatts} W`} />

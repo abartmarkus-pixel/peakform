@@ -45,7 +45,12 @@ athletes (id uuid PK, strava_athlete_id bigint UNIQUE, strava_access_token text,
 activities (id uuid PK, athlete_id uuid FK→athletes, strava_id bigint UNIQUE,
             name text, type text, date timestamptz,
             distance_m numeric, duration_s int, avg_hr numeric, max_hr numeric,
-            np_watts numeric, tss numeric, streams_json jsonb,
+            np_watts numeric,       ← Strava weighted_average_watts (Summary-Feld, keine Eigenberechnung)
+            avg_watts numeric,      ← Strava average_watts (Summary-Feld); NICHT aus streams_json.watts
+                                      -- neu berechnen (Mittelwert dort exkl. Nullen → +15% zu hoch)
+            elevation_m numeric,    ← Strava total_elevation_gain (Summary-Feld); NICHT aus
+                                      -- streams_json.altitude neu berechnen (unsmoothe Rohdaten → +30-40% zu hoch)
+            tss numeric, streams_json jsonb,
             description text,       ← Strava description (Hevy-Daten); beim 1. Öffnen gecacht
             claude_analysis text, created_at timestamptz,
             laps_json jsonb, splits_metric_json jsonb,
@@ -234,3 +239,4 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 - `activities.description`: Cache-first — bei WeightTraining erst Supabase prüfen, nur bei null von Strava holen
 - WeeklyPlan Kraft-Einheiten: `description` = "Workout I/II/III" (nie Freitext); Laufen: `distance_km` immer null
 - `coach_decisions.related_activity_id`: FK→activities, gesetzt bei `decision_type = 'recovery_required'`
+- `activities.avg_watts`/`elevation_m`/`np_watts`: alle drei kommen aus Stravas Summary-Response (`syncActivitiesToSupabase()`), niemals lokal aus `streams_json` neu berechnet — lokale Mittelwertbildung über den rohen watts/altitude-Stream war die Ursache für einen Ø-Watt/Höhenmeter-Bug (Nullen im watts-Stream beim Mitteln ausgeklammert → zu hoher Ø-Watt; unsmoothe Barometer-Rohdaten → zu hohe Höhenmeter)

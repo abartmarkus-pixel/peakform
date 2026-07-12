@@ -40,11 +40,9 @@ export type ChartPoint = {
 }
 
 export type ComputedStats = {
-  avgWatts?: number
   maxWatts?: number
   avgSpeed?: number
   maxSpeed?: number
-  elevationGain?: number
   avgCadence?: number
 }
 
@@ -110,20 +108,11 @@ export function computeStats(data: ChartPoint[]): ComputedStats {
   const watts = data.map(d => d.watts).filter((w): w is number => w !== undefined && w > 0)
   const speed = data.map(d => d.speed).filter((s): s is number => s !== undefined)
   const cad = data.map(d => d.cadence).filter((c): c is number => c !== undefined && c > 0)
-  const alt = data.map(d => d.alt).filter((a): a is number => a !== undefined)
-
-  let elevGain = 0
-  for (let i = 1; i < alt.length; i++) {
-    const diff = alt[i] - alt[i - 1]
-    if (diff > 0) elevGain += diff
-  }
 
   return {
-    avgWatts: watts.length ? Math.round(mean(watts)) : undefined,
     maxWatts: watts.length ? Math.max(...watts) : undefined,
     avgSpeed: speed.length ? +mean(speed).toFixed(1) : undefined,
     maxSpeed: speed.length ? +Math.max(...speed).toFixed(1) : undefined,
-    elevationGain: alt.length ? Math.round(elevGain) : undefined,
     avgCadence: cad.length ? Math.round(mean(cad)) : undefined,
   }
 }
@@ -292,9 +281,9 @@ Dauer: ${activity.duration_s ? Math.round(activity.duration_s / 60) + ' min' : '
 Ø Herzfrequenz: ${activity.avg_hr ?? 'k.A.'} bpm
 Max. Herzfrequenz: ${activity.max_hr ?? 'k.A.'} bpm
 ${activity.np_watts ? `Normalized Power: ${activity.np_watts} W` : ''}
-${stats.avgWatts ? `Ø Watt: ${stats.avgWatts} W` : ''}
+${activity.avg_watts ? `Ø Watt: ${activity.avg_watts} W` : ''}
 ${stats.maxWatts ? `Max Watt: ${stats.maxWatts} W` : ''}
-${stats.elevationGain ? `Höhenmeter: ${stats.elevationGain} m` : ''}
+${activity.elevation_m ? `Höhenmeter: ${activity.elevation_m} m` : ''}
 ${exercises.length > 0 ? `
 Übungen:
 ${exercises.map(ex => {

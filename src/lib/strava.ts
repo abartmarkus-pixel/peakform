@@ -34,6 +34,8 @@ export type StravaActivity = {
   average_heartrate?: number
   max_heartrate?: number
   weighted_average_watts?: number
+  average_watts?: number
+  total_elevation_gain?: number
 }
 
 export type StravaTokenResponse = {
@@ -187,6 +189,8 @@ export async function syncActivitiesToSupabase(
       avg_hr:     a.average_heartrate ?? null,
       max_hr:     a.max_heartrate ?? null,
       np_watts:   a.weighted_average_watts ?? null,
+      avg_watts:   a.average_watts ?? null,
+      elevation_m: a.total_elevation_gain ?? null,
     })),
     { onConflict: 'strava_id' },
   )
