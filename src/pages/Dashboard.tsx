@@ -123,6 +123,7 @@ export default function Dashboard() {
   const [planModal,        setPlanModal]        = useState<{ loading: boolean; status: 'success' | 'error' | null } | null>(null)
   const [currentPlanJson,  setCurrentPlanJson]  = useState<PlanJson | null>(null)
   const [planWeekStart,    setPlanWeekStart]    = useState<string | null>(null)
+  const [alertPlanId,      setAlertPlanId]      = useState<string | null>(null)
 
   useEffect(() => {
     const stravaId = localStorage.getItem('athlete_strava_id')
@@ -149,19 +150,16 @@ export default function Dashboard() {
           await syncActivitiesToSupabase(acts, athlete.id)
           setFeedbackMap(await loadFeedbackMap(acts, athlete.id))
 
-          // ── Echtzeit-Alert: einmal pro Session prüfen ──────────────────
+          // ── Echtzeit-Alert: Konflikt-Check ─────────────────────────────
           const thisWeek = mondayOf(new Date())
-          const alertKey = `peakform_alert_${thisWeek}`
 
-          if (!sessionStorage.getItem(alertKey)) {
-            sessionStorage.setItem(alertKey, 'checked') // mark before async to prevent double-fire
-
+          {
             const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
 
             const [{ data: planRows }, { data: recentActs }, { data: recoveryRows }, systemPrompt] = await Promise.all([
               supabase
                 .from('weekly_plans')
-                .select('plan_json')
+                .select('id, plan_json')
                 .eq('athlete_id', athlete.id)
                 .eq('week_start', thisWeek)
                 .order('version', { ascending: false })
@@ -188,11 +186,26 @@ export default function Dashboard() {
             const latestAct = recentActs?.[0]
             const hasRecovery = !!recoveryRows?.length
 
+            // Bereits für diese Plan-Version verworfen (Supabase, überlebt App-Neustart)?
+            // Eine neue Plan-Version (z.B. nach "Plan anpassen" oder Wochenreview) hat eine
+            // neue id → macht den alten Dismiss automatisch obsolet, ein neuer Konflikt kann
+            // wieder gemeldet werden.
+            const alreadyDismissed = plan
+              ? !!(await supabase
+                  .from('coach_decisions')
+                  .select('id')
+                  .eq('decision_type', 'realtime_alert_dismissed')
+                  .eq('related_plan_id', plan.id)
+                  .limit(1)
+                ).data?.length
+              : false
+
             // Auch ohne neue Aktivität prüfen, wenn eine frische Recovery-Empfehlung vorliegt,
             // die im aktuellen Plan noch nicht berücksichtigt sein könnte.
-            if (plan && (latestAct || hasRecovery)) {
+            if (plan && !alreadyDismissed && (latestAct || hasRecovery)) {
               setCurrentPlanJson(plan.plan_json as PlanJson)
               setPlanWeekStart(thisWeek)
+              setAlertPlanId(plan.id)
 
               const activitySection = latestAct
                 ? `Neueste Aktivität diese Woche:
@@ -335,6 +348,22 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt im gleichen Format wie der Origin
     }
   }
 
+  async function handleVerwerfen() {
+    if (!alert) return
+    setAlertDismissed(true) // sofortiges UI-Feedback, unabhängig vom Insert-Erfolg
+    if (!athleteId || !alertPlanId) return
+    try {
+      await supabase.from('coach_decisions').insert({
+        athlete_id:       athleteId,
+        decision_type:    'realtime_alert_dismissed',
+        decision_summary: `Echtzeit-Alert verworfen: ${alert.message}`,
+        related_plan_id:  alertPlanId,
+      })
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
   async function handleLoadMore() {
     if (!athlete) return
     setLoadingMore(true)
@@ -407,7 +436,7 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt im gleichen Format wie der Origin
                 Plan anpassen
               </button>
               <button
-                onClick={() => setAlertDismissed(true)}
+                onClick={handleVerwerfen}
                 className="text-xs text-amber-400/70 hover:text-amber-300 px-2 py-1.5 transition-colors"
               >
                 Verwerfen
