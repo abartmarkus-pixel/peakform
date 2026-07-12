@@ -93,6 +93,7 @@ export default function Chat() {
         .from('chat_messages')
         .select('*')
         .eq('thread_id', threadId)
+        .eq('athlete_id', a.id)
         .order('created_at', { ascending: true })
         .limit(50)
       setMessages((msgs ?? []) as ChatMessage[])
@@ -105,10 +106,12 @@ export default function Chat() {
   }, [messages, sending])
 
   async function reloadMessages() {
+    if (!athlete) return
     const { data } = await supabase
       .from('chat_messages')
       .select('*')
       .eq('thread_id', threadId)
+      .eq('athlete_id', athlete.id)
       .order('created_at', { ascending: true })
       .limit(50)
     setMessages((data ?? []) as ChatMessage[])

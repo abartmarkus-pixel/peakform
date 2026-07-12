@@ -153,11 +153,15 @@ export function calculateDynamicZ2Pace(
  * bleiben immer formelbasiert aus der 5k-PB. Die Z2-Trainingspace nutzt
  * stattdessen `dynamicZ2` (aus `calculateDynamicZ2Pace()`), sobald genug
  * echte Läufe vorliegen — sonst Fallback auf dieselbe Formel wie bisher.
+ * `best5kEstimated`: true wenn `best5kSeconds` aus `estimateBest5kFromActivities()`
+ * stammt (keine eigene 5k-PB hinterlegt) — kennzeichnet Zielpace/Schwellenpace analog
+ * zur dynamicZ2-Kennzeichnung.
  */
 export function calculatePaceReference(
   best5kSeconds: number | null,
   targetEventKm: number,
   dynamicZ2?: { paceSecPerKm: number; basedOnRuns: number } | null,
+  best5kEstimated?: boolean,
 ): string {
   if (!best5kSeconds) return 'Noch keine 5k Bestzeit hinterlegt.'
   const pacePerKm = best5kSeconds / 5
@@ -168,11 +172,43 @@ export function calculatePaceReference(
     ? `Z2 Trainingspace:   ${formatPace(dynamicZ2.paceSecPerKm - 15)}–${formatPace(dynamicZ2.paceSecPerKm + 15)} min/km (aus deinen letzten ${dynamicZ2.basedOnRuns} Läufen berechnet, nicht aus 5k-PB geschätzt)`
     : `Z2 Trainingspace:   ${formatPace(Math.round(pacePerKm * 1.15))}–${formatPace(Math.round(pacePerKm * 1.30))} min/km (deutlich langsamer als gefühlt nötig)`
 
+  const estimateNote = best5kEstimated
+    ? ' (geschätzt aus deinen letzten Läufen, keine eigene 5k-Bestzeit hinterlegt)'
+    : ''
+
   return [
-    `Zielpace ${targetEventKm}k:    ${formatPace(Math.round(pacePerKm * 0.98))}–${formatPace(Math.round(pacePerKm * 1.05))} min/km`,
+    `Zielpace ${targetEventKm}k:    ${formatPace(Math.round(pacePerKm * 0.98))}–${formatPace(Math.round(pacePerKm * 1.05))} min/km${estimateNote}`,
     z2Line,
-    `Schwellenpace:      ${formatPace(Math.round(pacePerKm * 0.92))}–${formatPace(Math.round(pacePerKm * 0.97))} min/km`,
+    `Schwellenpace:      ${formatPace(Math.round(pacePerKm * 0.92))}–${formatPace(Math.round(pacePerKm * 0.97))} min/km${estimateNote}`,
   ].join('\n')
+}
+
+/**
+ * Schätzt eine 5k-Äquivalenzzeit aus echten Lauf-Aktivitäten (Riegel-Formel),
+ * für Athleten ohne eigene `best_5k_seconds`-Angabe. Ab 3 qualifizierenden
+ * Läufen (gleiche Mindestanzahl wie `calculateDynamicZ2Pace()`); wählt den Lauf
+ * mit der höchsten relativen Anstrengung als Referenz (höchste Ø-HF, falls
+ * vorhanden — sonst kürzeste Distanz ≥ 2 km als Anstrengungs-Proxy). Cappt auf
+ * Läufe zwischen 2 km und 25 km, um absurde Extrapolationen zu vermeiden.
+ */
+export function estimateBest5kFromActivities(
+  runningActivities: Activity[],
+): { estimatedSeconds: number; basedOnRunId: string; basedOnDate: string } | null {
+  const qualifying = runningActivities
+    .filter(a => a.distance_m && a.duration_s)
+    .filter(a => a.distance_m! / 1000 >= 2 && a.distance_m! / 1000 <= 25)
+
+  if (qualifying.length < 3) return null
+
+  const withHr = qualifying.filter(a => a.avg_hr != null)
+  const ref = withHr.length
+    ? withHr.reduce((best, a) => (a.avg_hr! > best.avg_hr! ? a : best))
+    : qualifying.reduce((best, a) => (a.distance_m! < best.distance_m! ? a : best))
+
+  const refKm = ref.distance_m! / 1000
+  const estimatedSeconds = Math.round(ref.duration_s! * Math.pow(5 / refKm, 1.06))
+
+  return { estimatedSeconds, basedOnRunId: ref.id, basedOnDate: ref.date }
 }
 
 // ── main ───────────────────────────────────────────────────────────────────
@@ -249,6 +285,7 @@ export async function buildCoachContext(
           .from('chat_messages')
           .select('role, content')
           .eq('thread_id', threadId)
+          .eq('athlete_id', athleteId)
           .order('created_at', { ascending: false })
           .limit(10)
       : Promise.resolve({ data: [] }),

@@ -1,5 +1,5 @@
 import { supabase, type Activity, type SportConfig, type EquipmentConfig, type AestheticGoals } from './supabase'
-import { calculateSeasonPhase, calculateHRZones, calculateZ2HRRange, calculatePaceReference, calculateDynamicZ2Pace } from './coachContext'
+import { calculateSeasonPhase, calculateHRZones, calculateZ2HRRange, calculatePaceReference, calculateDynamicZ2Pace, estimateBest5kFromActivities } from './coachContext'
 
 // ── format helpers (private) ───────────────────────────────────────────────
 
@@ -158,7 +158,7 @@ export async function buildCoachSystemPrompt(
       .limit(1),
     supabase
       .from('activities')
-      .select('date, distance_m, duration_s, avg_hr')
+      .select('id, date, distance_m, duration_s, avg_hr')
       .eq('athlete_id', athleteId)
       .in('type', ['Run', 'VirtualRun', 'TrailRun'])
       .order('date', { ascending: false })
@@ -190,10 +190,19 @@ export async function buildCoachSystemPrompt(
   const hrZones  = calculateHRZones(effectiveMaxHR, restingHR)
   const z2Range  = calculateZ2HRRange(effectiveMaxHR, restingHR)
   const dynamicZ2 = calculateDynamicZ2Pace((recentRuns ?? []) as Activity[], z2Range.min, z2Range.max)
+
+  // Ohne eigene 5k-PB: aus den letzten echten Läufen schätzen (Riegel-Formel),
+  // damit Zielpace/Schwellenpace auch ohne Onboarding-Angabe verfügbar sind.
+  const best5kEstimate = athlete?.best_5k_seconds
+    ? null
+    : estimateBest5kFromActivities((recentRuns ?? []) as Activity[])
+  const effectiveBest5k = athlete?.best_5k_seconds ?? best5kEstimate?.estimatedSeconds ?? null
+
   const paceRef  = calculatePaceReference(
-    athlete?.best_5k_seconds ?? null,
+    effectiveBest5k,
     primaryGoal?.distance_km ?? 8,
     dynamicZ2,
+    best5kEstimate != null,
   )
 
   const athleteName = athlete?.name ?? 'der Athlet'

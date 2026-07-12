@@ -140,6 +140,7 @@ export default function Goals() {
         .from('season_goals')
         .update(payload)
         .eq('id', editingId)
+        .eq('athlete_id', athleteId)
         .select()
         .single()
       if (data) setGoals(prev => prev.map(g => g.id === editingId ? data as SeasonGoal : g))
@@ -159,7 +160,7 @@ export default function Goals() {
   }
 
   async function handleDeactivate(id: string) {
-    await supabase.from('season_goals').update({ active: false }).eq('id', id)
+    await supabase.from('season_goals').update({ active: false }).eq('id', id).eq('athlete_id', athleteId)
     setGoals(prev => prev.filter(g => g.id !== id))
   }
 

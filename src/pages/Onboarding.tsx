@@ -203,7 +203,11 @@ export default function Onboarding() {
 
   function goNext() {
     if (!canProceed()) return
-    setCurrentStep(s => Math.min(s + 1, TOTAL_STEPS))
+    const nextStep = Math.min(currentStep + 1, TOTAL_STEPS)
+    if (nextStep === 3 && !goalSportType && sportConfigs.length === 1) {
+      setGoalSportType(SPORT_LABELS[sportConfigs[0].type] ?? sportConfigs[0].type)
+    }
+    setCurrentStep(nextStep)
   }
 
   function goBack() {
@@ -563,6 +567,9 @@ export default function Onboarding() {
                     ? <p className="text-xs text-red-400 mt-1">{best5kError}</p>
                     : <p className="text-xs text-slate-500 mt-1">Wird für Pace-Berechnungen verwendet</p>
                   }
+                  {!best5kError && !best5kInput.trim() && (
+                    <p className="text-xs text-slate-600 mt-1">Kein Problem — leer lassen, der Coach schätzt deine Pace nach den ersten Läufen automatisch.</p>
+                  )}
                 </div>
               )}
             </div>

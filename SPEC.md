@@ -14,7 +14,7 @@ PeakForm ist eine PWA (Progressive Web App) die als KI-Trainingscoach fungiert. 
 
 **Kernversprechen:** Der Coach kennt den Athleten, erinnert sich an Plan-History und Reviews, plant vorausschauend und gibt konkrete, datenbasierte Analyse-Antworten.
 
-**Zielgruppe:** Aktuell 1 Nutzer (Markus). Architektur erlaubt mehrere Nutzer über `athlete_id`-Pattern, aber es gibt weder Supabase Auth noch öffentliches Onboarding.
+**Zielgruppe:** Mehrere vertrauenswürdige Nutzer (aktuell Markus + 1 zweiter Athlet, jeweils eigenes Gerät/eigener Strava-Account). Architektur trennt Athleten über `athlete_id`-Pattern auf Anwendungsebene (siehe Kapitel 18), aber es gibt weder Supabase Auth noch öffentliches Onboarding — Zugang bleibt manuell/eingeladen.
 
 **Live URL:** peakform-wheat.vercel.app  
 **Repository:** github.com/abartmarkus-pixel/peakform (privat)  

@@ -304,7 +304,8 @@ export default function ActivityDetail() {
           .from('activities')
           .select('*')
           .eq('strava_id', Number(id))
-          .single()
+          .eq('athlete_id', athlete.id)
+          .maybeSingle()
         if (!actData) throw new Error('Activity not found')
         const act = actData as Activity
         setActivity(act)
@@ -334,13 +335,13 @@ export default function ActivityDetail() {
           act.streams_json
             ? Promise.resolve(act.streams_json)
             : fetchActivityStreams(token, Number(id)).then(async (s) => {
-                await supabase.from('activities').update({ streams_json: s }).eq('strava_id', Number(id))
+                await supabase.from('activities').update({ streams_json: s }).eq('strava_id', Number(id)).eq('athlete_id', athlete.id)
                 return s
               }),
           act.laps_json
             ? Promise.resolve(act.laps_json as unknown as StravaLap[])
             : fetchActivityLaps(token, Number(id)).then(async (l) => {
-                if (l.length > 0) await supabase.from('activities').update({ laps_json: l }).eq('strava_id', Number(id))
+                if (l.length > 0) await supabase.from('activities').update({ laps_json: l }).eq('strava_id', Number(id)).eq('athlete_id', athlete.id)
                 return l
               }).catch(() => []),
           actIsRun
@@ -349,7 +350,7 @@ export default function ActivityDetail() {
               : fetchActivityDetail(token, Number(id))
                   .then(async (d) => {
                     const sm = d.splits_metric ?? []
-                    if (sm.length > 0) await supabase.from('activities').update({ splits_metric_json: sm }).eq('strava_id', Number(id))
+                    if (sm.length > 0) await supabase.from('activities').update({ splits_metric_json: sm }).eq('strava_id', Number(id)).eq('athlete_id', athlete.id)
                     return sm
                   })
                   .catch(() => [] as StravaSplitMetric[])
@@ -360,7 +361,7 @@ export default function ActivityDetail() {
               : fetchActivityDetail(token, Number(id))
                   .then(async (d) => {
                     const desc = ('description' in d && d.description) ? String(d.description) : null
-                    if (desc) await supabase.from('activities').update({ description: desc }).eq('strava_id', Number(id))
+                    if (desc) await supabase.from('activities').update({ description: desc }).eq('strava_id', Number(id)).eq('athlete_id', athlete.id)
                     return desc
                   })
                   .catch(() => null)
@@ -399,7 +400,8 @@ export default function ActivityDetail() {
         .from('activities')
         .select('claude_analysis')
         .eq('strava_id', Number(id))
-        .single()
+        .eq('athlete_id', athleteId)
+        .maybeSingle()
       if (data?.claude_analysis) {
         setAnalysis(data.claude_analysis)
         setAwaitingBackgroundAnalysis(false)
@@ -422,7 +424,8 @@ export default function ActivityDetail() {
         .from('activities')
         .select('claude_analysis')
         .eq('strava_id', Number(id))
-        .single()
+        .eq('athlete_id', athleteId)
+        .maybeSingle()
       setAnalysis(data?.claude_analysis ?? null)
     } catch (e) {
       console.error(e)
@@ -479,6 +482,7 @@ export default function ActivityDetail() {
           .from('coach_decisions')
           .update({ decision_summary: text.slice(0, 100), reasoning: text })
           .eq('id', feedback.id)
+          .eq('athlete_id', athleteId)
         if (error) throw error
         setFeedback({ id: feedback.id, reasoning: text })
       } else {

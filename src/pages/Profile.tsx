@@ -25,11 +25,12 @@ import { CSS } from '@dnd-kit/utilities'
 import {
   supabase,
   type Athlete,
+  type Activity,
   type SportConfig,
   type EquipmentConfig,
   type AestheticGoals,
 } from '../lib/supabase'
-import { calculateSeasonPhase } from '../lib/coachContext'
+import { calculateSeasonPhase, estimateBest5kFromActivities } from '../lib/coachContext'
 import { AppHeader } from '../components/AppHeader'
 import { useFeatures } from '../lib/features'
 
@@ -256,6 +257,7 @@ export default function Profile() {
   const [weightKg,           setWeightKg]          = useState('')
   const [best5kInput,        setBest5kInput]        = useState('')
   const [best5kError,        setBest5kError]        = useState<string | null>(null)
+  const [best5kEstimate,     setBest5kEstimate]     = useState<{ estimatedSeconds: number; basedOnRunId: string; basedOnDate: string } | null>(null)
   const [trainingDays,       setTrainingDays]       = useState('')
   const [sportConfigs,       setSportConfigs]       = useState<SportConfig[]>([])
   const [focusedSport,       setFocusedSport]       = useState<string | null>(null)
@@ -321,6 +323,15 @@ export default function Profile() {
         const m = Math.floor(a.best_5k_seconds / 60)
         const s = a.best_5k_seconds % 60
         setBest5kInput(`${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`)
+      } else {
+        const { data: runs } = await supabase
+          .from('activities')
+          .select('id, date, distance_m, duration_s, avg_hr')
+          .eq('athlete_id', a.id)
+          .in('type', ['Run', 'VirtualRun', 'TrailRun'])
+          .order('date', { ascending: false })
+          .limit(30)
+        setBest5kEstimate(estimateBest5kFromActivities((runs ?? []) as Activity[]))
       }
       setFtpUpdatedAt(a.ftp_updated_at ?? null)
       setMaxHrUpdatedAt(a.max_hr_updated_at ?? null)
@@ -833,6 +844,18 @@ export default function Profile() {
                   ? <p className="text-xs text-red-400 mt-1">{best5kError}</p>
                   : <p className="text-xs text-slate-500 mt-1">Wird für Pace-Berechnungen verwendet</p>
                 }
+                {!best5kInput.trim() && !best5kError && best5kEstimate && (
+                  <button
+                    onClick={() => {
+                      const m = Math.floor(best5kEstimate.estimatedSeconds / 60)
+                      const s = best5kEstimate.estimatedSeconds % 60
+                      setBest5kInput(`${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`)
+                    }}
+                    className="block text-xs text-brand-400 hover:text-brand-300 underline mt-1 text-left"
+                  >
+                    Geschätzt aus deinen letzten Läufen: {Math.floor(best5kEstimate.estimatedSeconds / 60)}:{String(best5kEstimate.estimatedSeconds % 60).padStart(2, '0')} — übernehmen?
+                  </button>
+                )}
                 <UpdatedAt updatedAt={best5kUpdatedAt} staleDays={90} />
               </div>
             )}
