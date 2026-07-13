@@ -301,6 +301,7 @@ type DayCardProps = {
   onOpenMenu?: (day: string) => void
   dragAttributes?: DraggableAttributes
   dragListeners?: DraggableSyntheticListeners
+  dragDisabled?: boolean
 }
 
 // Long-Press (800ms, 8px Bewegungstoleranz) auf die Karte öffnet das Kontextmenü.
@@ -312,7 +313,7 @@ type DayCardProps = {
 const LONG_PRESS_DURATION_MS = 800
 const LONG_PRESS_TOLERANCE_PX = 8
 
-function DayCard({ day, idx, monday, plan, match, onPress, onOpenMenu, dragAttributes, dragListeners }: DayCardProps) {
+function DayCard({ day, idx, monday, plan, match, onPress, onOpenMenu, dragAttributes, dragListeners, dragDisabled }: DayCardProps) {
   const isRest = !plan || REST_KEYWORDS.some(k => plan.type.toLowerCase().includes(k))
   const isKraft = plan ? SPORT_KEYWORDS.strength.some(k => plan.type.toLowerCase().includes(k)) : false
   const workoutLabel = isKraft && plan?.description
@@ -398,7 +399,14 @@ function DayCard({ day, idx, monday, plan, match, onPress, onOpenMenu, dragAttri
               +1
             </span>
           )}
-          {dragAttributes && dragListeners && (
+          {dragDisabled ? (
+            <span
+              className="p-1.5 -m-1.5 text-slate-500 opacity-40 cursor-not-allowed"
+              aria-hidden="true"
+            >
+              <IconGrip size={14} />
+            </span>
+          ) : dragAttributes && dragListeners && (
             <button
               type="button"
               {...dragAttributes}
@@ -477,8 +485,8 @@ function DayCard({ day, idx, monday, plan, match, onPress, onOpenMenu, dragAttri
 // dragListeners werden dorthin durchgereicht) — der Rest der Karte bleibt normal
 // scrollbar/tappbar, kein touch-none auf dem Wrapper.
 function SortableDayCard(props: DayCardProps) {
-  const { day } = props
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: day })
+  const { day, dragDisabled } = props
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: day, disabled: dragDisabled })
   return (
     <div
       ref={setNodeRef}
@@ -489,7 +497,7 @@ function SortableDayCard(props: DayCardProps) {
         zIndex: isDragging ? 10 : undefined,
       }}
     >
-      <DayCard {...props} dragAttributes={attributes} dragListeners={listeners} />
+      <DayCard {...props} dragAttributes={dragDisabled ? undefined : attributes} dragListeners={dragDisabled ? undefined : listeners} />
     </div>
   )
 }
@@ -1280,7 +1288,8 @@ Antworte AUSSCHLIESSLICH mit diesem JSON (kein Text davor/danach, kein Markdown)
                     plan={dayPlan}
                     match={match}
                     onPress={match?.activity ? () => navigate(`/activity/${match.activity!.strava_id}`) : undefined}
-                    onOpenMenu={handleOpenMenu}
+                    onOpenMenu={isPastWeek ? undefined : handleOpenMenu}
+                    dragDisabled={isPastWeek}
                   />
                 )
               })}
