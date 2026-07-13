@@ -342,7 +342,7 @@ created_at           TIMESTAMPTZ
 ### chat_messages
 ```sql
 id          UUID PRIMARY KEY
-thread_id   UUID               -- aus localStorage (coach_thread_id), pro Gesprächsfaden
+thread_id   UUID               -- = athlete_id; ein persistenter 'global'-Thread pro Athlet
 athlete_id  UUID → athletes.id
 role        TEXT               -- 'user' | 'assistant'
 content     TEXT
@@ -692,16 +692,16 @@ Darunter, außerhalb des Akkordeons: rot abgesetzte **„Konto löschen"**-Sekti
 → Eigener Abschnitt 10.
 
 ### Chat.tsx
-- Thread-ID aus `localStorage` (`coach_thread_id`); `crypto.randomUUID()` beim ersten Besuch
-- Lädt letzte 50 Messages aus `chat_messages` für aktuellen Thread
+- Thread-ID = `athlete.id` (aus Supabase geladen, nicht `localStorage`) — ein einziger persistenter `chat_type='global'`-Thread pro Athlet, überlebt PWA-Reinstalls (iOS leert bei Icon-Entfernen/Neuhinzufügen den `localStorage`; eine dortige Zufalls-ID hätte den Chat-Verlauf unerreichbar gemacht)
+- Lädt letzte 50 Messages aus `chat_messages` für `thread_id = athlete.id`
 - Supabase-first Flow:
   1. User-Message → INSERT in `chat_messages`
   2. Reload aus DB
-  3. `buildCoachContext(athleteId, threadId)` aufrufen
+  3. `buildCoachContext(athleteId, athleteId)` aufrufen
   4. Claude-Call via `/api/analyse` (max_tokens: 1024)
   5. Assistant-Response → INSERT in `chat_messages`
   6. Reload aus DB
-- "Neues Gespräch": neue UUID in localStorage, leere Messages
+- "Neues Gespräch": leert nur die lokale Ansicht (kein neuer Thread mehr) — Verlauf bleibt in Supabase und erscheint nach Reload wieder
 - Textarea: auto-resize bis max 128px; Enter = senden, Shift+Enter = neue Zeile
 - Typing-Indicator (3 springende Dots) während API-Call
 
@@ -1266,10 +1266,10 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 
 **Coach-Chat:**
 - Supabase-persistente Messages (chat_messages)
-- Thread-ID aus localStorage
+- Thread-ID = `athlete.id` (13. Juli 2026, vorher `localStorage`-UUID; Fix nach Chat-Verlust bei PWA-Reinstall auf iOS — Icon entfernen/neu hinzufügen leert `localStorage`, was eine neue Zufalls-Thread-ID und dadurch unerreichbaren Chat-Verlauf erzeugte; bestehende verwaiste Threads wurden per einmaliger Migration pro Athlet auf `thread_id = athlete_id` zusammengeführt)
 - buildCoachContext() + COACH_SYSTEM_PROMPT bei jedem Message
 - Typing-Indicator
-- Neue-Gespräch-Button
+- "Neu"-Button leert nur die lokale Ansicht (kein neuer Thread mehr)
 - Auto-resize Textarea
 
 **Coach-System (Kapitel 18):**
