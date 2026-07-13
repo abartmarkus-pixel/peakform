@@ -12,6 +12,7 @@ import Onboarding from './pages/Onboarding'
 import BottomNav from './components/BottomNav'
 import { restoreSessionFromSupabase } from './lib/strava'
 import { supabase } from './lib/supabase'
+import { useTabSwipeNavigation } from './lib/useTabSwipeNavigation'
 
 const NO_NAV_PATHS = ['/', '/auth/callback', '/onboarding']
 const PUBLIC_PATHS = ['/', '/auth/callback']
@@ -20,6 +21,8 @@ function Layout() {
   const { pathname } = useLocation()
   const navigate = useNavigate()
   const showNav = !NO_NAV_PATHS.includes(pathname)
+
+  useTabSwipeNavigation()
 
   const isLoggedIn =
     !!localStorage.getItem('athlete_strava_id') ||
