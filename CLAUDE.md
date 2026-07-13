@@ -98,6 +98,9 @@ peakform/
 │   │                       #         /profile | /goals | /plan | /chat
 │   │                       # Session-Guard in Layout: localStorage → sessionStorage → restoreSessionFromSupabase()
 │   │                       # Loading-Splash "PeakForm wird geladen…" während Supabase-Check
+│   │                       # Layout: useTabSwipeNavigation() — Swipe-Geste zwischen BottomNav-Tabs
+│   ├── components/
+│   │   └── BottomNav.tsx   # 5-Tab-Navigation (Home|Plan|Coach|Ziele|Profil); Tabs aus useVisibleTabs()
 │   ├── pages/
 │   │   ├── Home.tsx        # Strava-Connect-Button; Auto-Redirect zu /dashboard (prüft localStorage + sessionStorage)
 │   │   ├── AuthCallback.tsx # OAuth Code → /api/strava-token → Supabase upsert → localStorage + sessionStorage
@@ -117,8 +120,12 @@ peakform/
 │   │   ├── coachContext.ts # buildCoachContext(): 8 Abschnitte inkl. [HARTE TRAININGS-CONSTRAINTS]
 │   │   │                   # buildSpecialistContext(athleteId, sport): sportart-spezifische Historien
 │   │   │                   # calculateSeasonPhase(), calculateHRZones(), calculatePaceReference() (exportiert)
-│   │   └── coachPrompt.ts  # buildCoachSystemPrompt(athleteId): Promise<string> — dynamisch aus DB
-│   │                       # LAUF_COACH_PROMPT | RAD_COACH_PROMPT | KRAFT_COACH_PROMPT (statisch)
+│   │   ├── coachPrompt.ts  # buildCoachSystemPrompt(athleteId): Promise<string> — dynamisch aus DB
+│   │   │                   # LAUF_COACH_PROMPT | RAD_COACH_PROMPT | KRAFT_COACH_PROMPT (statisch)
+│   │   ├── useVisibleTabs.ts        # useVisibleTabs(): TabDef[] — gefilterte/geordnete BottomNav-Tab-Liste
+│   │   │                   # (Route/Icon/Label/Feature-Gate); einzige Quelle der Wahrheit für BottomNav.tsx + useTabSwipeNavigation.ts
+│   │   └── useTabSwipeNavigation.ts # useTabSwipeNavigation(): natives touchstart/touchend-Swipe zwischen Tabs
+│   │                       # aus useVisibleTabs(); >60px + |Δx|>2×|Δy|, kein Wrap-Around, nur auf den 5 Haupt-Tabs aktiv
 │   └── vite-env.d.ts       # Env-Variable-Types
 ├── vite.config.ts          # PWA-Config + /api/analyse + /api/strava-token Middleware für lokales Dev
 ├── vercel.json             # SPA Rewrites + SW Cache-Header + Build-Config
@@ -159,6 +166,10 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 - [x] Aktivitäts-Detail: Stats-Grid, Charts, Rundentabelle, Claude-Analyse
 - [x] Aktivitäts-Detail: "Zurück"-Button nutzt `navigate(-1)` (echtes History-Back) statt hartem Redirect zu `/dashboard`; Fallback auf `/dashboard` nur wenn keine SPA-eigene History existiert (`window.history.state?.idx > 0`-Guard, z. B. bei Deep-Links)
 - [x] Markdown-Renderer
+
+### Navigation
+- [x] BottomNav: 5 Tabs (Home|Plan|Coach|Ziele|Profil), Tab-Reihenfolge/-Sichtbarkeit aus `useVisibleTabs()` (einzige Quelle der Wahrheit, feature-flag-gefiltert)
+- [x] Swipe-Navigation zwischen BottomNav-Tabs: `useTabSwipeNavigation()` (nativ, kein Package) im Layout-Wrapper registriert; aktiv nur wenn aktueller Pfad einem der 5 Haupt-Tabs entspricht (sonst inert, z. B. `/activity/:id`, `/onboarding`); Schwelle horizontale Distanz >60px UND |Δx|>2×|Δy|; kein Wrap-Around an den Rändern; `DayCard` in WeeklyPlan.tsx trägt `data-swipe-ignore`, damit Gesten auf einer Karte/deren Drag-Griff die Swipe-Erkennung nicht auslösen (Kollisionsvermeidung mit dnd-kit-Drag + Long-Press-Kontextmenü)
 
 ### Krafttraining-Detailansicht (WeightTraining)
 - [x] Hevy → Strava description Parser (`parseHevyDescription`)
