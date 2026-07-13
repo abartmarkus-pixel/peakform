@@ -303,11 +303,13 @@ type DayCardProps = {
   dragListeners?: DraggableSyntheticListeners
 }
 
-// Long-Press (500ms, 8px Bewegungstoleranz) auf die Karte öffnet das Kontextmenü.
+// Long-Press (800ms, 8px Bewegungstoleranz) auf die Karte öffnet das Kontextmenü.
 // Reagiert nur außerhalb des Drag-Griffs (der hat eigene, separate Listener), daher
 // keine Kollision mit dem dnd-kit-Sensor. Bewegung über die Toleranz hinaus bricht
 // den Timer ab, damit normales Scrollen nicht als Long-Press missverstanden wird.
-const LONG_PRESS_MS = 500
+// 800ms statt ursprünglich 500ms, da kurzes Antippen/Halten beim Greifen des
+// Drag-Griffs oder beim Scrollen sonst zu leicht als Long-Press erkannt wurde.
+const LONG_PRESS_DURATION_MS = 800
 const LONG_PRESS_TOLERANCE_PX = 8
 
 function DayCard({ day, idx, monday, plan, match, onPress, onOpenMenu, dragAttributes, dragListeners }: DayCardProps) {
@@ -339,7 +341,7 @@ function DayCard({ day, idx, monday, plan, match, onPress, onOpenMenu, dragAttri
     pressTimer.current = setTimeout(() => {
       longPressFired.current = true
       onOpenMenu?.(day)
-    }, LONG_PRESS_MS)
+    }, LONG_PRESS_DURATION_MS)
   }
 
   function handlePointerMove(e: React.PointerEvent) {
