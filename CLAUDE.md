@@ -217,7 +217,8 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 
 ### Chat
 - [x] Supabase-persistente Messages, Supabase-first Flow
-- [x] Thread-ID aus localStorage, Typing-Indicator, Auto-resize Textarea
+- [x] Thread-ID = `athlete.id` (nicht localStorage) — ein einziger persistenter `chat_type='global'`-Thread pro Athlet, überlebt PWA-Reinstalls (iOS "Icon entfernen + neu hinzufügen" leert `localStorage`, was vorher zu einer neuen Zufalls-Thread-ID und "verlorenem" Chat-Verlauf führte); "Neu"-Button in Chat.tsx leert nur die lokale Ansicht (kein neuer Thread), Verlauf bleibt in Supabase und erscheint nach Reload wieder
+- [x] Typing-Indicator, Auto-resize Textarea
 
 ### Sicherheit
 - [x] STRAVA_CLIENT_SECRET und ANTHROPIC_API_KEY nie im Browser-Bundle

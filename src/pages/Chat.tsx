@@ -9,15 +9,6 @@ import { useFeatures } from '../lib/features'
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
-function getOrCreateThreadId(): string {
-  let tid = localStorage.getItem('coach_thread_id')
-  if (!tid) {
-    tid = crypto.randomUUID()
-    localStorage.setItem('coach_thread_id', tid)
-  }
-  return tid
-}
-
 // Minimal renderer: newlines + **bold**
 function MessageContent({ text }: { text: string }) {
   const lines = text.split('\n')
@@ -60,21 +51,14 @@ export default function Chat() {
   const navigate = useNavigate()
   const [athlete, setAthlete]     = useState<Athlete | null>(null)
   const [messages, setMessages]   = useState<ChatMessage[]>([])
-  const [threadId, setThreadId]   = useState<string>('')
   const [input, setInput]         = useState('')
   const [sending, setSending]     = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  // init thread id
+  // load athlete + messages (thread_id === athlete.id: one persistent global thread per athlete)
   useEffect(() => {
-    setThreadId(getOrCreateThreadId())
-  }, [])
-
-  // load athlete + messages whenever threadId changes
-  useEffect(() => {
-    if (!threadId) return
     const stravaId = localStorage.getItem('athlete_strava_id')
     if (!stravaId) { navigate('/'); return }
 
@@ -92,13 +76,13 @@ export default function Chat() {
       const { data: msgs } = await supabase
         .from('chat_messages')
         .select('*')
-        .eq('thread_id', threadId)
+        .eq('thread_id', a.id)
         .eq('athlete_id', a.id)
         .order('created_at', { ascending: true })
         .limit(50)
       setMessages((msgs ?? []) as ChatMessage[])
     })()
-  }, [threadId, navigate])
+  }, [navigate])
 
   // auto-scroll on new messages
   useEffect(() => {
@@ -110,7 +94,7 @@ export default function Chat() {
     const { data } = await supabase
       .from('chat_messages')
       .select('*')
-      .eq('thread_id', threadId)
+      .eq('thread_id', athlete.id)
       .eq('athlete_id', athlete.id)
       .order('created_at', { ascending: true })
       .limit(50)
@@ -118,7 +102,7 @@ export default function Chat() {
   }
 
   async function send() {
-    if (!input.trim() || !athlete || !threadId || sending) return
+    if (!input.trim() || !athlete || sending) return
     const content = input.trim()
     setInput('')
     setSendError(null)
@@ -132,7 +116,7 @@ export default function Chat() {
     try {
       // 1. Persist user message — Supabase is source of truth
       await supabase.from('chat_messages').insert({
-        thread_id:  threadId,
+        thread_id:  athlete.id,
         athlete_id: athlete.id,
         role:       'user',
         content,
@@ -144,7 +128,7 @@ export default function Chat() {
 
       // 3. Build full context + dynamic system prompt in parallel
       const [context, systemPrompt] = await Promise.all([
-        buildCoachContext(athlete.id, threadId),
+        buildCoachContext(athlete.id, athlete.id),
         buildCoachSystemPrompt(athlete.id),
       ])
 
@@ -165,7 +149,7 @@ Antworte auf die letzte Nachricht des Athleten. Beziehe dich auf seine spezifisc
 
       // 5. Persist assistant response before displaying
       await supabase.from('chat_messages').insert({
-        thread_id:  threadId,
+        thread_id:  athlete.id,
         athlete_id: athlete.id,
         role:       'assistant',
         content:    text,
@@ -195,10 +179,9 @@ Antworte auf die letzte Nachricht des Athleten. Beziehe dich auf seine spezifisc
     t.style.height = Math.min(t.scrollHeight, 128) + 'px'
   }
 
+  // Clears only the local view — history is tied to athlete.id, not a disposable
+  // thread, so it reappears on next reload rather than being orphaned.
   function startNewThread() {
-    const tid = crypto.randomUUID()
-    localStorage.setItem('coach_thread_id', tid)
-    setThreadId(tid)
     setMessages([])
     setInput('')
     setSendError(null)
