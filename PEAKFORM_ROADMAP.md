@@ -85,23 +85,27 @@ Ursprünglicher Bug gefunden und behoben: coach_persona.style wurde nur als uner
 ### ✅ Roast Me Freischalt-Logik für neue User (implementiert 5.7.2026)
 Neue Athleten müssen seit dem Onboarding (athletes.created_at) mindestens 3 eigene Aktivitäten synchronisiert haben, bevor Roast Me nutzbar wird — verhindert dass automatisch mitimportierte historische Alt-Aktivitäten die Freischaltung sofort auslösen. Button bleibt sichtbar aber grau, Klick zeigt Toast mit exakter Restanzahl. Bestandsuser (Markus) unbetroffen, da Schwelle längst erreicht.
 
-### 🟡 Push Notifications — Prompt bereit, Umsetzung ausstehend (5.7.2026)
+### ✅ Push Notifications — tägliche Erinnerung implementiert (20.7.2026)
 Konkreter Bedarf (nicht mehr nur Idee): tägliche Erinnerung um 08:00 Uhr an die geplante Aktivität des Tages, perspektivisch zusätzlich eine Bestätigung wenn eine Aktivität von Strava synchronisiert wurde. Relevant geworden durch echten zweiten Nutzer (reine Läuferin) — Erinnerung ist für sie der naheliegendste Mehrwert.
 
-Technischer Fahrplan (vollständig durchdacht, Prompt liegt fertig vor):
-1. VAPID-Schlüsselpaar generieren (npx web-push generate-vapid-keys), als Vercel Env Vars hinterlegen
-2. vite-plugin-pwa von generateSW auf injectManifest umstellen (Voraussetzung für eigenen push-Event-Handler im Service Worker, src/sw.ts)
-3. Neue Tabelle push_subscriptions (athlete_id, endpoint, p256dh, auth) — ein Athlet kann mehrere Geräte haben
-4. Profile.tsx: Button "Erinnerungen aktivieren" (Notification.requestPermission() → pushManager.subscribe() → Speichern via api/push-subscribe.ts)
-5. api/send-daily-reminder.ts: liest für jeden Athleten mit aktiver Subscription den heutigen Wochentag aus dem aktuellen Wochenplan, sendet bei Nicht-Ruhetag eine Push via web-push-Library; entfernt abgelaufene Subscriptions (HTTP 410) automatisch
-6. Vercel Cron (vercel.json, schedule "0 6 * * *" = 08:00 CEST/07:00 CET — KEINE automatische DST-Anpassung in dieser ersten Version, bekannte Einschränkung)
-7. CRON_SECRET als Vercel Env Var zum Schutz des Cron-Endpoints vor Fremdzugriff
+Wie geplant umgesetzt, mit einer Abweichung vom ursprünglichen Fahrplan: kein separates `api/push-subscribe.ts` — die App schreibt ohnehin überall direkt vom Frontend per `supabase-js` in die DB (App-Level-Datenschutz statt wirksamer RLS, siehe unten), eine eigene Serverless Function dafür wäre unnötige Abstraktion gewesen. `enablePushNotifications()`/`disablePushNotifications()` (`src/lib/push.ts`) schreiben/löschen die Subscription direkt in `push_subscriptions`.
 
-Plattform-Realität: Android zuverlässig (Chrome nativ), iOS nur zuverlässig wenn PWA zum Home-Bildschirm hinzugefügt wurde (gleiche Einschränkung wie beim bekannten iOS-Service-Worker-Cache-Thema) — akzeptiert als Kompromiss, "so gut wie möglich" auf beiden Plattformen.
+Umgesetzt:
+1. VAPID-Schlüsselpaar + CRON_SECRET generiert, als Vercel Env Vars zu hinterlegen (VITE_VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, CRON_SECRET, optional VAPID_SUBJECT)
+2. `vite-plugin-pwa` von `generateSW` auf `injectManifest` umgestellt — `src/sw.ts` übernimmt Precaching/skipWaiting/clientsClaim/cleanupOutdatedCaches jetzt manuell (vorher automatisch generiert), plus eigener `push`/`notificationclick`-Handler. `sw.ts` bewusst von `tsconfig.json` ausgeschlossen (WebWorker- vs. DOM-Lib-Konflikt), Build separat verifiziert (`dist/sw.js` enthält beide Handler)
+3. Tabelle `push_subscriptions` (athlete_id, endpoint UNIQUE, p256dh, auth) — ein Athlet kann mehrere Geräte haben
+4. `Profile.tsx`: eigene Sektion "Benachrichtigungen" mit Button "Erinnerungen aktivieren" — zeigt je nach `getPushSupport()`-Status unterschiedliche UI (aktivierbar / iOS-Installationsanleitung / blockiert), damit der Button nie lautlos wirkungslos ist
+5. `api/send-daily-reminder.ts`: liest für jeden Athleten mit Subscription den heutigen Wochentag aus dem aktuellen Wochenplan (neueste Version), sendet bei Nicht-Ruhetag eine Push via `web-push`; entfernt Subscriptions bei HTTP 404/410 automatisch. "Heute" und Wochenstart werden explizit über `Intl.DateTimeFormat(..., { timeZone: 'Europe/Vienna' })` berechnet, nicht über `new Date().getDay()` — die Vercel-Cron-Runtime läuft in UTC, ein naiver Ansatz hätte denselben UTC-Slice-Bug-Typ reproduziert wie mehrfach in diesem Dokument
+6. Vercel Cron (`vercel.json`, `"0 6 * * *"` = 08:00 CEST/07:00 CET — keine automatische DST-Anpassung, bekannte Einschränkung dieser ersten Version)
+7. `CRON_SECRET` schützt den Endpoint (Vercel setzt den `Authorization`-Header automatisch, wenn die Env Var diesen exakten Namen trägt)
 
-Bewusst nur EIN erster Trigger (tägliche 08:00-Erinnerung) in der ersten Umsetzungsrunde — Sync-Bestätigungs-Push folgt separat danach, nicht im selben Schritt.
+Zusätzlich zum ursprünglichen Plan: `syncPushSubscription()` läuft still bei jedem App-Start (App.tsx Layout, sobald Permission bereits erteilt ist) und fängt ein bekanntes iOS-Verhalten ab — Push-Subscriptions können nach längerer Inaktivität serverseitig ungültig werden, ohne dass Permission-State oder App etwas davon merken.
 
-Aufwand: Mittel (mehrere neue bewegliche Teile: Service Worker, Serverless Functions, Cron, neue DB-Tabelle) — aber vollständig spezifiziert, sobald Zeit vorhanden ist direkt umsetzbar ohne weitere Konzeptarbeit.
+Plattform-Realität (unverändert wie geplant): Android zuverlässig (Chrome nativ), iOS erfordert iOS 16.4+ UND zum Home-Bildschirm hinzugefügte PWA (`display-mode: standalone`) — im normalen Safari-Tab technisch nicht möglich, `getPushSupport()` erkennt das und zeigt in Profile.tsx eine Anleitung statt eines toten Buttons.
+
+Noch offen: echter End-to-End-Test auf physischem iPhone/Android (Homescreen installieren → Permission erlauben → Push tatsächlich empfangen) — lässt sich nicht vollständig im Dev-Setup simulieren. Sync-Bestätigungs-Push (bei neu importierter Strava-Aktivität) bewusst nicht in dieser ersten Runde.
+
+Aufwand: Mittel — umgesetzt.
 
 ### ✅ Wochenreview und Plan-Generierung entkoppelt (6.7.2026)
 War: startReview() erzeugte immer BEIDES gleichzeitig — Bewertung der abgelaufenen Woche UND einen kompletten neuen Plan für die Folgewoche. Jetzt: Review ist reine Bewertungs-/Journal-Funktion (nur `{review: string}`, keine Plan-Constraints mehr im Prompt), review_notes/review_user_input landen als neue Version der BEWERTETEN Woche selbst (nicht mehr auf der Folgewoche) — löst auch das vorherige "wo gehört das Review eigentlich hin"-Verwirrung. "Plan generieren" ist danach ein komplett eigenständiger, manuell ausgelöster Button für die im Navigator angezeigte Woche, nie mehr implizit durch ein Review ausgelöst.
@@ -334,7 +338,7 @@ Aufwand: Mittel
 | ✅ recovery_checked Cache-Fix | Behoben | — | 8.7.2026 |
 | ✅ Manuelles Verschieben von Trainingstagen | Umgesetzt | — | 4.7.2026 |
 | ✅ Roast Me Freischalt-Logik | Umgesetzt | — | 5.7.2026 |
-| Push Notifications | Hoch | Mittel | 🟡 Prompt bereit |
+| ✅ Push Notifications | Umgesetzt | — | 20.7.2026 |
 | ✅ OAuth CSRF-Schutz | Behoben | — | 1.7.2026 |
 | ✅ Multi-User Session-Restore | Behoben | — | 1.7.2026 |
 | Supabase Auth (vollständiger Datenschutz) | Sicherheit | Mittel | 🟡 Vor öffentlichem Onboarding |

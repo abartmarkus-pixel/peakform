@@ -21,6 +21,14 @@ export default defineConfig(({ mode }) => {
       react(),
       VitePWA({
         registerType: 'autoUpdate',
+        strategies: 'injectManifest',
+        srcDir: 'src',
+        filename: 'sw.ts',
+        injectManifest: {
+          // Icons/Manifest liegen unter der 2 MB-Standardgrenze, aber die
+          // API-Bundles wachsen — Reserve statt spätem Build-Abbruch.
+          maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+        },
         includeAssets: [
           'favicon-16.png',
           'favicon-32.png',

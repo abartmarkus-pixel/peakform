@@ -34,6 +34,8 @@ import { calculateSeasonPhase, estimateBest5kFromActivities } from '../lib/coach
 import { deauthorizeStrava } from '../lib/strava'
 import { AppHeader } from '../components/AppHeader'
 import { useFeatures } from '../lib/features'
+import { getPushSupport, enablePushNotifications, disablePushNotifications } from '../lib/push'
+import { IconBell } from '../lib/icons'
 
 // ── constants ──────────────────────────────────────────────────────────────
 
@@ -274,6 +276,10 @@ export default function Profile() {
   const [deleteState, setDeleteState] = useState<'closed' | 'confirm' | 'deleting' | 'error' | 'strava-warning'>('closed')
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
+  // push notifications
+  const [pushState, setPushState] = useState<'checking' | 'unsupported' | 'ios-needs-install' | 'off' | 'on' | 'denied'>('checking')
+  const [pushBusy, setPushBusy] = useState(false)
+
   // _updated_at state
   const [ftpUpdatedAt,    setFtpUpdatedAt]    = useState<string | null>(null)
   const [maxHrUpdatedAt,  setMaxHrUpdatedAt]  = useState<string | null>(null)
@@ -491,6 +497,39 @@ export default function Profile() {
     setMaxHrUpdatedAt(now)
     setSaveState('saved')
     setTimeout(() => setSaveState('idle'), 2000)
+  }
+
+  // ── push notifications ──────────────────────────────────────────────────
+
+  useEffect(() => {
+    (async () => {
+      const support = getPushSupport()
+      if (support !== 'ready') { setPushState(support); return }
+      if (Notification.permission === 'denied') { setPushState('denied'); return }
+      try {
+        const registration = await navigator.serviceWorker.ready
+        const sub = await registration.pushManager.getSubscription()
+        setPushState(sub ? 'on' : 'off')
+      } catch {
+        setPushState('off')
+      }
+    })()
+  }, [])
+
+  async function handleEnablePush() {
+    if (!athlete) return
+    setPushBusy(true)
+    const result = await enablePushNotifications(athlete.id)
+    setPushBusy(false)
+    setPushState(result === 'granted' ? 'on' : result === 'denied' ? 'denied' : 'unsupported')
+  }
+
+  async function handleDisablePush() {
+    if (!athlete) return
+    setPushBusy(true)
+    await disablePushNotifications(athlete.id)
+    setPushBusy(false)
+    setPushState('off')
   }
 
   // ── account deletion ────────────────────────────────────────────────────
@@ -1107,7 +1146,54 @@ export default function Profile() {
           </AccordionSection>
         )}
 
-        {/* ── 7. KONTO LÖSCHEN ───────────────────────────────── */}
+        {/* ── 7. BENACHRICHTIGUNGEN ──────────────────────────── */}
+        {pushState !== 'unsupported' && (
+          <div className="mt-2 pt-5 border-t border-slate-700/50">
+            <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+              <IconBell size={12} /> Benachrichtigungen
+            </h2>
+
+            {pushState === 'ios-needs-install' && (
+              <p className="text-xs text-slate-500">
+                Erinnerungen sind auf dem iPhone nur für installierte Apps möglich. Tippe in Safari auf "Teilen" → "Zum Home-Bildschirm", öffne PeakForm von dort neu und aktiviere die Erinnerungen anschließend hier.
+              </p>
+            )}
+
+            {pushState === 'denied' && (
+              <p className="text-xs text-amber-400/80">
+                Benachrichtigungen sind für PeakForm blockiert. Erlaube sie in den Browser- bzw. System-Einstellungen, um Erinnerungen zu erhalten.
+              </p>
+            )}
+
+            {pushState === 'off' && (
+              <>
+                <p className="text-xs text-slate-500 mb-3">Tägliche Erinnerung um 8 Uhr an die geplante Einheit des Tages.</p>
+                <button
+                  onClick={handleEnablePush}
+                  disabled={pushBusy}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium text-brand-400 bg-brand-500/10 hover:bg-brand-500/20 ring-1 ring-brand-900/50 disabled:opacity-50 transition-colors"
+                >
+                  <IconBell size={13} /> {pushBusy ? 'Aktiviere…' : 'Erinnerungen aktivieren'}
+                </button>
+              </>
+            )}
+
+            {pushState === 'on' && (
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-brand-400">✓ Erinnerungen aktiviert</p>
+                <button
+                  onClick={handleDisablePush}
+                  disabled={pushBusy}
+                  className="text-xs text-slate-500 hover:text-slate-300 underline disabled:opacity-50"
+                >
+                  Deaktivieren
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── 8. KONTO LÖSCHEN ───────────────────────────────── */}
         <div className="mt-6 pt-5 border-t border-red-900/40">
           <h2 className="text-xs font-semibold text-red-400 uppercase tracking-wider mb-2">Konto löschen</h2>
           <p className="text-xs text-slate-500 mb-3">

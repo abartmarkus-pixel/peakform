@@ -13,6 +13,7 @@ import BottomNav from './components/BottomNav'
 import { restoreSessionFromSupabase } from './lib/strava'
 import { supabase } from './lib/supabase'
 import { useTabSwipeNavigation } from './lib/useTabSwipeNavigation'
+import { syncPushSubscription } from './lib/push'
 
 const NO_NAV_PATHS = ['/', '/auth/callback', '/onboarding']
 const PUBLIC_PATHS = ['/', '/auth/callback']
@@ -57,13 +58,17 @@ function Layout() {
 
       const { data } = await supabase
         .from('athletes')
-        .select('onboarding_completed')
+        .select('id, onboarding_completed')
         .eq('strava_athlete_id', Number(stravaId))
         .single()
 
       if (data?.onboarding_completed === false) {
         navigate('/onboarding', { replace: true })
       }
+
+      // Fängt das bekannte iOS-Problem ab, bei dem Push-Subscriptions nach
+      // Inaktivität serverseitig verfallen, ohne dass die App es merkt.
+      if (data?.id) void syncPushSubscription(data.id)
     })()
 
     if (!isLoggedIn) return

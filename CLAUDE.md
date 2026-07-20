@@ -81,6 +81,11 @@ coach_decisions (id uuid PK, athlete_id uuid FK→athletes, decision_type text,
 chat_messages (id uuid PK, thread_id uuid, athlete_id uuid FK→athletes,
                role text CHECK('user','assistant'), content text,
                chat_type text, activity_id uuid, created_at timestamptz)
+
+push_subscriptions (id uuid PK, athlete_id uuid FK→athletes ON DELETE CASCADE,
+                    endpoint text UNIQUE,  ← ein Athlet kann mehrere Geräte/Subscriptions haben
+                    p256dh text, auth text,  ← Push-Verschlüsselungskeys aus PushSubscription.toJSON()
+                    created_at timestamptz)
 ```
 RLS aktiv, aktuell offene Policy (für persönlichen Einsatz ok).
 
@@ -91,8 +96,11 @@ peakform/
 │   ├── analyse.ts          # Vercel Serverless Function → Claude API Proxy
 │   │                       # Params: prompt, max_tokens?, system?
 │   │                       # Limits: 80k Zeichen, max_tokens Cap 4096, generische Fehler
-│   └── strava-token.ts     # Vercel Serverless Function → Strava OAuth Token Exchange/Refresh
-│                           # (STRAVA_CLIENT_SECRET serverseitig, nie im Browser-Bundle)
+│   ├── strava-token.ts     # Vercel Serverless Function → Strava OAuth Token Exchange/Refresh
+│   │                       # (STRAVA_CLIENT_SECRET serverseitig, nie im Browser-Bundle)
+│   └── send-daily-reminder.ts # Vercel Cron (0 6 * * * = 08:00 CEST, keine DST-Anpassung) → CRON_SECRET-geschützt
+│                           # Berechnet "heute"/Wochenstart explizit in Europe/Vienna (Prozess-TZ ist UTC!),
+│                           # sendet Push via web-push wenn Tag kein Ruhetag ist, räumt 404/410-Subscriptions auf
 ├── src/
 │   ├── App.tsx             # Router: / | /auth/callback | /dashboard | /activity/:id
 │   │                       #         /profile | /goals | /plan | /chat
@@ -124,11 +132,18 @@ peakform/
 │   │   │                   # LAUF_COACH_PROMPT | RAD_COACH_PROMPT | KRAFT_COACH_PROMPT (statisch)
 │   │   ├── useVisibleTabs.ts        # useVisibleTabs(): TabDef[] — gefilterte/geordnete BottomNav-Tab-Liste
 │   │   │                   # (Route/Icon/Label/Feature-Gate); einzige Quelle der Wahrheit für BottomNav.tsx + useTabSwipeNavigation.ts
-│   │   └── useTabSwipeNavigation.ts # useTabSwipeNavigation(): natives touchstart/touchend-Swipe zwischen Tabs
-│   │                       # aus useVisibleTabs(); >60px + |Δx|>2×|Δy|, kein Wrap-Around, nur auf den 5 Haupt-Tabs aktiv
+│   │   ├── useTabSwipeNavigation.ts # useTabSwipeNavigation(): natives touchstart/touchend-Swipe zwischen Tabs
+│   │   │                   # aus useVisibleTabs(); >60px + |Δx|>2×|Δy|, kein Wrap-Around, nur auf den 5 Haupt-Tabs aktiv
+│   │   └── push.ts         # getPushSupport() (Feature-Detection inkl. iOS-Standalone-Check), enablePushNotifications()/
+│   │                       # disablePushNotifications(), syncPushSubscription() — stiller Re-Subscribe bei jedem
+│   │                       # App-Start (App.tsx Layout), fängt bekanntes iOS-Subscription-Expiry-Problem ab
+│   ├── sw.ts               # Custom Service-Worker-Entry (injectManifest-Strategie, nicht generateSW) —
+│   │                       # push/notificationclick-Handler; von tsconfig.json bewusst ausgeschlossen
+│   │                       # (WebWorker- vs DOM-Lib-Konflikt mit dem Rest von src/)
 │   └── vite-env.d.ts       # Env-Variable-Types
-├── vite.config.ts          # PWA-Config + /api/analyse + /api/strava-token Middleware für lokales Dev
-├── vercel.json             # SPA Rewrites + SW Cache-Header + Build-Config
+├── vite.config.ts          # PWA-Config (strategies: injectManifest, srcDir: src, filename: sw.ts) +
+│                           # /api/analyse + /api/strava-token Middleware für lokales Dev
+├── vercel.json             # SPA Rewrites + SW Cache-Header + Cron (send-daily-reminder) + Build-Config
 └── .env                    # Credentials (nicht committen!)
 ```
 
@@ -140,6 +155,11 @@ VITE_STRAVA_CLIENT_ID=260874
 STRAVA_CLIENT_SECRET=...    ← kein VITE_ Prefix — nur serverseitig in /api/strava-token
 VITE_STRAVA_REDIRECT_URI=https://peakform-wheat.vercel.app/auth/callback
 ANTHROPIC_API_KEY=...       ← kein VITE_ Prefix (nur serverseitig)
+SUPABASE_SERVICE_ROLE_KEY=... ← kein VITE_ Prefix; nur in api/send-daily-reminder.ts (Cross-Athlet-Zugriff für Cron)
+VITE_VAPID_PUBLIC_KEY=...   ← Web Push, öffentlich (Frontend pushManager.subscribe())
+VAPID_PRIVATE_KEY=...       ← kein VITE_ Prefix — nur in api/send-daily-reminder.ts
+VAPID_SUBJECT=mailto:...    ← optional, Default 'mailto:noreply@peakform.app' (bewusst kein persönlicher Kontakt im öffentlichen Repo)
+CRON_SECRET=...             ← schützt /api/send-daily-reminder; Vercel setzt automatisch den Authorization-Header, wenn diese Var gesetzt ist
 ```
 
 ## Lokale Entwicklung
@@ -219,6 +239,15 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 - [x] Supabase-persistente Messages, Supabase-first Flow
 - [x] Thread-ID = `athlete.id` (nicht localStorage) — ein einziger persistenter `chat_type='global'`-Thread pro Athlet, überlebt PWA-Reinstalls (iOS "Icon entfernen + neu hinzufügen" leert `localStorage`, was vorher zu einer neuen Zufalls-Thread-ID und "verlorenem" Chat-Verlauf führte); "Neu"-Button in Chat.tsx leert nur die lokale Ansicht (kein neuer Thread), Verlauf bleibt in Supabase und erscheint nach Reload wieder
 - [x] Typing-Indicator, Auto-resize Textarea
+
+### Push Notifications
+- [x] Tägliche 08:00-Erinnerung (Vercel Cron `0 6 * * *`, keine automatische DST-Anpassung) an die geplante Einheit des Tages
+- [x] `vite-plugin-pwa` von `generateSW` auf `injectManifest` umgestellt (Voraussetzung für eigenen `push`-Handler in `src/sw.ts`); Precaching/skipWaiting/clientsClaim/cleanupOutdatedCaches manuell in `sw.ts` statt automatisch generiert
+- [x] iOS-Feature-Detection in `src/lib/push.ts` (`getPushSupport()`): Web Push funktioniert auf iOS ausschließlich für zum Home-Bildschirm hinzugefügte PWAs (`display-mode: standalone`), nie im Safari-Tab, erst ab iOS 16.4 — Profile.tsx zeigt bei fehlendem Standalone-Modus eine Anleitung statt eines wirkungslosen Buttons
+- [x] Bekanntes iOS-Verhalten (Push-Subscriptions verfallen serverseitig nach Inaktivität, ohne dass Permission-State das anzeigt) abgefangen durch `syncPushSubscription()`: stiller Re-Subscribe-Check bei jedem App-Start (App.tsx Layout), sobald Permission bereits erteilt ist
+- [x] `push_subscriptions` (Supabase): ein Athlet kann mehrere Geräte/Endpoints haben; `api/send-daily-reminder.ts` löscht Einträge automatisch bei HTTP 404/410 (abgelaufene Subscription)
+- [x] `api/send-daily-reminder.ts` berechnet "heute"/Wochenstart explizit über `Intl.DateTimeFormat(..., { timeZone: 'Europe/Vienna' })` statt `new Date().getDay()` — die Vercel-Cron-Runtime läuft in UTC, ein naiver Ansatz hätte denselben UTC-Slice-Bug-Typ reproduziert, der in diesem Projekt bereits mehrfach aufgetreten ist (siehe PEAKFORM_ROADMAP.md)
+- [ ] Sync-Bestätigungs-Push (wenn neue Aktivität von Strava importiert wurde) — bewusst nicht in dieser ersten Runde, siehe Roadmap
 
 ### Sicherheit
 - [x] STRAVA_CLIENT_SECRET und ANTHROPIC_API_KEY nie im Browser-Bundle

@@ -13,5 +13,11 @@
         { "key": "Service-Worker-Allowed", "value": "/" }
       ]
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/send-daily-reminder",
+      "schedule": "0 6 * * *"
+    }
   ]
 }

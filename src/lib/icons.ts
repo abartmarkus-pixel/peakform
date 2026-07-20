@@ -43,6 +43,8 @@ export { FaCommentDots as IconCommentFilled } from 'react-icons/fa6'
 // Roast Me
 export { FaFire as IconRoast } from 'react-icons/fa6'
 
+export { FaBell as IconBell } from 'react-icons/fa6'
+
 // Sportart-Display: zentrale Konfiguration für Icons, Farben und Labels
 export const SPORT_DISPLAY = {
   cycling:  { color: '#3B82F6', label: 'Radfahren'     },
