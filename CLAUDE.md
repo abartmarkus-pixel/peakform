@@ -241,7 +241,8 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 - [x] Typing-Indicator, Auto-resize Textarea
 
 ### Push Notifications
-- [x] Tägliche 08:00-Erinnerung (Vercel Cron `0 6 * * *`, keine automatische DST-Anpassung) an die geplante Einheit des Tages
+- [x] Zwei Vercel-Cron-Slots an die geplante Einheit des Tages, keine automatische DST-Anpassung: `?slot=morning` (`0 5 * * *` = 07:00 CEST, sendet immer bei Nicht-Ruhetag) und `?slot=evening` (`0 15 * * *` = 17:00 CEST, sendet nur wenn für den Athleten noch keine Strava-Aktivität "heute" erfasst wurde — geprüft über explizite Europe/Vienna-Tagesgrenzen via `Intl` `longOffset`, DST-sicher statt hartcodiertem Offset)
+- [x] `push_subscriptions` braucht wie alle anderen Tabellen eine `"... : open for now"`-RLS-Policy (`USING (true) WITH CHECK (true)`) — RLS aktivieren allein reicht nicht, ohne Policy blockiert Postgres den Anon-Key-Insert lautlos (kein Fehler von `supabase-js`); `saveSubscription()` prüft seitdem zusätzlich den `error`-Rückgabewert des Upserts statt ihn zu ignorieren
 - [x] `vite-plugin-pwa` von `generateSW` auf `injectManifest` umgestellt (Voraussetzung für eigenen `push`-Handler in `src/sw.ts`); Precaching/skipWaiting/clientsClaim/cleanupOutdatedCaches manuell in `sw.ts` statt automatisch generiert
 - [x] iOS-Feature-Detection in `src/lib/push.ts` (`getPushSupport()`): Web Push funktioniert auf iOS ausschließlich für zum Home-Bildschirm hinzugefügte PWAs (`display-mode: standalone`), nie im Safari-Tab, erst ab iOS 16.4 — Profile.tsx zeigt bei fehlendem Standalone-Modus eine Anleitung statt eines wirkungslosen Buttons
 - [x] Bekanntes iOS-Verhalten (Push-Subscriptions verfallen serverseitig nach Inaktivität, ohne dass Permission-State das anzeigt) abgefangen durch `syncPushSubscription()`: stiller Re-Subscribe-Check bei jedem App-Start (App.tsx Layout), sobald Permission bereits erteilt ist
