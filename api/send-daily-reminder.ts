@@ -34,10 +34,28 @@ function isRestDay(d: DayPlan): boolean {
   return REST_KEYWORDS.some(k => d.type.toLowerCase().includes(k))
 }
 
+// Liefert den UTC-Zeitraum für "heute" in Europe/Vienna als [start, end) — für die
+// activities.date-Abfrage im Abend-Slot. longOffset (z.B. "GMT+02:00") berücksichtigt
+// CEST/CET automatisch, ohne den Wert selbst hart zu codieren.
+function viennaDayBoundsUTC(now: Date): { startUTC: string; endUTC: string } {
+  const dateStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna' }).format(now)
+  const offsetName = new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Vienna', timeZoneName: 'longOffset' })
+    .formatToParts(now)
+    .find(p => p.type === 'timeZoneName')?.value ?? 'GMT+02:00'
+  const offset = offsetName.replace('GMT', '')
+  const start = new Date(`${dateStr}T00:00:00${offset}`)
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000)
+  return { startUTC: start.toISOString(), endUTC: end.toISOString() }
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
     return res.status(401).json({ error: 'Unauthorized' })
   }
+
+  // morning (07:00): immer senden, wenn kein Ruhetag. evening (17:00): zusätzlich
+  // nur, wenn für heute noch keine Strava-Aktivität erfasst wurde.
+  const slot = req.query.slot === 'evening' ? 'evening' : 'morning'
 
   const vapidPublic = process.env.VITE_VAPID_PUBLIC_KEY
   const vapidPrivate = process.env.VAPID_PRIVATE_KEY
@@ -76,12 +94,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
   }
 
+  // Abend-Slot: Athleten mit bereits erfasster Aktivität "heute" (Vienna) überspringen.
+  // Bewusst simpler Check (irgendeine Aktivität heute) statt der vollen
+  // Sportart/Workout-Matching-Logik aus WeeklyPlan.tsx — für eine Erinnerung reicht
+  // "hat heute schon trainiert", eine Fehlklassifizierung hätte hier keine Folgen.
+  const athletesWithActivityToday = new Set<string>()
+  if (slot === 'evening') {
+    const { startUTC, endUTC } = viennaDayBoundsUTC(new Date())
+    const { data: todaysActivities } = await supabase
+      .from('activities')
+      .select('athlete_id')
+      .in('athlete_id', athleteIds)
+      .gte('date', startUTC)
+      .lt('date', endUTC)
+    for (const a of todaysActivities ?? []) athletesWithActivityToday.add(a.athlete_id as string)
+  }
+
   let sent = 0
   let skipped = 0
   const staleSubscriptionIds: string[] = []
 
   for (const sub of subs) {
-    const planJson = latestPlanByAthlete.get(sub.athlete_id as string)
+    const athleteId = sub.athlete_id as string
+    if (slot === 'evening' && athletesWithActivityToday.has(athleteId)) { skipped++; continue }
+
+    const planJson = latestPlanByAthlete.get(athleteId)
     const days = planJson?.days as Record<string, DayPlan> | undefined
     const today = days?.[weekdayLabel]
     if (!today || isRestDay(today)) { skipped++; continue }
@@ -112,5 +149,5 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     await supabase.from('push_subscriptions').delete().in('id', staleSubscriptionIds)
   }
 
-  return res.status(200).json({ sent, skipped, removedStale: staleSubscriptionIds.length })
+  return res.status(200).json({ slot, sent, skipped, removedStale: staleSubscriptionIds.length })
 }
