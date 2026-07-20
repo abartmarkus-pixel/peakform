@@ -98,7 +98,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
       await webpush.sendNotification(
         subscription,
-        JSON.stringify({ title: 'Heutige Einheit', body: bodyParts.join(' · '), url: '/plan' }),
+        JSON.stringify({ title: 'Geplante Einheit für heute', body: bodyParts.join(' · '), url: '/plan' }),
       )
       sent++
     } catch (err) {
