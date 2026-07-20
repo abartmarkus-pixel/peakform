@@ -519,9 +519,15 @@ export default function Profile() {
   async function handleEnablePush() {
     if (!athlete) return
     setPushBusy(true)
-    const result = await enablePushNotifications(athlete.id)
-    setPushBusy(false)
-    setPushState(result === 'granted' ? 'on' : result === 'denied' ? 'denied' : 'unsupported')
+    try {
+      const result = await enablePushNotifications(athlete.id)
+      setPushState(result === 'granted' ? 'on' : result === 'denied' ? 'denied' : 'unsupported')
+    } catch (err) {
+      console.error('Push-Aktivierung fehlgeschlagen:', err)
+      setPushState('off')
+    } finally {
+      setPushBusy(false)
+    }
   }
 
   async function handleDisablePush() {

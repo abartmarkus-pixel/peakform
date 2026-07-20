@@ -34,7 +34,7 @@ export function getPushSupport(): PushSupport {
 
 async function saveSubscription(athleteId: string, sub: PushSubscription) {
   const json = sub.toJSON()
-  await supabase.from('push_subscriptions').upsert(
+  const { error } = await supabase.from('push_subscriptions').upsert(
     {
       athlete_id: athleteId,
       endpoint: json.endpoint!,
@@ -43,6 +43,7 @@ async function saveSubscription(athleteId: string, sub: PushSubscription) {
     },
     { onConflict: 'endpoint' },
   )
+  if (error) throw error
 }
 
 export async function enablePushNotifications(athleteId: string): Promise<'granted' | 'denied' | 'unsupported'> {
