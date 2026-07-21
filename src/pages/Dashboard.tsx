@@ -477,6 +477,7 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt im gleichen Format wie der Origin
           <li key={act.id}>
             <Link
               to={`/activity/${act.id}`}
+              state={{ from: '/dashboard' }}
               className="block bg-slate-800 hover:bg-slate-700 rounded-xl p-4 transition-colors"
             >
               <div className="flex items-center gap-2 mb-1">

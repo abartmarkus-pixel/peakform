@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { IconChevronLeft, IconRoast, IconCommentOutline, IconCommentFilled } from '../lib/icons'
 import {
   ResponsiveContainer,
@@ -258,6 +258,7 @@ function StatCard({ label, value }: StatCardProps) {
 export default function ActivityDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const [activity, setActivity] = useState<Activity | null>(null)
   const [chartData, setChartData] = useState<ChartPoint[]>([])
   const [stats, setStats] = useState<ComputedStats>({})
@@ -534,6 +535,8 @@ export default function ActivityDetail() {
       <div className="min-h-screen p-4 max-w-2xl mx-auto page-content">
       <button
         onClick={() => {
+          const from = (location.state as { from?: string } | null)?.from
+          if (from) { navigate(from); return }
           const hasHistory = typeof window.history.state?.idx === 'number' && window.history.state.idx > 0
           if (hasHistory) navigate(-1)
           else navigate('/dashboard')

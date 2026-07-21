@@ -540,7 +540,14 @@ function WeeklyReviewCard({ reviewNotes, userInput }: { reviewNotes: string; use
 export default function WeeklyPlan() {
   const navigate = useNavigate()
   const [athlete, setAthlete]         = useState<Athlete | null>(null)
-  const [monday, setMonday]           = useState<Date>(getISOMonday(new Date()))
+  const [monday, setMonday]           = useState<Date>(() => {
+    const saved = sessionStorage.getItem('weeklyplan_monday')
+    if (saved) {
+      const [y, m, d] = saved.split('-').map(Number)
+      return getISOMonday(new Date(y, m - 1, d))
+    }
+    return getISOMonday(new Date())
+  })
   const [plan, setPlan]               = useState<WeeklyPlan | null>(null)
   const [weekActivities, setWeekActivities] = useState<Activity[]>([])
   const [generating, setGenerating]   = useState(false)
@@ -568,6 +575,13 @@ export default function WeeklyPlan() {
   const isCurrentWeek = toDateStr(monday) === toDateStr(getISOMonday(new Date()))
   const isPastWeek = monday < getISOMonday(new Date())
   const weekStr = toDateStr(monday)
+
+  // Gewählte Woche in sessionStorage spiegeln — überlebt damit das
+  // Unmount/Remount von WeeklyPlan beim Navigieren zu /activity/:id und zurück
+  // (analog zum dashboard_filter-Pattern in Dashboard.tsx).
+  useEffect(() => {
+    sessionStorage.setItem('weeklyplan_monday', toDateStr(monday))
+  }, [monday])
 
   // dnd-kit sensors: delay+tolerance statt distance — verhindert, dass normales
   // vertikales Scrollen auf Mobile als Drag-Start interpretiert wird (der Griff-Button
@@ -1287,7 +1301,7 @@ Antworte AUSSCHLIESSLICH mit diesem JSON (kein Text davor/danach, kein Markdown)
                     monday={monday}
                     plan={dayPlan}
                     match={match}
-                    onPress={match?.activity ? () => navigate(`/activity/${match.activity!.strava_id}`) : undefined}
+                    onPress={match?.activity ? () => navigate(`/activity/${match.activity!.strava_id}`, { state: { from: '/plan' } }) : undefined}
                     onOpenMenu={isPastWeek ? undefined : handleOpenMenu}
                     dragDisabled={isPastWeek}
                   />

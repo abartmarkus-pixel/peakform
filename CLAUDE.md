@@ -184,7 +184,7 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 - [x] Home.tsx: Auto-Redirect zu `/dashboard` wenn `athlete_strava_id` in localStorage
 - [x] Dashboard: Echtzeit-Alert (Claude-Konflikt-Check nach Strava-Sync, sessionStorage-Gate, Amber-Banner + Modal)
 - [x] Aktivitäts-Detail: Stats-Grid, Charts, Rundentabelle, Claude-Analyse
-- [x] Aktivitäts-Detail: "Zurück"-Button nutzt `navigate(-1)` (echtes History-Back) statt hartem Redirect zu `/dashboard`; Fallback auf `/dashboard` nur wenn keine SPA-eigene History existiert (`window.history.state?.idx > 0`-Guard, z. B. bei Deep-Links)
+- [x] Aktivitäts-Detail: "Zurück"-Button navigiert deterministisch zur Herkunftsseite statt sich auf Browser-History zu verlassen — Dashboard.tsx (`<Link>`) und WeeklyPlan.tsx (`navigate()`) übergeben beim Verlinken auf `/activity/:id` explizit `state: { from: '/dashboard' | '/plan' }`; der Button liest `location.state?.from` und navigiert dorthin. Nur wenn kein `from`-State vorhanden ist (z. B. Deep-Link/Reload), Fallback auf `navigate(-1)` (`window.history.state?.idx > 0`-Guard) bzw. zuletzt `/dashboard`
 - [x] Markdown-Renderer
 
 ### Navigation
@@ -230,7 +230,7 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 - [x] DayCard: Kraft zeigt violettes Badge "Workout I/II/III" (kein Freitext), Laufen zeigt nie distance_km
 - [x] Frontend-Constraint-Validierung + Violation-Banner
 - [x] INSERT-only mit version++
-- [x] Wochen-Navigation (±1 Woche), Wochenreview mit eigener Versionierung der bewerteten Woche (`review_notes`/`review_user_input`)
+- [x] Wochen-Navigation (±1 Woche), Wochenreview mit eigener Versionierung der bewerteten Woche (`review_notes`/`review_user_input`); gewählte Woche (`monday`) wird in `sessionStorage` (`weeklyplan_monday`) gespiegelt — überlebt damit Unmount/Remount beim Navigieren zu `/activity/:id` und zurück (sonst würde der "Zurück"-Sprung aus einer Aktivität immer in der aktuellen statt der zuvor betrachteten Woche landen), analog zum `dashboard_filter`-Pattern
 - [x] Manuelles Verschieben von Trainingstagen: Drag & Drop (`swapDays()`, @dnd-kit) zum Tauschen zweier Tage + Long-Press-Kontextmenü (500ms, 8px Toleranz — "Als Ruhetag markieren"/"Verschieben nach..."/"Details anzeigen") als Fallback; Client-seitige Konflikt-Prüfung `checkPlanConflicts()` (kein Claude-Call); iOS-natives Textauswahl-Menü bei Long-Press unterdrückt via `select-none` + `WebkitTouchCallout: 'none'` auf der DayCard
 - [x] ISO 8601 Wochengrenzen: getISOMonday/getISOSunday in dateUtils.ts; Lokalzeit statt UTC für week_start
 - [x] Activity-Query mit vollen ISO-Timestamps (gte/lte) statt Datums-Strings — Sonntage korrekt der Vorwoche zugeordnet
