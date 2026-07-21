@@ -23,6 +23,9 @@ generateOAuthState() erzeugt UUID beim Login, AuthCallback.tsx verifiziert vor T
 ### ✅ Multi-User Session-Restore Fix (behoben 1.7.2026)
 restoreSessionFromSupabase() nutzte LIMIT 1 (zufälliger Athlet). Jetzt: pf_athlete_id Cookie identifiziert den korrekten Athleten. Logout löscht Cookie zusätzlich.
 
+### ✅ athlete_id-Filter bei activities-Updates in analyzeActivity() ergänzt (behoben 21.7.2026)
+Anlass: zweiter echter Athlet (eigenes Android-Gerät, eigener Strava-Account) nutzt die App seitdem live. Multi-User-Isolation daraufhin geprüft (App-Level-Filter, Session-Restore, OAuth-Zuordnung, Chat) — bis auf einen Fund unauffällig: Die drei `UPDATE activities`-Aufrufe in `src/lib/activityAnalysis.ts` (streams_json/laps_json/description-Cache) filterten nur über `strava_id` (global UNIQUE, daher bisher kein echtes Datenleck), nicht zusätzlich über `athlete_id` wie die übrigen Updates in `ActivityDetail.tsx`. Jetzt konsistent mit `.eq('athlete_id', athleteId)` ergänzt. Erinnerung: RLS ist laut Kapitel 18 (SPEC.md) nicht wirksam durchgesetzt (pgBouncer Transaction-Mode) — Isolation zwischen Athleten hängt vollständig von diszipliniertem `.eq('athlete_id', ...)` in jeder Query ab, kein DB-seitiges Sicherheitsnetz.
+
 ### ✅ Onboarding-Flow (behoben/implementiert 1.7.2026)
 Verpflichtender 6-Schritte-Wizard (Onboarding.tsx): Name → Sportarten+Trainingstage → Erstes Saisonziel → Leistungsdaten (optional) → Coach-Stil → Zusammenfassung. Läuft einmalig nach erstem Strava-Login, kein Skip möglich. Bestandsuser (Markus) per Migration auf onboarding_completed=true gesetzt, damit sie nicht erneut durch den Wizard müssen.
 
