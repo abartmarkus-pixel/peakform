@@ -6,6 +6,7 @@ import {
   fetchActivityLaps,
   fetchActivityDetail,
   type StravaLap,
+  type StravaSplitMetric,
 } from './strava'
 import {
   buildCoachSystemPrompt,
@@ -230,8 +231,9 @@ export async function analyzeActivity(
     const athlete = athleteData as Athlete
 
     const token = await getValidAccessToken(athlete)
+    const isRun = ['Run', 'VirtualRun', 'TrailRun'].includes(activity.type)
 
-    const [streamsRaw, lapsData, description] = await Promise.all([
+    const [streamsRaw, lapsData, splitsMetricData, description] = await Promise.all([
       activity.streams_json
         ? Promise.resolve(activity.streams_json)
         : fetchActivityStreams(token, activity.strava_id).then(async (s) => {
@@ -244,6 +246,15 @@ export async function analyzeActivity(
             if (l.length > 0) await supabase.from('activities').update({ laps_json: l }).eq('strava_id', activity.strava_id).eq('athlete_id', athleteId)
             return l
           }).catch(() => [] as StravaLap[]),
+      isRun
+        ? activity.splits_metric_json
+          ? Promise.resolve(activity.splits_metric_json as unknown as StravaSplitMetric[])
+          : fetchActivityDetail(token, activity.strava_id).then(async (d) => {
+              const sm = d.splits_metric ?? []
+              if (sm.length > 0) await supabase.from('activities').update({ splits_metric_json: sm }).eq('strava_id', activity.strava_id).eq('athlete_id', athleteId)
+              return sm
+            }).catch(() => [] as StravaSplitMetric[])
+        : Promise.resolve([] as StravaSplitMetric[]),
       activity.type === 'WeightTraining'
         ? activity.description
           ? Promise.resolve(activity.description)
@@ -259,6 +270,7 @@ export async function analyzeActivity(
     const chartData = buildChartData(streamsRaw as Record<string, unknown>)
     const stats = computeStats(chartData)
     const laps = lapsData as StravaLap[]
+    const splits = splitsMetricData as StravaSplitMetric[]
 
     const { specialist, sport } = getSpecialistPrompt(activity.type)
 
@@ -303,6 +315,14 @@ ${laps.map(lap => {
   if (lap.average_cadence != null) parts.push(`Ø ${Math.round(lap.average_cadence)} rpm`)
   return parts.join(' | ')
 }).join('\n')}` : ''}
+${splits.length > 1 ? `
+Kilometer-Splits (${splits.length} gesamt):
+${splits.map(s => {
+  const parts = [`  km ${s.split}: ${formatDuration(s.elapsed_time)}`]
+  if (s.distance > 0) parts.push(`${(s.distance / 1000).toFixed(2)} km`)
+  if (s.average_heartrate != null) parts.push(`Ø ${Math.round(s.average_heartrate)} bpm`)
+  return parts.join(' | ')
+}).join('\n')}` : ''}
 
 Schreibe eine kompakte Trainingsanalyse auf Deutsch (ca. 200 Wörter). Formatierungsregeln:
 - Verwende NUR diese Markdown-Elemente: **fett** für Schlüsselbegriffe, Bindestriche für Aufzählungen
@@ -312,7 +332,7 @@ Schreibe eine kompakte Trainingsanalyse auf Deutsch (ca. 200 Wörter). Formatier
 Struktur:
 ${exercises.length > 0
   ? '1. **Volumen & Intensität** – Gesamtbelastung, stärkste Übungen\n2. **Übungsanalyse** – Satzqualität, Progression, auffällige Werte\n3. **Stärken** – was gut lief\n4. **Empfehlung** – nächste Einheit'
-  : laps.length > 1
+  : (laps.length > 1 || splits.length > 1)
     ? '1. **Intensitätsbewertung** – Gesamtbelastung und Intensitätsbereiche\n2. **Rundenanalyse** – Progression, Gleichmäßigkeit, Ausreißer\n3. **Stärken** – was gut lief\n4. **Empfehlung** – nächste Einheit'
     : '1. **Intensitätsbewertung** – Gesamtbelastung und Intensitätsbereiche\n2. **Stärken** – was gut lief\n3. **Verbesserungspotenzial** – was optimiert werden kann\n4. **Empfehlung** – nächste Einheit'}`
 
