@@ -246,7 +246,10 @@ export async function buildCoachSystemPrompt(
   ].filter(Boolean).join('\n')
 
   const styleKey = (athlete?.coach_persona as Record<string, string> | null)?.style ?? DEFAULT_STYLE
-  const stylePrompt = COACH_STYLE_PROMPTS[styleKey] ?? COACH_STYLE_PROMPTS[DEFAULT_STYLE]
+  const baseStylePrompt = COACH_STYLE_PROMPTS[styleKey] ?? COACH_STYLE_PROMPTS[DEFAULT_STYLE]
+  const stylePrompt = (styleKey === 'drill_sergeant' && athlete?.name)
+    ? `${baseStylePrompt}\n\nSprich ${athlete.name} direkt mit Namen an — immer mit Ausrufezeichen: "${athlete.name}!"`
+    : baseStylePrompt
 
   const goalSection = primaryGoal
     ? [
