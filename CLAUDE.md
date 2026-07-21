@@ -267,7 +267,7 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 
 ## Wichtige Implementierungsdetails
 - Auth-State: `athlete_strava_id` in `localStorage` + `sessionStorage` (kein Supabase Auth)
-- Session-Wiederherstellung: App.tsx prüft beim Start localStorage → sessionStorage → `restoreSessionFromSupabase()` (Supabase-Fallback, Single-User LIMIT 1); Loading-Splash während Supabase-Check
+- Session-Wiederherstellung: App.tsx prüft beim Start localStorage → sessionStorage → `restoreSessionFromSupabase()` (Supabase-Fallback: identifiziert den Athleten über das persistente `pf_athlete_id`-Cookie via `.eq('strava_athlete_id', …)`, kein `LIMIT 1` — jedes Gerät/Browser stellt so nur seinen eigenen Account wieder her, auch bei mehreren Athleten); Loading-Splash während Supabase-Check
 - Logout: `localStorage.clear()` + `sessionStorage.clear()` → Redirect zu `/`
 - Streams-Cache: `streams_json` in Supabase — wird beim ersten Aufruf gecacht
 - Claude API wird **nie** direkt vom Browser aufgerufen — immer über `/api/analyse`

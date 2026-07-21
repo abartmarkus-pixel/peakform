@@ -235,13 +235,13 @@ export async function analyzeActivity(
       activity.streams_json
         ? Promise.resolve(activity.streams_json)
         : fetchActivityStreams(token, activity.strava_id).then(async (s) => {
-            await supabase.from('activities').update({ streams_json: s }).eq('strava_id', activity.strava_id)
+            await supabase.from('activities').update({ streams_json: s }).eq('strava_id', activity.strava_id).eq('athlete_id', athleteId)
             return s
           }).catch(() => ({} as Record<string, unknown>)),
       activity.laps_json
         ? Promise.resolve(activity.laps_json as unknown as StravaLap[])
         : fetchActivityLaps(token, activity.strava_id).then(async (l) => {
-            if (l.length > 0) await supabase.from('activities').update({ laps_json: l }).eq('strava_id', activity.strava_id)
+            if (l.length > 0) await supabase.from('activities').update({ laps_json: l }).eq('strava_id', activity.strava_id).eq('athlete_id', athleteId)
             return l
           }).catch(() => [] as StravaLap[]),
       activity.type === 'WeightTraining'
@@ -249,7 +249,7 @@ export async function analyzeActivity(
           ? Promise.resolve(activity.description)
           : fetchActivityDetail(token, activity.strava_id).then(async (d) => {
               const desc = ('description' in d && d.description) ? String(d.description) : null
-              if (desc) await supabase.from('activities').update({ description: desc }).eq('strava_id', activity.strava_id)
+              if (desc) await supabase.from('activities').update({ description: desc }).eq('strava_id', activity.strava_id).eq('athlete_id', athleteId)
               return desc
             }).catch(() => null)
         : Promise.resolve(activity.description ?? null),
