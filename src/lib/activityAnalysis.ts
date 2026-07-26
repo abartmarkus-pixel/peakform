@@ -318,7 +318,7 @@ ${laps.map(lap => {
 ${splits.length > 1 ? `
 Kilometer-Splits (${splits.length} gesamt):
 ${splits.map(s => {
-  const parts = [`  km ${s.split}: ${formatDuration(s.elapsed_time)}`]
+  const parts = [`  km ${s.split}: ${formatDuration(s.moving_time)}`]
   if (s.distance > 0) parts.push(`${(s.distance / 1000).toFixed(2)} km`)
   if (s.average_heartrate != null) parts.push(`Ø ${Math.round(s.average_heartrate)} bpm`)
   return parts.join(' | ')
