@@ -14,7 +14,7 @@ import {
 } from '../lib/icons'
 import { AppHeader } from '../components/AppHeader'
 import { useFeatures } from '../lib/features'
-import { getISOMonday, getISOSunday, formatWeekRange } from '../lib/dateUtils'
+import { getISOMonday, getISOSunday, formatWeekRange, formatDurationHuman } from '../lib/dateUtils'
 import {
   DndContext,
   closestCenter,
@@ -447,7 +447,7 @@ function DayCard({ day, idx, monday, plan, match, onPress, onOpenMenu, dragAttri
             <p className="text-xs text-brand-400/70 mt-1.5 truncate flex items-center gap-1">
               <IconCheck size={10} className="text-brand-400 shrink-0" />
               {match.activity.name}
-              {match.activity.duration_s ? ` · ${Math.round(match.activity.duration_s / 60)} min` : ''}
+              {match.activity.duration_s ? ` · ${formatDurationHuman(match.activity.duration_s)}` : ''}
             </p>
           )}
           {plan?._fulfilledBy && (
@@ -922,7 +922,7 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, 
       const actsText = weekActivities.length > 0
         ? weekActivities.map(a =>
             `- ${new Date(a.date).toLocaleDateString('de-DE')}: ${a.name} (${a.type}` +
-            (a.duration_s ? `, ${Math.round(a.duration_s / 60)} min` : '') +
+            (a.duration_s ? `, ${formatDurationHuman(a.duration_s)}` : '') +
             (a.distance_m && a.distance_m > 0 ? `, ${(a.distance_m / 1000).toFixed(1)} km` : '') +
             (a.avg_hr ? `, Ø ${Math.round(a.avg_hr)} bpm` : '') +
             (a.np_watts ? `, NP ${Math.round(a.np_watts)} W` : '') + ')'
@@ -1416,7 +1416,7 @@ Antworte AUSSCHLIESSLICH mit diesem JSON (kein Text davor/danach, kein Markdown)
                         {new Date(a.date).toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'numeric' })}
                       </span>
                       <span className="text-slate-300 font-medium truncate">{a.name}</span>
-                      {a.duration_s && <span>{Math.round(a.duration_s / 60)} min</span>}
+                      {a.duration_s && <span>{formatDurationHuman(a.duration_s)}</span>}
                       {a.distance_m && a.distance_m > 0 && <span>{(a.distance_m / 1000).toFixed(1)} km</span>}
                       {a.avg_hr && <span>Ø {Math.round(a.avg_hr)} bpm</span>}
                     </div>

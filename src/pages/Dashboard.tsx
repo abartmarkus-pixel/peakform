@@ -5,7 +5,7 @@ import { fetchRecentActivities, getValidAccessToken, syncActivitiesToSupabase, t
 import { supabase, type Athlete } from '../lib/supabase'
 import { buildCoachSystemPrompt } from '../lib/coachPrompt'
 import { planJsonWithDates } from '../lib/coachContext'
-import { getISOMonday } from '../lib/dateUtils'
+import { getISOMonday, formatDurationHuman } from '../lib/dateUtils'
 import {
   IconLogout, IconRunning, IconCycling, IconStrength, IconOther, IconWarning, IconCommentFilled,
 } from '../lib/icons'
@@ -212,7 +212,7 @@ export default function Dashboard() {
 - Name: ${latestAct.name}
 - Typ: ${latestAct.type}
 - Datum: ${new Date(latestAct.date).toLocaleDateString('de-DE')}
-- Dauer: ${latestAct.duration_s ? Math.round(latestAct.duration_s / 60) : '?'} min
+- Dauer: ${latestAct.duration_s ? formatDurationHuman(latestAct.duration_s) : '?'}
 - Ø HF: ${latestAct.avg_hr ? Math.round(latestAct.avg_hr) : 'k.A.'} bpm
 ${latestAct.np_watts ? `- NP: ${Math.round(latestAct.np_watts)} W` : ''}`
                 : 'Keine neue Aktivität diese Woche.'

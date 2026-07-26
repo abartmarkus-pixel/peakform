@@ -45,6 +45,16 @@ export function toLocalWeekdayDateTimeStr(date: Date | string): string {
   return `${toLocalWeekdayDateStr(d)}, ${hh}:${mm} Uhr`
 }
 
+/** Formats Sekunden als "42 min" (< 60 min) oder "1 Std 30 Min" (≥ 60 min) statt roher Minutenzahl
+ *  (z.B. "386 Minuten" bei mehrstündigen Aktivitäten) — für Prompt-Text und UI-Anzeige. */
+export function formatDurationHuman(seconds: number): string {
+  const totalMin = Math.round(seconds / 60)
+  if (totalMin < 60) return `${totalMin} min`
+  const h = Math.floor(totalMin / 60)
+  const m = totalMin % 60
+  return m > 0 ? `${h} Std ${m} Min` : `${h} Std`
+}
+
 /** Gibt eine explizite Tag-Relation zu heute zurück ("heute" | "gestern" | "vor X Tagen" | "morgen" | "in X Tagen"),
  *  damit Claude Datumsdifferenzen nicht selbst berechnen (und dabei erfinden) muss. */
 export function relativeDayLabel(date: Date | string): string {
