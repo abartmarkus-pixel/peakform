@@ -47,6 +47,18 @@ function toIcsUtc(dt: Date): string {
   return dt.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z'
 }
 
+// Montag der aktuellen Woche in Europe/Vienna (nicht Prozess-Timezone UTC), analog zu
+// viennaTodayInfo() in api/send-daily-reminder.ts — sonst würde der Feed abends UTC
+// bereits im Sonntag der Folgewoche stecken und die falsche Woche als "aktuell" werten.
+function currentWeekStartVienna(now: Date): string {
+  const dateStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna' }).format(now)
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const date = new Date(Date.UTC(y, m - 1, d))
+  const diff = date.getUTCDay() === 0 ? -6 : 1 - date.getUTCDay()
+  const monday = new Date(Date.UTC(y, m - 1, d + diff))
+  return fmtDashed({ y: monday.getUTCFullYear(), m: monday.getUTCMonth() + 1, d: monday.getUTCDate() })
+}
+
 const EVENT_HOUR = 18
 const EVENT_MINUTE = 30
 const DEFAULT_DURATION_MIN = 60
@@ -103,10 +115,12 @@ function buildDescription(day: DayPlan): string {
 export function buildIcsFeed(athleteId: string, plans: WeeklyPlanRow[]): string {
   const now = new Date()
   const dtstamp = now.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z'
+  const currentWeekStart = currentWeekStartVienna(now)
 
   const events: string[] = []
 
   for (const plan of plans) {
+    if (plan.week_start < currentWeekStart) continue
     const days = plan.plan_json?.days
     if (!days) continue
 
