@@ -52,8 +52,13 @@ peakform/
 │   ├── analyse.ts          # Vercel Serverless Function — Claude API Proxy
 │   │                         Params: { prompt, max_tokens?, system?, images? }
 │   │                         Limits: 80.000 Zeichen, max_tokens Cap 4.096, max. 10 Bilder, max. 2M Base64-Zeichen/Bild
-│   └── strava-token.ts     # Vercel Serverless Function — Strava OAuth Token Exchange/Refresh
-│                             STRAVA_CLIENT_SECRET ausschließlich server-seitig
+│   ├── strava-token.ts     # Vercel Serverless Function — Strava OAuth Token Exchange/Refresh
+│   │                         STRAVA_CLIENT_SECRET ausschließlich server-seitig
+│   ├── calendar/[athleteId].ts # Öffentlicher ICS-Feed (GET, kein Session-Auth) — athleteId (UUID) als
+│   │                         Capability-Token in der URL, analog zur offenen RLS-Policy; für Apple-Kalender-
+│   │                         Abo (https://) gedacht, siehe Kapitel 16 „Kalender-Export"
+│   └── _lib/ics.ts         # buildIcsFeed(): reine ICS-Generierung (RFC 5545), von api/calendar/ UND der
+│                             vite.config.ts-Dev-Middleware genutzt
 ├── public/
 │   ├── peakform-logo.png        # Schriftzug Header (1x, max 320×80)
 │   ├── peakform-logo@2x.png     # Schriftzug Header (2x Retina)
@@ -393,6 +398,15 @@ Strava OAuth Token Exchange & Refresh & Deauthorize — STRAVA_CLIENT_SECRET ble
 **Request (Refresh):** `{ "grant_type": "refresh_token", "refresh_token": "..." }`  
 **Request (Deauthorize):** `{ "grant_type": "deauthorize", "access_token": "..." }` — proxied zu `POST strava.com/oauth/deauthorize`, benötigt keinen Client Secret, läuft aber trotzdem über diesen Endpoint statt direkt vom Browser (Konvention: kein direkter Browser-Call gegen `strava.com/oauth/*`); genutzt von `deauthorizeStrava()` (`src/lib/strava.ts`) im Rahmen der Kontolöschung (siehe Kapitel 9 „Profile.tsx" und Kapitel 18)  
 **Response:** Strava Token Response (access_token, refresh_token, expires_at, athlete) bzw. `{ "success": true }` bei Deauthorize
+
+---
+
+### GET `/api/calendar/[athleteId]`
+Öffentlicher, abonnierbarer ICS-Kalender-Feed pro Athlet — kein Session-Auth, `athleteId` (UUID) in der URL fungiert als Capability-Token (analog zur offenen RLS-Policy im Rest des Projekts, siehe Kapitel 18).
+
+**Request:** `GET /api/calendar/<athleteId>`  
+**Response:** `text/calendar; charset=utf-8` — ein VEVENT pro geplantem Trainingstag aus `weekly_plans` (neueste `version` je `week_start`), Ruhetage ausgelassen. Events starten um 18:30 Uhr Europe/Vienna (DST-sicher) für die geplante `duration_min` (Default 60 Min), mit `CATEGORIES:Sport` für Apple Kalenders Tag-Farbzuordnung. Titel: Kraft `💪🍑 Workout I/II/III`, Laufen `🏃 Laufen · Xmin`, Radfahren `🚴 Radfahren · Xmin`; Freitext-`description` bei Lauf/Rad steht in `DESCRIPTION`, nicht im Titel.  
+**Nutzung:** `https://<host>/api/calendar/<athleteId>` als Kalenderabo (z. B. Apple Kalender: Einstellungen → Accounts → Account hinzufügen → Andere → Kalenderabo hinzufügen); Link-Kopieren-Button in `Profile.tsx` (Abschnitt „Kalender"). Generierungslogik in `api/_lib/ics.ts` (`buildIcsFeed`), siehe Kapitel 3 und Kapitel 16. `vercel.json`s SPA-Rewrite schließt `/api/` explizit per Negative-Lookahead aus (sonst fängt der Catch-all dynamische API-Routen wie diese ab, bevor die Funktion erreicht wird).
 
 ---
 
@@ -1311,6 +1325,15 @@ npm run dev     # Vite Dev-Server auf localhost:5173
 - RLS-Policies auf allen 6 Tabellen (athletes, activities, season_goals, weekly_plans, coach_decisions, chat_messages)
 - `getValidAccessToken()` + `restoreSessionFromSupabase()`: fire-and-forget `set_athlete_context` RPC
 - Hinweis: pgBouncer Transaction Mode limitiert die Effektivität (Session-Variablen persistent nur in Session Mode)
+
+**Kalender-Export (ICS, 27.–28. Juli 2026):**
+- Öffentlicher, abonnierbarer ICS-Feed `api/calendar/[athleteId].ts` (GET, kein Session-Auth — `athleteId`-UUID als Capability-Token) + reine Generierungslogik `api/_lib/ics.ts` (`buildIcsFeed`), gemeinsam genutzt von der Vercel-Function und einer neuen lokalen Dev-Middleware in `vite.config.ts`
+- Dedupliziert `weekly_plans` auf die neueste `version` je `week_start`; Ruhetage werden ausgelassen; stabile UID pro Tag (kein Duplikat bei wiederholtem Abo-Polling)
+- Events sind Zeittermine (nicht ganztägig): Start 18:30 Uhr Europe/Vienna, DST-sicher über dieselbe Intl-longOffset-Technik wie `api/send-daily-reminder.ts`, Dauer = geplante `duration_min` (Default 60 Min); `CATEGORIES:Sport` pro VEVENT für Apple Kalenders Tag-Farbzuordnung (setzt einen bereits in Apple Kalender angelegten Tag namens „Sport" voraus)
+- Titel-Schema: Kraft `💪🍑 Workout I/II/III` (description dort immer kurz, direkt als Titel), Laufen `🏃 Laufen · Xmin`, Radfahren `🚴 Radfahren · Xmin` — der freie Coaching-Fließtext aus `description` steht bei Lauf/Rad in `DESCRIPTION` statt im Titel (sonst unlesbar lang)
+- Abo-Link-Button in `Profile.tsx` (Abschnitt „Kalender", zwischen Krafttraining-Akkordeon und Konto löschen) kopiert `https://<host>/api/calendar/<athleteId>` in die Zwischenablage (nicht `webcal://` — iOS' manuelles „Kalenderabo hinzufügen"-Sheet wandelt das Schema beim Einfügen in `http://` um, was durch Vercels http→https-Redirect die Verifizierung brach)
+- `vercel.json`: SPA-Catch-all-Rewrite schließt `/api/` per Negative-Lookahead aus — er hatte zuvor jeden `/api/calendar/*`-Request abgefangen, bevor er die Funktion erreichte (0 Invocations in den Runtime-Logs)
+- Siehe Kapitel 3 „Projektstruktur" und Kapitel 7 „API-Endpoints"
 
 **Sicherheit:**
 - STRAVA_CLIENT_SECRET nie im Browser-Bundle
