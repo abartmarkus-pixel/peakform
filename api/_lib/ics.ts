@@ -23,14 +23,33 @@ export type WeeklyPlanRow = {
 
 // Reine UTC-Datumsarithmetik (kein new Date(y,m,d) in Lokalzeit) — die Vercel-Function
 // läuft in UTC, aber selbst wenn nicht: Date.UTC() ist unabhängig von der Prozess-Timezone.
-function addDaysToDateStr(dateStr: string, days: number): string {
+function addDaysToDateStr(dateStr: string, days: number): { y: number; m: number; d: number } {
   const [y, m, d] = dateStr.split('-').map(Number)
   const dt = new Date(Date.UTC(y, m - 1, d + days))
-  const yyyy = dt.getUTCFullYear()
-  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0')
-  const dd = String(dt.getUTCDate()).padStart(2, '0')
-  return `${yyyy}${mm}${dd}`
+  return { y: dt.getUTCFullYear(), m: dt.getUTCMonth() + 1, d: dt.getUTCDate() }
 }
+
+function fmtDashed({ y, m, d }: { y: number; m: number; d: number }): string {
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+}
+
+// longOffset (z.B. "GMT+02:00") berücksichtigt CEST/CET automatisch für das jeweilige
+// Datum, analog zum bereits etablierten Pattern in api/send-daily-reminder.ts.
+function viennaOffsetForDate(dashed: string): string {
+  const probe = new Date(`${dashed}T12:00:00Z`)
+  const offsetName = new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Vienna', timeZoneName: 'longOffset' })
+    .formatToParts(probe)
+    .find(p => p.type === 'timeZoneName')?.value ?? 'GMT+02:00'
+  return offsetName.replace('GMT', '')
+}
+
+function toIcsUtc(dt: Date): string {
+  return dt.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z'
+}
+
+const EVENT_HOUR = 18
+const EVENT_MINUTE = 30
+const DEFAULT_DURATION_MIN = 60
 
 function formatDuration(minutes: number): string {
   if (minutes < 60) return `${minutes} Min`
@@ -96,8 +115,11 @@ export function buildIcsFeed(athleteId: string, plans: WeeklyPlanRow[]): string 
       if (offset === -1 || !day?.type) continue
       if (classify(day.type) === 'rest') continue
 
-      const dtstart = addDaysToDateStr(plan.week_start, offset)
-      const dtend = addDaysToDateStr(plan.week_start, offset + 1)
+      const dayDashed = fmtDashed(addDaysToDateStr(plan.week_start, offset))
+      const offsetStr = viennaOffsetForDate(dayDashed)
+      const startUtc = new Date(`${dayDashed}T${String(EVENT_HOUR).padStart(2, '0')}:${String(EVENT_MINUTE).padStart(2, '0')}:00${offsetStr}`)
+      const durationMin = day.duration_min ?? DEFAULT_DURATION_MIN
+      const endUtc = new Date(startUtc.getTime() + durationMin * 60_000)
       const uid = `${athleteId}-${plan.week_start}-${label}@peakform.app`
 
       events.push(
@@ -105,8 +127,9 @@ export function buildIcsFeed(athleteId: string, plans: WeeklyPlanRow[]): string 
           'BEGIN:VEVENT',
           `UID:${uid}`,
           `DTSTAMP:${dtstamp}`,
-          `DTSTART;VALUE=DATE:${dtstart}`,
-          `DTEND;VALUE=DATE:${dtend}`,
+          `DTSTART:${toIcsUtc(startUtc)}`,
+          `DTEND:${toIcsUtc(endUtc)}`,
+          'CATEGORIES:Sport',
           `SUMMARY:${escapeIcsText(buildSummary(day))}`,
           `DESCRIPTION:${escapeIcsText(buildDescription(day))}`,
           'END:VEVENT',
