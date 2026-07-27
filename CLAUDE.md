@@ -98,9 +98,18 @@ peakform/
 │   │                       # Limits: 80k Zeichen, max_tokens Cap 4096, generische Fehler
 │   ├── strava-token.ts     # Vercel Serverless Function → Strava OAuth Token Exchange/Refresh
 │   │                       # (STRAVA_CLIENT_SECRET serverseitig, nie im Browser-Bundle)
-│   └── send-daily-reminder.ts # Vercel Cron (0 6 * * * = 08:00 CEST, keine DST-Anpassung) → CRON_SECRET-geschützt
-│                           # Berechnet "heute"/Wochenstart explizit in Europe/Vienna (Prozess-TZ ist UTC!),
-│                           # sendet Push via web-push wenn Tag kein Ruhetag ist, räumt 404/410-Subscriptions auf
+│   ├── send-daily-reminder.ts # Vercel Cron (0 6 * * * = 08:00 CEST, keine DST-Anpassung) → CRON_SECRET-geschützt
+│   │                       # Berechnet "heute"/Wochenstart explizit in Europe/Vienna (Prozess-TZ ist UTC!),
+│   │                       # sendet Push via web-push wenn Tag kein Ruhetag ist, räumt 404/410-Subscriptions auf
+│   ├── calendar/[athleteId].ts # Öffentlicher ICS-Feed (GET, kein Auth) → athleteId (UUID) als Capability-Token
+│   │                       # in der URL, analog zur offenen RLS-Policy. Liest weekly_plans (neueste Version je
+│   │                       # week_start), rendert via buildIcsFeed() zu text/calendar. Für Apple Kalender als
+│   │                       # webcal://…/api/calendar/<athleteId>-Abo gedacht (Profile.tsx "Kalender"-Sektion)
+│   └── _lib/ics.ts         # buildIcsFeed(): reine ICS-Generierung (RFC 5545), von api/calendar/ UND der
+│                           # vite.config.ts-Dev-Middleware genutzt. Titel: Kraft "💪🍑 Workout I/II/III",
+│                           # Lauf "🏃 Laufen · Xmin", Rad "🚴 Radfahren · Xmin" (Freitext-description wandert
+│                           # in DESCRIPTION statt SUMMARY, sonst unlesbar langer Kalendertitel); Ruhetage
+│                           # werden ausgelassen (kein Event)
 ├── src/
 │   ├── App.tsx             # Router: / | /auth/callback | /dashboard | /activity/:id
 │   │                       #         /profile | /goals | /plan | /chat
@@ -142,7 +151,7 @@ peakform/
 │   │                       # (WebWorker- vs DOM-Lib-Konflikt mit dem Rest von src/)
 │   └── vite-env.d.ts       # Env-Variable-Types
 ├── vite.config.ts          # PWA-Config (strategies: injectManifest, srcDir: src, filename: sw.ts) +
-│                           # /api/analyse + /api/strava-token Middleware für lokales Dev
+│                           # /api/analyse + /api/strava-token + /api/calendar Middleware für lokales Dev
 ├── vercel.json             # SPA Rewrites + SW Cache-Header + Cron (send-daily-reminder) + Build-Config
 └── .env                    # Credentials (nicht committen!)
 ```
@@ -249,6 +258,14 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 - [x] `push_subscriptions` (Supabase): ein Athlet kann mehrere Geräte/Endpoints haben; `api/send-daily-reminder.ts` löscht Einträge automatisch bei HTTP 404/410 (abgelaufene Subscription)
 - [x] `api/send-daily-reminder.ts` berechnet "heute"/Wochenstart explizit über `Intl.DateTimeFormat(..., { timeZone: 'Europe/Vienna' })` statt `new Date().getDay()` — die Vercel-Cron-Runtime läuft in UTC, ein naiver Ansatz hätte denselben UTC-Slice-Bug-Typ reproduziert, der in diesem Projekt bereits mehrfach aufgetreten ist (siehe PEAKFORM_ROADMAP.md)
 - [ ] Sync-Bestätigungs-Push (wenn neue Aktivität von Strava importiert wurde) — bewusst nicht in dieser ersten Runde, siehe Roadmap
+
+### Kalender-Export (ICS)
+- [x] `api/calendar/[athleteId].ts`: öffentlicher, abonnierbarer ICS-Feed (`text/calendar`) ohne Session-Auth — `athleteId` (UUID) in der URL dient als Capability-Token, konsistent mit der bereits offenen RLS-Policy im Rest des Projekts
+- [x] `api/_lib/ics.ts` (`buildIcsFeed`): reine RFC-5545-Generierung, dedupliziert `weekly_plans` auf die neueste `version` je `week_start`; Ruhetage werden ausgelassen (kein Event); All-Day-Events (`DTSTART/DTEND;VALUE=DATE`) mit TZ-unabhängiger UTC-Datumsarithmetik (kein `new Date(y,m,d)` in Lokalzeit, da die Funktion sowohl in der Vercel-Function [UTC] als auch der Vite-Dev-Middleware läuft)
+- [x] Titel-Schema: Kraft `💪🍑 Workout I/II/III` (description ist dort immer kurz), Lauf `🏃 Laufen · Xmin`, Rad `🚴 Radfahren · Xmin` — der freie Coaching-Fließtext aus `description` steht bei Lauf/Rad in `DESCRIPTION`, nicht im `SUMMARY` (sonst unlesbar langer Kalendertitel)
+- [x] UID pro Event stabil (`${athleteId}-${week_start}-${Tag}@peakform.app`), damit wiederholtes Abo-Polling keine Duplikate erzeugt, sondern bestehende Events aktualisiert
+- [x] Profile.tsx "Kalender"-Sektion: Button kopiert `webcal://<host>/api/calendar/<athleteId>` in die Zwischenablage + kurze Anleitung für Apple Kalender (Einstellungen → Accounts → Account hinzufügen → Andere → Kalenderabo hinzufügen)
+- [x] Lokale Dev-Middleware `/api/calendar` in vite.config.ts (analog zu `/api/analyse` + `/api/strava-token`), nutzt dieselbe `buildIcsFeed()`-Logik aus `api/_lib/ics.ts`
 
 ### Sicherheit
 - [x] STRAVA_CLIENT_SECRET und ANTHROPIC_API_KEY nie im Browser-Bundle

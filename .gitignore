@@ -6,4 +6,5 @@ dist
 .DS_Store
 *.local
 *.log
+*.tsbuildinfo
 .claude/settings.local.json

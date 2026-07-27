@@ -2,6 +2,8 @@ import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { createClient } from '@supabase/supabase-js'
+import { buildIcsFeed, type WeeklyPlanRow } from './api/_lib/ics'
 
 const MAX_PROMPT_CHARS = 80_000
 const MAX_TOKENS_CAP   = 4_096
@@ -175,6 +177,50 @@ export default defineConfig(({ mode }) => {
                   res.end(JSON.stringify({ error: 'Internal server error' }))
                 }
               })
+            },
+          )
+
+          // ── /api/calendar/:athleteId (ICS-Feed) ─────────────────
+          server.middlewares.use(
+            '/api/calendar',
+            async (req: IncomingMessage, res: ServerResponse) => {
+              const athleteId = req.url?.replace(/^\//, '').split('?')[0]
+              if (!athleteId || athleteId.length < 10) {
+                res.statusCode = 400
+                res.end(JSON.stringify({ error: 'Invalid athleteId' })); return
+              }
+              try {
+                const supabaseUrl = env.VITE_SUPABASE_URL
+                const anonKey = env.VITE_SUPABASE_ANON_KEY
+                const supabase = createClient(supabaseUrl, anonKey)
+
+                const { data: plans, error } = await supabase
+                  .from('weekly_plans')
+                  .select('week_start, version, plan_json')
+                  .eq('athlete_id', athleteId)
+                  .order('version', { ascending: false })
+                if (error) {
+                  res.statusCode = 500
+                  res.end(JSON.stringify({ error: error.message })); return
+                }
+
+                const latestByWeek = new Map<string, WeeklyPlanRow>()
+                for (const p of plans ?? []) {
+                  const weekStart = p.week_start as string
+                  if (!latestByWeek.has(weekStart)) {
+                    latestByWeek.set(weekStart, { week_start: weekStart, plan_json: p.plan_json as WeeklyPlanRow['plan_json'] })
+                  }
+                }
+
+                const ics = buildIcsFeed(athleteId, [...latestByWeek.values()])
+                res.setHeader('Content-Type', 'text/calendar; charset=utf-8')
+                res.statusCode = 200
+                res.end(ics)
+              } catch (e) {
+                res.statusCode = 500
+                res.setHeader('Content-Type', 'application/json')
+                res.end(JSON.stringify({ error: String(e) }))
+              }
             },
           )
 

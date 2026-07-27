@@ -35,7 +35,7 @@ import { deauthorizeStrava } from '../lib/strava'
 import { AppHeader } from '../components/AppHeader'
 import { useFeatures } from '../lib/features'
 import { getPushSupport, enablePushNotifications, disablePushNotifications } from '../lib/push'
-import { IconBell } from '../lib/icons'
+import { IconBell, IconPlan, IconCheck } from '../lib/icons'
 
 // ── constants ──────────────────────────────────────────────────────────────
 
@@ -279,6 +279,7 @@ export default function Profile() {
   // push notifications
   const [pushState, setPushState] = useState<'checking' | 'unsupported' | 'ios-needs-install' | 'off' | 'on' | 'denied'>('checking')
   const [pushBusy, setPushBusy] = useState(false)
+  const [calendarCopied, setCalendarCopied] = useState(false)
 
   // _updated_at state
   const [ftpUpdatedAt,    setFtpUpdatedAt]    = useState<string | null>(null)
@@ -1196,6 +1197,29 @@ export default function Profile() {
                 </button>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ── 7b. KALENDER-ABO ───────────────────────────────── */}
+        {athlete && (
+          <div className="mt-2 pt-5 border-t border-slate-700/50">
+            <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+              <IconPlan size={12} /> Kalender
+            </h2>
+            <p className="text-xs text-slate-500 mb-3">
+              Abonniere deinen Wochenplan im Kalender (z.B. Apple Kalender): Einstellungen → Accounts → Account hinzufügen → Andere → Kalenderabo hinzufügen, dann den Link einfügen. Der Kalender aktualisiert sich danach automatisch bei jeder Planänderung.
+            </p>
+            <button
+              onClick={async () => {
+                const url = `webcal://${window.location.host}/api/calendar/${athlete.id}`
+                await navigator.clipboard.writeText(url)
+                setCalendarCopied(true)
+                setTimeout(() => setCalendarCopied(false), 2000)
+              }}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium text-brand-400 bg-brand-500/10 hover:bg-brand-500/20 ring-1 ring-brand-900/50 transition-colors"
+            >
+              {calendarCopied ? <><IconCheck size={13} /> Link kopiert</> : <><IconPlan size={13} /> Abo-Link kopieren</>}
+            </button>
           </div>
         )}
 
