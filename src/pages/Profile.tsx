@@ -1211,7 +1211,7 @@ export default function Profile() {
             </p>
             <button
               onClick={async () => {
-                const url = `webcal://${window.location.host}/api/calendar/${athlete.id}`
+                const url = `https://${window.location.host}/api/calendar/${athlete.id}`
                 await navigator.clipboard.writeText(url)
                 setCalendarCopied(true)
                 setTimeout(() => setCalendarCopied(false), 2000)
