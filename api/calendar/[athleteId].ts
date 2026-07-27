@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { createClient } from '@supabase/supabase-js'
-import { buildIcsFeed, type WeeklyPlanRow } from '../_lib/ics'
+import { buildIcsFeed, type WeeklyPlanRow } from '../_lib/ics.js'
 
 // Öffentlich abonnierbarer ICS-Feed (webcal://) pro Athlet. Kein Session-Auth nötig —
 // athleteId (UUID) fungiert als Capability-Token, analog zur bereits offenen RLS-Policy
