@@ -24,6 +24,13 @@ export function isStandalone(): boolean {
   )
 }
 
+// Merkt sich einen bewussten Abmelde-Klick, damit syncPushSubscription() ihn nicht
+// gleich beim nächsten App-Start rückgängig macht (Notification.permission bleibt
+// nach dem Abmelden 'granted' — das kann JS nicht zurücksetzen — daher reicht der
+// reine Permission-Check dort nicht, um "verfallene Subscription" von "User will
+// das nicht mehr" zu unterscheiden).
+const OPT_OUT_KEY = 'pf_push_opted_out'
+
 export type PushSupport = 'unsupported' | 'ios-needs-install' | 'ready'
 
 export function getPushSupport(): PushSupport {
@@ -61,10 +68,12 @@ export async function enablePushNotifications(athleteId: string): Promise<'grant
     })
   }
   await saveSubscription(athleteId, sub)
+  localStorage.removeItem(OPT_OUT_KEY)
   return 'granted'
 }
 
 export async function disablePushNotifications(athleteId: string): Promise<void> {
+  localStorage.setItem(OPT_OUT_KEY, 'true')
   if (!('serviceWorker' in navigator)) return
   const registration = await navigator.serviceWorker.ready
   const sub = await registration.pushManager.getSubscription()
@@ -82,6 +91,7 @@ export async function disablePushNotifications(athleteId: string): Promise<void>
 export async function syncPushSubscription(athleteId: string): Promise<void> {
   if (getPushSupport() !== 'ready') return
   if (Notification.permission !== 'granted') return
+  if (localStorage.getItem(OPT_OUT_KEY) === 'true') return
 
   try {
     const registration = await navigator.serviceWorker.ready
