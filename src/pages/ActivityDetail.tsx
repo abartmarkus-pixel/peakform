@@ -26,6 +26,17 @@ import { supabase, type Activity, type Athlete, type CoachDecision } from '../li
 import { AppHeader } from '../components/AppHeader'
 import { renderMarkdown } from '../lib/markdown'
 import { buildRoastPrompt, type SportFocus } from '../lib/funModePrompts'
+import { DAY_FULL } from '../lib/weeklyPlan'
+import {
+  extractPlanRecommendation,
+  applyPlanRecommendation,
+  resolveTargetWeek,
+  mondayForWeek,
+  loadMatchingDays,
+  type RecommendationDraft,
+  type PlanSport,
+} from '../lib/planRecommendation'
+import { toDateStr } from '../lib/dateUtils'
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -284,6 +295,20 @@ export default function ActivityDetail() {
   const [feedbackText, setFeedbackText] = useState('')
   const [feedbackSaving, setFeedbackSaving] = useState(false)
   const [feedbackToast, setFeedbackToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  // Empfehlung aus Analyse in Wochenplan übernehmen
+  const [recoModalOpen, setRecoModalOpen] = useState(false)
+  const [recoLoading, setRecoLoading] = useState(false)
+  const [recoSaving, setRecoSaving] = useState(false)
+  const [recoError, setRecoError] = useState<string | null>(null)
+  const [recoDraft, setRecoDraft] = useState<RecommendationDraft | null>(null)
+  const [recoWeek, setRecoWeek] = useState<'current' | 'next'>('current')
+  const [recoDayOptions, setRecoDayOptions] = useState<string[]>([])
+  const [recoDay, setRecoDay] = useState<string>('')
+  const [recoDuration, setRecoDuration] = useState('')
+  const [recoDistance, setRecoDistance] = useState('')
+  const [recoIntensity, setRecoIntensity] = useState('')
+  const [recoDescription, setRecoDescription] = useState('')
+  const [recoToast, setRecoToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
   useEffect(() => {
     const stravaId = localStorage.getItem('athlete_strava_id')
@@ -514,6 +539,84 @@ export default function ActivityDetail() {
     }
   }
 
+  // Lädt für eine Woche die Tage, die bereits die passende Sportart tragen
+  // (nur solche sind im Dropdown wählbar — kein Verschieben der Trainingstag-Struktur).
+  async function loadRecoWeek(which: 'current' | 'next', sport: PlanSport, preferDay?: string | null) {
+    setRecoWeek(which)
+    if (!athleteId) return
+    const weekStart = toDateStr(mondayForWeek(which))
+    const result = await loadMatchingDays(athleteId, weekStart, sport)
+    if (!result) {
+      setRecoDayOptions([])
+      setRecoDay('')
+      return
+    }
+    setRecoDayOptions(result.days)
+    setRecoDay(preferDay && result.days.includes(preferDay) ? preferDay : (result.days[0] ?? ''))
+  }
+
+  async function openRecoModal(sport: PlanSport) {
+    if (!activity || !analysis) return
+    setRecoModalOpen(true)
+    setRecoLoading(true)
+    setRecoError(null)
+    setRecoDraft(null)
+    try {
+      const draft = await extractPlanRecommendation({ analysisText: analysis, sport })
+      setRecoDraft(draft)
+      setRecoDuration(draft.duration_min != null ? String(draft.duration_min) : '')
+      setRecoDistance(draft.distance_km != null ? String(draft.distance_km) : '')
+      setRecoIntensity(draft.intensity ?? '')
+      setRecoDescription(draft.description)
+
+      const which = draft.day ? resolveTargetWeek(draft.day).which : 'current'
+      await loadRecoWeek(which, sport, draft.day)
+    } catch (e) {
+      console.error(e)
+      setRecoError(e instanceof Error ? e.message : 'Empfehlung konnte nicht extrahiert werden.')
+    } finally {
+      setRecoLoading(false)
+    }
+  }
+
+  function closeRecoModal() {
+    if (recoSaving) return
+    setRecoModalOpen(false)
+    setRecoDraft(null)
+    setRecoError(null)
+  }
+
+  async function confirmApplyRecommendation(sport: PlanSport) {
+    if (!activity || !athleteId || !recoDay) return
+    setRecoSaving(true)
+    setRecoError(null)
+    try {
+      await applyPlanRecommendation({
+        athleteId,
+        weekStart: toDateStr(mondayForWeek(recoWeek)),
+        day: recoDay,
+        sport,
+        dayUpdate: {
+          duration_min: recoDuration.trim() ? Number(recoDuration) : null,
+          distance_km: recoDistance.trim() ? Number(recoDistance) : null,
+          intensity: recoIntensity.trim() || null,
+          description: recoDescription.trim(),
+        },
+        activityName: activity.name,
+        activityId: activity.id,
+      })
+      setRecoModalOpen(false)
+      setRecoDraft(null)
+      setRecoToast({ type: 'success', message: 'In Plan übernommen ✓' })
+      setTimeout(() => setRecoToast(null), 2500)
+    } catch (e) {
+      console.error(e)
+      setRecoError(e instanceof Error ? e.message : 'Übernehmen fehlgeschlagen.')
+    } finally {
+      setRecoSaving(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -528,6 +631,10 @@ export default function ActivityDetail() {
   const hasHr = chartData.some(d => d.hr !== undefined)
   const hasAlt = !isWeightTraining && chartData.some(d => d.alt !== undefined)
   const hasWatts = chartData.some(d => d.watts !== undefined)
+  // Nur Laufen/Radfahren: Kraft-Tage tragen einen festen "Workout I/II/III"-Namen
+  // (siehe CLAUDE.md), eine Freitext-Empfehlung passt dort nicht in die description.
+  const activitySportForPlan = activity ? sportFromActivityType(activity.type) : null
+  const recoSport: PlanSport | null = activitySportForPlan === 'running' || activitySportForPlan === 'cycling' ? activitySportForPlan : null
 
   return (
     <>
@@ -848,6 +955,15 @@ export default function ActivityDetail() {
             {feedback ? 'Feedback bearbeiten' : 'Feedback geben'}
           </button>
         )}
+
+        {analysis && recoSport && (
+          <button
+            onClick={() => openRecoModal(recoSport)}
+            className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-base font-semibold text-slate-200 bg-slate-800 hover:bg-slate-700 transition-colors"
+          >
+            Empfehlung übernehmen
+          </button>
+        )}
       </div>
 
       {/* ── Hintergrund-Analyse läuft ──────────────────────────── */}
@@ -945,6 +1061,138 @@ export default function ActivityDetail() {
           feedbackToast.type === 'success' ? 'bg-brand-500' : 'bg-red-500'
         }`}>
           {feedbackToast.message}
+        </div>
+      )}
+
+      {/* ── Empfehlung-übernehmen-Modal ────────────────────── */}
+      {recoModalOpen && recoSport && (
+        <div
+          className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-50 p-4"
+          onClick={e => { if (e.target === e.currentTarget) closeRecoModal() }}
+        >
+          <div className="bg-slate-800 rounded-2xl p-5 w-full max-w-lg flex flex-col gap-4 max-h-[85vh] overflow-y-auto">
+            <h2 className="text-lg font-bold text-slate-100">Empfehlung in Plan übernehmen</h2>
+
+            {recoLoading && (
+              <div className="flex items-center gap-2 text-sm text-slate-400">
+                <span className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full animate-spin" />
+                Empfehlung wird extrahiert…
+              </div>
+            )}
+
+            {recoError && <p className="text-red-400 text-sm">{recoError}</p>}
+
+            {recoDraft && !recoLoading && (
+              <>
+                <p className="text-sm text-slate-400 italic">{recoDraft.reasoning}</p>
+
+                <div className="flex gap-2">
+                  {(['current', 'next'] as const).map(w => (
+                    <button
+                      key={w}
+                      onClick={() => loadRecoWeek(w, recoSport, recoDay)}
+                      className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-colors ${
+                        recoWeek === w ? 'bg-brand-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                      }`}
+                    >
+                      {w === 'current' ? 'Diese Woche' : 'Nächste Woche'}
+                    </button>
+                  ))}
+                </div>
+
+                {recoDayOptions.length === 0 ? (
+                  <p className="text-amber-400 text-sm">
+                    Kein passender Trainingstag in dieser Woche gefunden — andere Woche wählen oder zuerst einen Plan erzeugen.
+                  </p>
+                ) : (
+                  <div>
+                    <label className="text-xs text-slate-500 uppercase tracking-wider">Tag</label>
+                    <select
+                      value={recoDay}
+                      onChange={e => setRecoDay(e.target.value)}
+                      className="w-full mt-1 bg-slate-900 text-slate-100 rounded-xl px-3 py-2.5 text-base focus:outline-none focus:ring-1 focus:ring-brand-500"
+                    >
+                      {recoDayOptions.map(d => (
+                        <option key={d} value={d}>{DAY_FULL[d] ?? d}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-slate-500 uppercase tracking-wider">Dauer (Min)</label>
+                    <input
+                      type="number"
+                      value={recoDuration}
+                      onChange={e => setRecoDuration(e.target.value)}
+                      className="w-full mt-1 bg-slate-900 text-slate-100 rounded-xl px-3 py-2.5 text-base focus:outline-none focus:ring-1 focus:ring-brand-500"
+                    />
+                  </div>
+                  {recoSport === 'cycling' && (
+                    <div>
+                      <label className="text-xs text-slate-500 uppercase tracking-wider">Distanz (km)</label>
+                      <input
+                        type="number"
+                        value={recoDistance}
+                        onChange={e => setRecoDistance(e.target.value)}
+                        className="w-full mt-1 bg-slate-900 text-slate-100 rounded-xl px-3 py-2.5 text-base focus:outline-none focus:ring-1 focus:ring-brand-500"
+                      />
+                    </div>
+                  )}
+                  <div className={recoSport === 'running' ? 'col-span-2' : ''}>
+                    <label className="text-xs text-slate-500 uppercase tracking-wider">Intensität</label>
+                    <input
+                      type="text"
+                      value={recoIntensity}
+                      onChange={e => setRecoIntensity(e.target.value)}
+                      placeholder="z.B. Z2"
+                      className="w-full mt-1 bg-slate-900 text-slate-100 rounded-xl px-3 py-2.5 text-base focus:outline-none focus:ring-1 focus:ring-brand-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs text-slate-500 uppercase tracking-wider">Beschreibung</label>
+                  <textarea
+                    value={recoDescription}
+                    onChange={e => setRecoDescription(e.target.value)}
+                    rows={3}
+                    className="w-full mt-1 bg-slate-900 text-slate-100 rounded-xl px-3 py-2.5 text-base focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none"
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-1">
+                  <button
+                    onClick={closeRecoModal}
+                    disabled={recoSaving}
+                    className="flex-1 py-2.5 rounded-xl text-sm text-slate-400 bg-slate-700 hover:bg-slate-600 transition-colors disabled:opacity-50"
+                  >
+                    Abbrechen
+                  </button>
+                  <button
+                    onClick={() => confirmApplyRecommendation(recoSport)}
+                    disabled={recoSaving || !recoDay || !recoDescription.trim()}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-brand-500 hover:bg-brand-600 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {recoSaving && (
+                      <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                    )}
+                    Übernehmen
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Empfehlung-übernehmen-Toast ─────────────────────── */}
+      {recoToast && (
+        <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl text-sm font-medium shadow-lg max-w-[90vw] text-center text-white ${
+          recoToast.type === 'success' ? 'bg-brand-500' : 'bg-red-500'
+        }`}>
+          {recoToast.message}
         </div>
       )}
 

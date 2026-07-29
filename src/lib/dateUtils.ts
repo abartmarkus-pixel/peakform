@@ -23,6 +23,23 @@ export function formatWeekRange(monday: Date): string {
   return `${fmt(monday)} – ${fmt(sunday)}${year}`
 }
 
+/** Formats a Date als "YYYY-MM-DD" in Lokalzeit (nicht toISOString().slice(0,10),
+ *  das UTC nimmt und in CET/CEST einen Tag zu früh liegen kann). */
+export function toDateStr(d: Date): string {
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+/** Neues Date, `days` Tage versetzt (via setDate, nicht ms-Arithmetik — bleibt
+ *  über DST-Wechsel hinweg auf demselben Kalendertag statt um eine Stunde zu driften). */
+export function addDays(d: Date, days: number): Date {
+  const copy = new Date(d)
+  copy.setDate(copy.getDate() + days)
+  return copy
+}
+
 const WEEKDAY_LABELS_DE = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa']
 
 /** Formats a Date/ISO-Timestamp als "TT.MM.JJJJ" in Lokalzeit (nicht UTC-slice). */

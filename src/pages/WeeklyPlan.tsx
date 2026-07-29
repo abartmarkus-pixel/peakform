@@ -14,7 +14,8 @@ import {
 } from '../lib/icons'
 import { AppHeader } from '../components/AppHeader'
 import { useFeatures } from '../lib/features'
-import { getISOMonday, getISOSunday, formatWeekRange, formatDurationHuman } from '../lib/dateUtils'
+import { getISOMonday, getISOSunday, formatWeekRange, formatDurationHuman, toDateStr } from '../lib/dateUtils'
+import { DAYS, DAY_FULL, REST_KEYWORDS, SPORT_KEYWORDS, checkPlanConflicts, type DayPlan, type PlanJson } from '../lib/weeklyPlan'
 import {
   DndContext,
   closestCenter,
@@ -35,27 +36,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 
 // ── types ──────────────────────────────────────────────────────────────────
-
-type DayPlan = {
-  type: string
-  duration_min?: number
-  distance_km?: number
-  intensity?: string
-  description: string
-  // Nur gesetzt bei manuell erzeugten Ruhetagen (via markAsRestDay) — trägt den
-  // ursprünglichen Taginhalt für "Aktivität wiederherstellen" mit; JSONB speichert
-  // es klaglos mit, übersteht also Reload und Versionswechsel.
-  _restoreFrom?: DayPlan
-  // Nur gesetzt, wenn eine an einem anderen Tag vorgezogen durchgeführte Aktivität
-  // diesen Tag erfüllt (Kontext-Vorschlag "Vorziehen erkannt", siehe Schritt 3).
-  // Der Tag selbst bleibt inhaltlich unverändert (type/description etc.).
-  _fulfilledBy?: { date: string; stravaId: number }
-}
-
-type PlanJson = {
-  summary: string
-  days: Record<string, DayPlan>
-}
+// DayPlan/PlanJson: siehe src/lib/weeklyPlan.ts (dort auch von planRecommendation.ts genutzt)
 
 type ReviewJson = {
   review: string
@@ -90,23 +71,9 @@ function embeddedActivityDate(row: { activities?: unknown }): string | null {
   return (Array.isArray(a) ? a[0]?.date : a.date) ?? null
 }
 
-// ── constants ──────────────────────────────────────────────────────────────
-
-const DAYS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
-const DAY_FULL: Record<string, string> = {
-  Mo: 'Montag', Di: 'Dienstag', Mi: 'Mittwoch', Do: 'Donnerstag',
-  Fr: 'Freitag', Sa: 'Samstag', So: 'Sonntag',
-}
-
-
 // ── constraint validation ──────────────────────────────────────────────────
+// DAYS/DAY_FULL/REST_KEYWORDS/SPORT_KEYWORDS/checkPlanConflicts: siehe src/lib/weeklyPlan.ts
 
-const REST_KEYWORDS = ['ruhetag', 'erholung', 'regeneration']
-const SPORT_KEYWORDS: Record<string, string[]> = {
-  cycling:  ['ride', 'radfahren', 'cycling'],
-  running:  ['run', 'laufen', 'running'],
-  strength: ['kraft', 'weighttraining', 'krafttraining'],
-}
 const SPORT_LABEL: Record<string, string> = {
   cycling: 'Radfahren', running: 'Laufen', strength: 'Krafttraining',
 }
@@ -145,48 +112,7 @@ function validateConstraints(planJson: PlanJson, sportConfigs: SportConfig[], tr
 // beim Planen bekommt (siehe generatePlan()-Prompt, Regeln 3-4): Z3+-Ausdauer
 // UND schweres Krafttraining zählen beide als intensiv.
 
-function isRestDay(d: DayPlan): boolean {
-  return REST_KEYWORDS.some(k => d.type.toLowerCase().includes(k))
-}
-
-function isKraftDay(d: DayPlan): boolean {
-  return SPORT_KEYWORDS.strength.some(k => d.type.toLowerCase().includes(k))
-}
-
-function isIntensiveEndurance(d: DayPlan): boolean {
-  return !isRestDay(d) && !isKraftDay(d) && /^Z[3-5]/i.test(d.intensity ?? '')
-}
-
-function isIntensiveDay(d: DayPlan): boolean {
-  if (isRestDay(d)) return false
-  if (isKraftDay(d)) return true
-  return /^Z[3-5]/i.test(d.intensity ?? '')
-}
-
-function checkPlanConflicts(days: Record<string, DayPlan>): string | null {
-  for (let i = 0; i < DAYS.length - 1; i++) {
-    const today = days[DAYS[i]]
-    const tomorrow = days[DAYS[i + 1]]
-    if (!today || !tomorrow) continue
-
-    if (isKraftDay(today) && isIntensiveEndurance(tomorrow)) {
-      return `Krafttraining am ${DAYS[i]} liegt jetzt direkt vor einer intensiven Einheit am ${DAYS[i + 1]}.`
-    }
-    if (isIntensiveDay(today) && isIntensiveDay(tomorrow)) {
-      return `${DAYS[i]} und ${DAYS[i + 1]} sind jetzt beide intensiv — direkt hintereinander ohne Erholung.`
-    }
-  }
-  return null
-}
-
 // ── helpers ────────────────────────────────────────────────────────────────
-
-function toDateStr(d: Date): string {
-  const year = d.getFullYear()
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
 
 function dayDate(monday: Date, idx: number): string {
   const d = new Date(monday)

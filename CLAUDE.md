@@ -143,6 +143,11 @@ peakform/
 │   │   │                   # (Route/Icon/Label/Feature-Gate); einzige Quelle der Wahrheit für BottomNav.tsx + useTabSwipeNavigation.ts
 │   │   ├── useTabSwipeNavigation.ts # useTabSwipeNavigation(): natives touchstart/touchend-Swipe zwischen Tabs
 │   │   │                   # aus useVisibleTabs(); >60px + |Δx|>2×|Δy|, kein Wrap-Around, nur auf den 5 Haupt-Tabs aktiv
+│   │   ├── weeklyPlan.ts   # DayPlan/PlanJson-Types, checkPlanConflicts(), dayMatchesSport(), insertPlanVersion()
+│   │   │                   # (geteilte INSERT-only-Speicherlogik, aus WeeklyPlan.tsx extrahiert) — genutzt von
+│   │   │                   # WeeklyPlan.tsx UND planRecommendation.ts
+│   │   ├── planRecommendation.ts # extractPlanRecommendation()/applyPlanRecommendation(): Coach-Empfehlung aus
+│   │   │                   # claude_analysis gezielt in einen Plantag übernehmen (ActivityDetail.tsx-Button)
 │   │   └── push.ts         # getPushSupport() (Feature-Detection inkl. iOS-Standalone-Check), enablePushNotifications()/
 │   │                       # disablePushNotifications(), syncPushSubscription() — stiller Re-Subscribe bei jedem
 │   │                       # App-Start (App.tsx Layout), fängt bekanntes iOS-Subscription-Expiry-Problem ab
@@ -214,6 +219,7 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 - [x] `calculateSeasonPhase()`, `calculateHRZones()`, `calculatePaceReference()` in coachContext.ts
 - [x] Recovery-Extraktion: `triggerRecoveryExtraction(analysisText, athleteId, activityId)` — fire-and-forget nach Analyse ODER beim Laden bestehender Analyse (on-load check: `if (act.claude_analysis && !act.recovery_checked)`); setzt `activities.recovery_checked=true` nach jedem Lauf unabhängig vom Ergebnis, bleibt bei Fehler `false` für Retry
 - [x] Automatische Analyse nach Sync (`syncActivitiesToSupabase()` fire-and-forget-Sweep über `claude_analysis IS NULL`, sowie `WeeklyPlan.tsx`s `closeOutstandingAnalyses()`-Fallback) läuft pro Aktivität exakt einmal: `claimActivityForAnalysis(activityId)` claimt atomar über `analysis_claimed_at` (conditional UPDATE), bevor `analyzeActivity()` aufgerufen wird — verhindert doppelte Claude-Calls bei gleichzeitigen Syncs (React StrictMode Doppel-Mount, Dashboard+WeeklyPlan). Claim wird nach Erfolg/Fehlschlag zurückgesetzt; nach 2 Min als abgelaufen behandelt (Selbstheilung bei abgebrochenem Tab). Manueller "Neu analysieren"-Button in ActivityDetail.tsx umgeht den Claim bewusst (soll immer laufen)
+- [x] Coach-Empfehlung gezielt in den Wochenplan übernehmen: Button "Empfehlung übernehmen" in ActivityDetail.tsx (nur Lauf/Rad — Kraft-Tage tragen einen festen "Workout I/II/III"-Namen, siehe WeeklyPlan-Sektion, in den keine Freitext-Empfehlung passt). `extractPlanRecommendation()` (`src/lib/planRecommendation.ts`) extrahiert die Empfehlung aus `claude_analysis` per `/api/analyse`-Call strukturiert als JSON (Tag/Dauer/Distanz/Intensität/Beschreibung); Zielwoche (aktuelle/nächste) wird deterministisch aus dem genannten Wochentag berechnet, nicht von Claude geraten. Bestätigungsdialog zeigt die Empfehlung editierbar, Tag-Dropdown nur mit Tagen, die im Zielplan bereits dieselbe Sportart tragen (`dayMatchesSport()`) — ändert nie die Trainingstag-Struktur, nur `duration_min`/`distance_km`/`intensity`/`description` eines bestehenden Tages. `applyPlanRecommendation()` speichert INSERT-only (version++) über `insertPlanVersion()` (`src/lib/weeklyPlan.ts`, geteilte Speicherlogik, extrahiert aus `WeeklyPlan.tsx`s `saveManualPlanChange()`), plus `coach_decisions`-Audit-Eintrag (`decision_type: 'plan_recommendation_applied'`, `related_activity_id` gesetzt). Laufen behält dabei immer `distance_km: null` (bestehende Invariante)
 
 ### Profil
 - [x] Name, FTP, Max HF, Gewicht, Trainingstage (1–7)
