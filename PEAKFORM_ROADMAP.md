@@ -179,6 +179,13 @@ Aufwand: Mittel
 ### ✅ Automatische Analyse neuer Aktivitäten (implementiert 3.7.2026, besser als ursprünglich geplant)
 Ursprünglich geplant als reaktiver Schutz nur vor Plan-Generierung/Review. Stattdessen proaktiv gelöst: jede neu von Strava importierte Aktivität wird automatisch analysiert (inkl. Recovery-Extraction) — kein manueller Klick auf "Analysieren" mehr nötig, Button heißt jetzt "Neu analysieren" für erneute Analyse. Analyse-Logik zentral in src/lib/activityAnalysis.ts extrahiert. Zusätzliches Sicherheitsnetz beim Plan generieren/Review (closeOutstandingAnalyses()) fängt verbleibende unanalysierte Aktivitäten trotzdem ab. Damit ist die ursprüngliche Sorge (Sonntagseinheit wird nicht geöffnet, Recovery-Check greift nicht) strukturell komplett gelöst — relevant besonders für die zweite Person, die nicht dieselbe manuelle Analyse-Disziplin hat wie Markus.
 
+### ✅ Coach-Empfehlung gezielt in den Wochenplan übernehmen (implementiert 29.7.2026)
+Lücke: der Coach gibt am Ende jeder Aktivitäts-Analyse eine konkrete Empfehlung für die nächste Einheit ab, aber diese landete bisher nirgends strukturiert im Wochenplan zurück — nur die jeweils letzte Analyse floss als Rohtext in eine komplette Plan-Neu-Generierung ein, der sichtbare Plan blieb sonst auf dem ursprünglichen Stand.
+
+Neuer Button "Empfehlung übernehmen" in ActivityDetail.tsx (nur Lauf/Rad — Kraft-Tage tragen einen festen "Workout I/II/III"-Namen, in den eine Freitext-Empfehlung nicht passt). `extractPlanRecommendation()` extrahiert die Empfehlung strukturiert per eigenem `/api/analyse`-Call, Zielwoche wird deterministisch aus dem genannten Wochentag berechnet (nicht von Claude geraten). Bestätigungsdialog zeigt die Empfehlung editierbar, Tag-Auswahl beschränkt auf Tage, die im Zielplan bereits dieselbe Sportart tragen — ändert nie die Trainingstag-Struktur, nur Dauer/Distanz/Intensität/Beschreibung eines bestehenden Tages. Speicherung INSERT-only (version++) über neues `insertPlanVersion()` (`src/lib/weeklyPlan.ts`, aus `WeeklyPlan.tsx`s `saveManualPlanChange()` extrahiert, damit beide Wege dieselbe Logik nutzen), plus `coach_decisions`-Audit-Eintrag.
+
+Verifiziert per Wegwerf-Testathlet (Playwright headless): Extraktion, Tag-Vorauswahl, Übernahme, neue Plan-Version mit korrektem Tag-Update, alle übrigen Tage unverändert, Testdaten anschließend gelöscht.
+
 ### 🟡 Dynamische Pace-Kalibrierung
 Statt statischer 5k Bestzeit berechnet der Coach die aktuelle Z2-Pace aus den letzten 3-4 echten Läufen (tatsächliche Pace bei HF 127-148 bpm). Erst implementieren wenn 3-4 echte Läufe in der Datenbank sind.
 Aufwand: Klein
@@ -381,3 +388,4 @@ Aufwand: Mittel
 | iOS Safari Service-Worker-Cache | Niedrig | Mittel | 💡 Laufend beobachten |
 | Apple Health / Garmin | Hoch | Groß | 💡 Zukunft |
 | ✅ "Zurück"-Button ActivityDetail (Hard-Redirect) | Behoben | — | 12.7.2026 |
+| ✅ Coach-Empfehlung in Wochenplan übernehmen | Umgesetzt | — | 29.7.2026 |
