@@ -24,13 +24,6 @@ export function isStandalone(): boolean {
   )
 }
 
-// Merkt sich einen bewussten Abmelde-Klick, damit syncPushSubscription() ihn nicht
-// gleich beim nächsten App-Start rückgängig macht (Notification.permission bleibt
-// nach dem Abmelden 'granted' — das kann JS nicht zurücksetzen — daher reicht der
-// reine Permission-Check dort nicht, um "verfallene Subscription" von "User will
-// das nicht mehr" zu unterscheiden).
-const OPT_OUT_KEY = 'pf_push_opted_out'
-
 export type PushSupport = 'unsupported' | 'ios-needs-install' | 'ready'
 
 export function getPushSupport(): PushSupport {
@@ -68,12 +61,12 @@ export async function enablePushNotifications(athleteId: string): Promise<'grant
     })
   }
   await saveSubscription(athleteId, sub)
-  localStorage.removeItem(OPT_OUT_KEY)
+  await supabase.from('athletes').update({ push_opted_out: false }).eq('id', athleteId)
   return 'granted'
 }
 
 export async function disablePushNotifications(athleteId: string): Promise<void> {
-  localStorage.setItem(OPT_OUT_KEY, 'true')
+  await supabase.from('athletes').update({ push_opted_out: true }).eq('id', athleteId)
   if (!('serviceWorker' in navigator)) return
   const registration = await navigator.serviceWorker.ready
   const sub = await registration.pushManager.getSubscription()
@@ -87,11 +80,17 @@ export async function disablePushNotifications(athleteId: string): Promise<void>
  * Inaktivität serverseitig ungültig werden, ohne dass Permission-State
  * oder App davon etwas mitbekommen. Bei jedem App-Start still prüfen und
  * bei Bedarf neu registrieren/speichern — kein UI-Feedback nötig.
+ *
+ * pushOptedOut kommt aus athletes.push_opted_out (serverseitig statt
+ * localStorage) — überlebt damit Logout (localStorage.clear()) und den
+ * iOS-Trick "Icon entfernen + neu hinzufügen" (leert ebenfalls localStorage),
+ * wo Notification.permission trotzdem 'granted' bleibt und ein reiner
+ * Permission-Check einen bewussten Abmelde-Klick sonst rückgängig macht.
  */
-export async function syncPushSubscription(athleteId: string): Promise<void> {
+export async function syncPushSubscription(athleteId: string, pushOptedOut: boolean): Promise<void> {
   if (getPushSupport() !== 'ready') return
   if (Notification.permission !== 'granted') return
-  if (localStorage.getItem(OPT_OUT_KEY) === 'true') return
+  if (pushOptedOut) return
 
   try {
     const registration = await navigator.serviceWorker.ready

@@ -40,6 +40,10 @@ athletes (id uuid PK, strava_athlete_id bigint UNIQUE, strava_access_token text,
           aesthetic_goals jsonb,       ← {priorities:string[],notes:string}
           season_phase_override text,  ← NULL=Auto | 'readaptation'|'base'|'race'|'taper'
           best_5k_seconds int,         ← 5k-Bestzeit in Sekunden (Basis für Pace-Berechnung)
+          push_opted_out bool DEFAULT false, ← serverseitiges Push-Opt-out (statt nur localStorage);
+                                      -- übersteht Logout (localStorage.clear()) und iOS "Icon entfernen +
+                                      -- neu hinzufügen" (leert ebenfalls localStorage), wo Notification.permission
+                                      -- trotzdem 'granted' bleibt
           created_at timestamptz)
 
 activities (id uuid PK, athlete_id uuid FK→athletes, strava_id bigint UNIQUE,
@@ -260,7 +264,7 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 - [x] `push_subscriptions` braucht wie alle anderen Tabellen eine `"... : open for now"`-RLS-Policy (`USING (true) WITH CHECK (true)`) — RLS aktivieren allein reicht nicht, ohne Policy blockiert Postgres den Anon-Key-Insert lautlos (kein Fehler von `supabase-js`); `saveSubscription()` prüft seitdem zusätzlich den `error`-Rückgabewert des Upserts statt ihn zu ignorieren
 - [x] `vite-plugin-pwa` von `generateSW` auf `injectManifest` umgestellt (Voraussetzung für eigenen `push`-Handler in `src/sw.ts`); Precaching/skipWaiting/clientsClaim/cleanupOutdatedCaches manuell in `sw.ts` statt automatisch generiert
 - [x] iOS-Feature-Detection in `src/lib/push.ts` (`getPushSupport()`): Web Push funktioniert auf iOS ausschließlich für zum Home-Bildschirm hinzugefügte PWAs (`display-mode: standalone`), nie im Safari-Tab, erst ab iOS 16.4 — Profile.tsx zeigt bei fehlendem Standalone-Modus eine Anleitung statt eines wirkungslosen Buttons
-- [x] Bekanntes iOS-Verhalten (Push-Subscriptions verfallen serverseitig nach Inaktivität, ohne dass Permission-State das anzeigt) abgefangen durch `syncPushSubscription()`: stiller Re-Subscribe-Check bei jedem App-Start (App.tsx Layout), sobald Permission bereits erteilt ist
+- [x] Bekanntes iOS-Verhalten (Push-Subscriptions verfallen serverseitig nach Inaktivität, ohne dass Permission-State das anzeigt) abgefangen durch `syncPushSubscription()`: stiller Re-Subscribe-Check bei jedem App-Start (App.tsx Layout), sobald Permission bereits erteilt ist UND `athletes.push_opted_out = false` ist. Das Opt-out-Flag lebt bewusst serverseitig statt (nur) in `localStorage` — `Notification.permission` bleibt nach dem Abmelden `'granted'` (kann JS nicht zurücksetzen), und `localStorage.clear()` läuft sowohl beim Logout als auch beim iOS-Trick "Icon entfernen + neu hinzufügen"; ein rein lokales Flag hätte einen bewussten Abmelde-Klick in beiden Fällen wieder rückgängig gemacht (genau dieser Bug trat live auf: `disablePushNotifications()` löschte die Subscription, doch `syncPushSubscription()` legte sie beim nächsten Start klaglos neu an)
 - [x] `push_subscriptions` (Supabase): ein Athlet kann mehrere Geräte/Endpoints haben; `api/send-daily-reminder.ts` löscht Einträge automatisch bei HTTP 404/410 (abgelaufene Subscription)
 - [x] `api/send-daily-reminder.ts` berechnet "heute"/Wochenstart explizit über `Intl.DateTimeFormat(..., { timeZone: 'Europe/Vienna' })` statt `new Date().getDay()` — die Vercel-Cron-Runtime läuft in UTC, ein naiver Ansatz hätte denselben UTC-Slice-Bug-Typ reproduziert, der in diesem Projekt bereits mehrfach aufgetreten ist (siehe PEAKFORM_ROADMAP.md)
 - [ ] Sync-Bestätigungs-Push (wenn neue Aktivität von Strava importiert wurde) — bewusst nicht in dieser ersten Runde, siehe Roadmap

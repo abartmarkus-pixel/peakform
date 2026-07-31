@@ -59,6 +59,8 @@ export type Athlete = {
   features: Record<string, boolean> | null
   // Onboarding
   onboarding_completed: boolean
+  // Push-Opt-out: serverseitig statt nur localStorage, damit es Logout/iOS-Icon-Reinstall übersteht
+  push_opted_out: boolean
 }
 
 export type SeasonGoal = {

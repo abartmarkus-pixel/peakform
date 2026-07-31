@@ -58,7 +58,7 @@ function Layout() {
 
       const { data } = await supabase
         .from('athletes')
-        .select('id, onboarding_completed')
+        .select('id, onboarding_completed, push_opted_out')
         .eq('strava_athlete_id', Number(stravaId))
         .single()
 
@@ -68,7 +68,7 @@ function Layout() {
 
       // Fängt das bekannte iOS-Problem ab, bei dem Push-Subscriptions nach
       // Inaktivität serverseitig verfallen, ohne dass die App es merkt.
-      if (data?.id) void syncPushSubscription(data.id)
+      if (data?.id) void syncPushSubscription(data.id, data.push_opted_out)
     })()
 
     if (!isLoggedIn) return
