@@ -675,7 +675,7 @@ export default function WeeklyPlan() {
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
 
       const [context, systemPrompt, { data: recoveryRows }] = await Promise.all([
-        buildCoachContext(athlete.id),
+        buildCoachContext(athlete.id, athlete.id),
         buildCoachSystemPrompt(athlete.id),
         supabase
           .from('coach_decisions')
@@ -841,7 +841,7 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, 
       await closeOutstandingAnalyses()
 
       const [context, systemPrompt] = await Promise.all([
-        buildCoachContext(athlete.id),
+        buildCoachContext(athlete.id, athlete.id),
         buildCoachSystemPrompt(athlete.id),
       ])
 
