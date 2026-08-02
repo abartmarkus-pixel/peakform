@@ -602,7 +602,7 @@ export default function ActivityDetail() {
           intensity: recoIntensity.trim() || null,
           description: recoDescription.trim(),
         },
-        activityName: activity.name,
+        source: `Analyse von "${activity.name}"`,
         activityId: activity.id,
       })
       setRecoModalOpen(false)

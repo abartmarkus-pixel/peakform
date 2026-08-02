@@ -68,6 +68,49 @@ function parseJsonFromClaudeText<T>(text: string): T {
   return JSON.parse(raw.trim()) as T
 }
 
+// Wie extractPlanRecommendation, aber für eine freie Chat-Nachricht statt einer
+// sportgebundenen Aktivitäts-Analyse — die Sportart ist hier nicht im Voraus
+// bekannt und muss von Claude selbst erkannt werden (siehe Chat.tsx "In Plan
+// übernehmen"-Button unter der letzten Coach-Nachricht).
+export async function extractChatPlanRecommendation(params: {
+  chatText: string
+}): Promise<RecommendationDraft & { sport: PlanSport | null }> {
+  const { chatText } = params
+
+  const res = await fetch('/api/analyse', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      system: 'Du extrahierst aus einer Chat-Nachricht eines Trainingscoaches die Trainingsempfehlung als striktes JSON. Antworte NUR mit JSON, kein Fließtext davor oder danach, keine Code-Fences.',
+      prompt: `Heute ist ${toLocalWeekdayDateStr(new Date())}.
+
+Chat-Nachricht des Coaches:
+${chatText}
+
+Extrahiere die konkreteste darin enthaltene Trainingsempfehlung als JSON:
+{"sport": "running"|"cycling"|null, "day": "Mo"|"Di"|"Mi"|"Do"|"Fr"|"Sa"|"So"|null, "duration_min": number|null, "distance_km": number|null, "intensity": string|null, "description": string, "reasoning": string}
+
+Regeln:
+- "sport": "running" bei einer Lauf-Empfehlung, "cycling" bei einer Rad-Empfehlung. Krafttraining oder unklare/allgemeine Nachrichten ohne konkrete Lauf/Rad-Einheit → null (Kraft-Tage tragen im Plan einen festen "Workout I/II/III"-Namen, keine Freitext-Empfehlung).
+- "day": der für die Empfehlung genannte Wochentag (z.B. "Dienstag" → "Di"). null wenn kein konkreter Tag genannt wird.
+- "intensity": kurzes Format wie im Text (z.B. "Z2" oder "Z2+Fartlek"). null wenn nicht angegeben.
+- "description": 1 prägnanter Satz, der die Empfehlung als Wochenplan-Tagesbeschreibung zusammenfasst.
+- "reasoning": 1 kurzer Satz für ein Audit-Log, warum dieser Tag so angepasst wird.
+- Nur Werte übernehmen, die in der Nachricht explizit genannt werden — keine Werte erfinden.
+- Enthält die Nachricht mehrere Tage/Einheiten: wähle die zeitlich nächste konkrete Einheit.`,
+      max_tokens: 400,
+    }),
+  })
+  if (!res.ok) throw new Error('Empfehlung konnte nicht extrahiert werden.')
+  const { text } = await res.json() as { text: string }
+
+  const draft = parseJsonFromClaudeText<RecommendationDraft & { sport: PlanSport | null }>(text)
+  if (draft.day && !DAYS.includes(draft.day)) draft.day = null
+  if (draft.sport !== 'running' && draft.sport !== 'cycling') draft.sport = null
+  if (!draft.sport || !draft.description?.trim()) throw new Error('Keine verwertbare Lauf/Rad-Empfehlung in dieser Nachricht gefunden.')
+  return draft
+}
+
 export async function extractPlanRecommendation(params: {
   analysisText: string
   sport: PlanSport
@@ -112,10 +155,12 @@ export async function applyPlanRecommendation(params: {
   day: string
   sport: PlanSport
   dayUpdate: { duration_min?: number | null; distance_km?: number | null; intensity?: string | null; description: string }
-  activityName: string
-  activityId: string
+  // Menschenlesbare Herkunft für change_reason/coach_decisions, z.B. 'Analyse von "Abendlauf"'
+  // oder 'Chat-Empfehlung'. activityId bleibt optional — aus dem Chat heraus gibt es keine.
+  source: string
+  activityId?: string
 }): Promise<WeeklyPlan> {
-  const { athleteId, weekStart, day, sport, dayUpdate, activityName, activityId } = params
+  const { athleteId, weekStart, day, sport, dayUpdate, source, activityId } = params
 
   const plan = await fetchLatestPlan(athleteId, weekStart)
   if (!plan) throw new Error(`Kein Wochenplan für KW ${weekStart} gefunden — bitte zuerst einen Plan erzeugen.`)
@@ -143,9 +188,9 @@ export async function applyPlanRecommendation(params: {
     athleteId,
     weekStart: plan.week_start,
     planJson: updatedPlanJson,
-    changeReason: `Empfehlung aus Analyse von "${activityName}" übernommen`,
+    changeReason: `Empfehlung aus ${source} übernommen`,
     decisionType: 'plan_recommendation_applied',
-    decisionSummary: `${day} (KW ${plan.week_start}): Empfehlung aus "${activityName}" übernommen`,
+    decisionSummary: `${day} (KW ${plan.week_start}): Empfehlung aus ${source} übernommen`,
     relatedActivityId: activityId,
   })
 }
