@@ -131,7 +131,8 @@ peakform/
 │   │   │                   # Sportarten-Stepper: Invariante Σdays ≤ trainingDays technisch erzwungen
 │   │   ├── Goals.tsx       # Saisonziele A/B/C, Countdown in Tagen, Add/Edit-Modal
 │   │   ├── WeeklyPlan.tsx  # Wochenplan + Constraint-Prompt + Validation-Banner + Wochenreview
-│   │   └── Chat.tsx        # Globaler Coach-Chat mit Supabase-Persistenz
+│   │   └── Chat.tsx        # Globaler Coach-Chat mit Supabase-Persistenz; Button "In Plan übernehmen" unter
+│   │                       # der letzten Coach-Nachricht (extractChatPlanRecommendation/applyPlanRecommendation)
 │   ├── lib/
 │   │   ├── supabase.ts     # Supabase Client + Types (Athlete, Activity, SportConfig, SeasonGoal, WeeklyPlan, CoachDecision, ...)
 │   │   ├── strava.ts       # OAuth URL, Token Exchange via /api/strava-token, Activities, Streams, Laps
@@ -151,7 +152,11 @@ peakform/
 │   │   │                   # (geteilte INSERT-only-Speicherlogik, aus WeeklyPlan.tsx extrahiert) — genutzt von
 │   │   │                   # WeeklyPlan.tsx UND planRecommendation.ts
 │   │   ├── planRecommendation.ts # extractPlanRecommendation()/applyPlanRecommendation(): Coach-Empfehlung aus
-│   │   │                   # claude_analysis gezielt in einen Plantag übernehmen (ActivityDetail.tsx-Button)
+│   │   │                   # claude_analysis gezielt in einen Plantag übernehmen (ActivityDetail.tsx-Button).
+│   │   │                   # extractChatPlanRecommendation(): gleiches Prinzip für eine freie Chat-Nachricht
+│   │   │                   # (Chat.tsx-Button) — extrahiert zusätzlich die Sportart selbst (vorher unbekannt).
+│   │   │                   # applyPlanRecommendation() nimmt ein generisches source-Label statt activityName/-Id
+│   │   │                   # (activityId optional) — von beiden Buttons gemeinsam genutzt
 │   │   └── push.ts         # getPushSupport() (Feature-Detection inkl. iOS-Standalone-Check), enablePushNotifications()/
 │   │                       # disablePushNotifications(), syncPushSubscription() — stiller Re-Subscribe bei jedem
 │   │                       # App-Start (App.tsx Layout), fängt bekanntes iOS-Subscription-Expiry-Problem ab
@@ -216,7 +221,7 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 
 ### Coach-System
 - [x] `buildCoachSystemPrompt(athleteId): Promise<string>` — dynamisch aus DB (FTP, Max HF, Saison-Phase, HF-Zonen, Pace-Referenz, A-Event)
-- [x] `buildCoachContext(athleteId, threadId?)`: 8 Abschnitte parallel
+- [x] `buildCoachContext(athleteId, threadId?)`: 8 Abschnitte parallel — `generatePlan()`/`startReview()` in WeeklyPlan.tsx übergeben seit Kurzem `threadId = athlete.id` mit (vorher nicht gesetzt), damit Abschnitt 7 (`[AKTUELLE CHAT-SESSION]`, letzte 10 Chat-Nachrichten) auch bei Plan-Generierung/-Review gefüllt ist — Wünsche/Absprachen aus dem Coach-Chat fließen so als Kontext ein. Kein hartes Erzwingen: Claude gewichtet den Chat-Kontext nur als ein Signal von mehreren, keine garantierte 1:1-Übernahme
 - [x] `buildSpecialistContext(athleteId, sport)`: Lauf/Rad/Kraft-spezifische Historien
 - [x] `LAUF_COACH_PROMPT` / `RAD_COACH_PROMPT` / `KRAFT_COACH_PROMPT`: statische Spezialcoaches
 - [x] Coach-Routing (`getSpecialistPrompt(activityType)`) in ActivityDetail.tsx
@@ -224,6 +229,8 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 - [x] Recovery-Extraktion: `triggerRecoveryExtraction(analysisText, athleteId, activityId)` — fire-and-forget nach Analyse ODER beim Laden bestehender Analyse (on-load check: `if (act.claude_analysis && !act.recovery_checked)`); setzt `activities.recovery_checked=true` nach jedem Lauf unabhängig vom Ergebnis, bleibt bei Fehler `false` für Retry
 - [x] Automatische Analyse nach Sync (`syncActivitiesToSupabase()` fire-and-forget-Sweep über `claude_analysis IS NULL`, sowie `WeeklyPlan.tsx`s `closeOutstandingAnalyses()`-Fallback) läuft pro Aktivität exakt einmal: `claimActivityForAnalysis(activityId)` claimt atomar über `analysis_claimed_at` (conditional UPDATE), bevor `analyzeActivity()` aufgerufen wird — verhindert doppelte Claude-Calls bei gleichzeitigen Syncs (React StrictMode Doppel-Mount, Dashboard+WeeklyPlan). Claim wird nach Erfolg/Fehlschlag zurückgesetzt; nach 2 Min als abgelaufen behandelt (Selbstheilung bei abgebrochenem Tab). Manueller "Neu analysieren"-Button in ActivityDetail.tsx umgeht den Claim bewusst (soll immer laufen)
 - [x] Coach-Empfehlung gezielt in den Wochenplan übernehmen: Button "Empfehlung übernehmen" in ActivityDetail.tsx (nur Lauf/Rad — Kraft-Tage tragen einen festen "Workout I/II/III"-Namen, siehe WeeklyPlan-Sektion, in den keine Freitext-Empfehlung passt). `extractPlanRecommendation()` (`src/lib/planRecommendation.ts`) extrahiert die Empfehlung aus `claude_analysis` per `/api/analyse`-Call strukturiert als JSON (Tag/Dauer/Distanz/Intensität/Beschreibung); Zielwoche (aktuelle/nächste) wird deterministisch aus dem genannten Wochentag berechnet, nicht von Claude geraten. Bestätigungsdialog zeigt die Empfehlung editierbar, Tag-Dropdown nur mit Tagen, die im Zielplan bereits dieselbe Sportart tragen (`dayMatchesSport()`) — ändert nie die Trainingstag-Struktur, nur `duration_min`/`distance_km`/`intensity`/`description` eines bestehenden Tages. `applyPlanRecommendation()` speichert INSERT-only (version++) über `insertPlanVersion()` (`src/lib/weeklyPlan.ts`, geteilte Speicherlogik, extrahiert aus `WeeklyPlan.tsx`s `saveManualPlanChange()`), plus `coach_decisions`-Audit-Eintrag (`decision_type: 'plan_recommendation_applied'`, `related_activity_id` gesetzt). Laufen behält dabei immer `distance_km: null` (bestehende Invariante)
+- [x] Gleiches Übernahme-Feature jetzt auch im globalen Coach-Chat (Chat.tsx): Button "In Plan übernehmen" unter der letzten Coach-Nachricht. `extractChatPlanRecommendation()` (`src/lib/planRecommendation.ts`) extrahiert zusätzlich zu Tag/Dauer/Distanz/Intensität/Beschreibung auch die Sportart selbst aus dem Chat-Fließtext (anders als bei der Aktivitäts-Analyse dort vorher nicht bekannt); liefert Claude `sport: null` (Kraft oder unklare Nachricht), bricht die Übernahme mit Fehlermeldung ab — gleiche Kraft-Invariante wie beim Aktivitäts-Analyse-Pfad. `applyPlanRecommendation()` wurde dafür generalisiert: `activityName`/`activityId` → optionales `source`-Freitext-Label (z. B. `"Chat-Empfehlung"` vs. `Analyse von "<Aktivitätsname>"`), `activityId` bleibt optional (aus dem Chat heraus gibt es keine Aktivität) — von beiden Einstiegspunkten (ActivityDetail.tsx UND Chat.tsx) genutzt
+- [x] Der Coach behauptet im Chat NICHT, den Plan bereits gespeichert/aktualisiert zu haben ("Plan aktualisiert ✅" o.ä.) — Chat.tsx schreibt technisch nie in `weekly_plans` (nur `chat_messages`), ein solcher Claim wäre also immer eine Halluzination. Fester Prompt-Abschnitt in `coachPrompt.ts` (`buildCoachSystemPrompt()`, wirkt global für alle Claude-Calls inkl. Chat) verpflichtet den Coach stattdessen, die Empfehlung konkret zu formulieren und auf den "In Plan übernehmen"-Button zu verweisen
 
 ### Profil
 - [x] Name, FTP, Max HF, Gewicht, Trainingstage (1–7)
@@ -258,6 +265,7 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 - [x] Supabase-persistente Messages, Supabase-first Flow
 - [x] Thread-ID = `athlete.id` (nicht localStorage) — ein einziger persistenter `chat_type='global'`-Thread pro Athlet, überlebt PWA-Reinstalls (iOS "Icon entfernen + neu hinzufügen" leert `localStorage`, was vorher zu einer neuen Zufalls-Thread-ID und "verlorenem" Chat-Verlauf führte); "Neu"-Button in Chat.tsx leert nur die lokale Ansicht (kein neuer Thread), Verlauf bleibt in Supabase und erscheint nach Reload wieder
 - [x] Typing-Indicator, Auto-resize Textarea
+- [x] "In Plan übernehmen"-Button unter der letzten Coach-Nachricht — siehe Coach-System-Sektion oben
 
 ### Push Notifications
 - [x] Zwei Vercel-Cron-Slots an die geplante Einheit des Tages, keine automatische DST-Anpassung: `?slot=morning` (`0 5 * * *` = 07:00 CEST, sendet immer bei Nicht-Ruhetag) und `?slot=evening` (`0 15 * * *` = 17:00 CEST, sendet nur wenn für den Athleten noch keine Strava-Aktivität "heute" erfasst wurde — geprüft über explizite Europe/Vienna-Tagesgrenzen via `Intl` `longOffset`, DST-sicher statt hartcodiertem Offset)
