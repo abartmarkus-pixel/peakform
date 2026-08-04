@@ -221,7 +221,7 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 
 ### Coach-System
 - [x] `buildCoachSystemPrompt(athleteId): Promise<string>` — dynamisch aus DB (FTP, Max HF, Saison-Phase, HF-Zonen, Pace-Referenz, A-Event)
-- [x] `buildCoachContext(athleteId, threadId?)`: 8 Abschnitte parallel — `generatePlan()`/`startReview()` in WeeklyPlan.tsx übergeben seit Kurzem `threadId = athlete.id` mit (vorher nicht gesetzt), damit Abschnitt 7 (`[AKTUELLE CHAT-SESSION]`, letzte 10 Chat-Nachrichten) auch bei Plan-Generierung/-Review gefüllt ist — Wünsche/Absprachen aus dem Coach-Chat fließen so als Kontext ein. Kein hartes Erzwingen: Claude gewichtet den Chat-Kontext nur als ein Signal von mehreren, keine garantierte 1:1-Übernahme
+- [x] `buildCoachContext(athleteId, threadId?)`: 8 Abschnitte parallel — `generatePlan()`/`startReview()` in WeeklyPlan.tsx übergeben seit Kurzem `threadId = athlete.id` mit (vorher nicht gesetzt), damit Abschnitt 7 (`[AKTUELLE CHAT-SESSION]`, letzte 20 Chat-Nachrichten) auch bei Plan-Generierung/-Review gefüllt ist — Wünsche/Absprachen aus dem Coach-Chat fließen so als Kontext ein. Kein hartes Erzwingen: Claude gewichtet den Chat-Kontext nur als ein Signal von mehreren, keine garantierte 1:1-Übernahme
 - [x] `buildSpecialistContext(athleteId, sport)`: Lauf/Rad/Kraft-spezifische Historien
 - [x] `LAUF_COACH_PROMPT` / `RAD_COACH_PROMPT` / `KRAFT_COACH_PROMPT`: statische Spezialcoaches
 - [x] Coach-Routing (`getSpecialistPrompt(activityType)`) in ActivityDetail.tsx
@@ -264,6 +264,7 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 ### Chat
 - [x] Supabase-persistente Messages, Supabase-first Flow
 - [x] Thread-ID = `athlete.id` (nicht localStorage) — ein einziger persistenter `chat_type='global'`-Thread pro Athlet, überlebt PWA-Reinstalls (iOS "Icon entfernen + neu hinzufügen" leert `localStorage`, was vorher zu einer neuen Zufalls-Thread-ID und "verlorenem" Chat-Verlauf führte); "Neu"-Button in Chat.tsx leert nur die lokale Ansicht (kein neuer Thread), Verlauf bleibt in Supabase und erscheint nach Reload wieder
+- [x] Message-Anzeige: lädt die neuesten 50 Nachrichten je Thread (`order('created_at', {ascending: false}).limit(50)`, danach für die chronologische Anzeige `.reverse()`) — vorher `ascending: true` + `limit(50)`, was bei >50 Nachrichten dauerhaft die **ältesten** 50 zeigte statt der neuesten (Bug: neue Nachrichten schienen nach dem Senden nicht anzukommen)
 - [x] Typing-Indicator, Auto-resize Textarea
 - [x] "In Plan übernehmen"-Button unter der letzten Coach-Nachricht — siehe Coach-System-Sektion oben
 

@@ -106,9 +106,9 @@ export default function Chat() {
         .select('*')
         .eq('thread_id', a.id)
         .eq('athlete_id', a.id)
-        .order('created_at', { ascending: true })
+        .order('created_at', { ascending: false })
         .limit(50)
-      setMessages((msgs ?? []) as ChatMessage[])
+      setMessages(((msgs ?? []) as ChatMessage[]).reverse())
     })()
   }, [navigate])
 
@@ -124,9 +124,9 @@ export default function Chat() {
       .select('*')
       .eq('thread_id', athlete.id)
       .eq('athlete_id', athlete.id)
-      .order('created_at', { ascending: true })
+      .order('created_at', { ascending: false })
       .limit(50)
-    setMessages((data ?? []) as ChatMessage[])
+    setMessages(((data ?? []) as ChatMessage[]).reverse())
   }
 
   async function send() {

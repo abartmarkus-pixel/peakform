@@ -287,7 +287,7 @@ export async function buildCoachContext(
           .eq('thread_id', threadId)
           .eq('athlete_id', athleteId)
           .order('created_at', { ascending: false })
-          .limit(10)
+          .limit(20)
       : Promise.resolve({ data: [] }),
 
     supabase
@@ -466,7 +466,7 @@ export async function buildCoachContext(
     `[COACH-ENTSCHEIDUNGEN — LETZTE 5]\n${decisionLines.length ? decisionLines.join('\n') : 'Keine Entscheidungen geloggt.'}`
   )
 
-  // ── 7. AKTUELLE CHAT-SESSION (~500 tokens) ─────────────────────────────
+  // ── 7. AKTUELLE CHAT-SESSION (~1000 tokens) ────────────────────────────
   const chatLines = (chatRows ?? [])
     .slice()
     .reverse()
