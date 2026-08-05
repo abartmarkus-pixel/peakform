@@ -673,8 +673,11 @@ export default function WeeklyPlan() {
       await closeOutstandingAnalyses()
 
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+      // Progressions-Signale (stimulus_insufficient) dürfen etwas länger nachwirken
+      // als Verletzungs-Flags — daher ein größeres Fenster als bei recovery_required.
+      const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString()
 
-      const [context, systemPrompt, { data: recoveryRows }] = await Promise.all([
+      const [context, systemPrompt, { data: recoveryRows }, { data: stimulusRows }] = await Promise.all([
         buildCoachContext(athlete.id, athlete.id),
         buildCoachSystemPrompt(athlete.id),
         supabase
@@ -683,6 +686,13 @@ export default function WeeklyPlan() {
           .eq('athlete_id', athlete.id)
           .eq('decision_type', 'recovery_required')
           .gte('activities.date', sevenDaysAgo)
+          .order('date', { referencedTable: 'activities', ascending: false }),
+        supabase
+          .from('coach_decisions')
+          .select('decision_summary, reasoning, created_at, activities!related_activity_id!inner(date)')
+          .eq('athlete_id', athlete.id)
+          .eq('decision_type', 'stimulus_insufficient')
+          .gte('activities.date', fourteenDaysAgo)
           .order('date', { referencedTable: 'activities', ascending: false }),
       ])
 
@@ -714,6 +724,14 @@ export default function WeeklyPlan() {
           }\n`
         : ''
 
+      const stimulusSection = stimulusRows?.length
+        ? `\nSTIMULUS-SIGNALE (MÜSSEN in der Pace-/Intensitätsvorgabe berücksichtigt werden — überschreiben NICHT die harten Tage-Constraints):\n${
+            stimulusRows.map(d =>
+              `- ${new Date(embeddedActivityDate(d) ?? d.created_at).toLocaleDateString('de-DE')}: ${d.reasoning ?? d.decision_summary}`
+            ).join('\n')
+          }\n`
+        : ''
+
       const prompt = `${context}
 
 ---
@@ -724,7 +742,7 @@ HARTE REGELN (nicht verhandelbar):
 1. Gesamttage: Der Plan enthält exakt ${trainingDays} Trainingstage und ${calendarRestDays} Ruhetage (Mo–So = 7 Tage).
 2. Sportarten-Verteilung (exakt einhalten):
 ${sportConstraintLines}
-${recoverySection}
+${recoverySection}${stimulusSection}
 SPORTWISSENSCHAFTLICHE REIHENFOLGE-REGELN:
 3. Nie zwei intensive Einheiten (Z3+, Tempolauf, schweres Krafttraining) an aufeinanderfolgenden Tagen.
 4. Krafttraining nie am Tag vor einer intensiven Ausdauereinheit.
@@ -733,6 +751,7 @@ SPORTWISSENSCHAFTLICHE REIHENFOLGE-REGELN:
 
 LAUFEINHEITEN — PFLICHT:
 7. Für alle Einheiten mit type "Laufen" oder "Run": setze distance_km IMMER auf null. Gib NUR duration_min an. Die HF-Zone ist die einzige Vorgabe — die Distanz ergibt sich beim Training automatisch.
+7b. "intensity" beginnt bei Lauf- und Rad-Einheiten IMMER mit "Z1", "Z2", "Z3", "Z4" oder "Z5" (z. B. "Z2 locker", "Z4 Schwelle") — nie ohne dieses Präfix, das Format wird technisch ausgewertet.
 
 KRAFTTRAINING-ROTATION (zwingend):
 8. Krafteinheiten rotieren IMMER in der Reihenfolge Workout I → Workout II → Workout III → Workout I → …
@@ -744,6 +763,7 @@ SELF-CHECK VOR AUSGABE — prüfe intern:
 ${selfCheckLines}
 - Keine zwei intensiven Tage aufeinanderfolgend?
 - Kein Krafttraining vor intensiver Ausdauer?
+- Intensity-Feld bei jeder Lauf-/Rad-Einheit mit "Z1"-"Z5"-Präfix?
 - Kraft-description exakt "Workout I", "Workout II" oder "Workout III" und korrekte Rotation?
 Wenn eine Prüfung fehlschlägt, korrigiere den Plan BEVOR du ihn ausgibst.
 

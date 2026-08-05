@@ -133,6 +133,7 @@ export type Activity = {
   description: string | null
   claude_analysis: string | null
   recovery_checked: boolean
+  stimulus_checked: boolean
   analysis_claimed_at: string | null
   created_at: string
 }

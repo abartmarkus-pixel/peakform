@@ -54,6 +54,13 @@ export function toLocalWeekdayDateStr(date: Date | string): string {
   return `${WEEKDAY_LABELS_DE[d.getDay()]} ${toLocalDateStr(d)}`
 }
 
+/** Gibt das Mo/Di/.../So-Kürzel zurück, unter dem dieses Datum als Key in
+ *  PlanJson.days steht (siehe weeklyPlan.ts). */
+export function dayLabelForDate(date: Date | string): string {
+  const d = typeof date === 'string' ? new Date(date) : date
+  return WEEKDAY_LABELS_DE[d.getDay()]
+}
+
 /** Formats a Date/ISO-Timestamp als "Di 30.6.2026, 18:08 Uhr" — Wochentag + Lokaldatum + Uhrzeit. */
 export function toLocalWeekdayDateTimeStr(date: Date | string): string {
   const d = typeof date === 'string' ? new Date(date) : date

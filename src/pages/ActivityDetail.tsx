@@ -14,6 +14,7 @@ import { fetchActivityStreams, fetchActivityLaps, fetchActivityDetail, getValidA
 import {
   analyzeActivity,
   triggerRecoveryExtraction,
+  triggerStimulusCheck,
   parseHevyDescription,
   buildChartData,
   computeStats,
@@ -354,6 +355,10 @@ export default function ActivityDetail() {
         // If analysis exists but recovery extraction hasn't run yet, check and trigger
         if (act.claude_analysis && !act.recovery_checked) {
           triggerRecoveryExtraction(act.claude_analysis, athlete.id, act.id)
+        }
+        // Deterministic, no Claude call needed — can run independently of claude_analysis
+        if (!act.stimulus_checked) {
+          triggerStimulusCheck(act, athlete.id)
         }
 
         const token = await getValidAccessToken(athlete)

@@ -60,6 +60,8 @@ activities (id uuid PK, athlete_id uuid FK→athletes, strava_id bigint UNIQUE,
             laps_json jsonb, splits_metric_json jsonb,
             recovery_checked bool,   ← true nach erstem Recovery-Check, unabhängig vom Ergebnis;
                                       -- verhindert wiederholten Mini-Claude-Call bei jedem Seitenaufruf
+            stimulus_checked bool,   ← true nach erstem Stimulus-Check (triggerStimulusCheck), unabhängig
+                                      -- vom Ergebnis; rein deterministisch, kein Claude-Call nötig
             analysis_claimed_at timestamptz)  ← Lease für automatische Analyse (claimActivityForAnalysis);
                                       -- verhindert doppelte Claude-Calls bei gleichzeitigen Syncs (StrictMode
                                       -- Doppel-Mount, Dashboard+WeeklyPlan); nach 2 Min als abgelaufen behandelt
@@ -79,7 +81,8 @@ weekly_plans (id uuid PK, athlete_id uuid FK→athletes, week_start date,
 coach_decisions (id uuid PK, athlete_id uuid FK→athletes, decision_type text,
                  decision_summary text, reasoning text,
                  related_plan_id uuid FK→weekly_plans,
-                 related_activity_id uuid FK→activities,  ← gesetzt bei 'recovery_required'
+                 related_activity_id uuid FK→activities,  ← gesetzt bei 'recovery_required' und
+                                      -- 'stimulus_insufficient'
                  created_at timestamptz)
 
 chat_messages (id uuid PK, thread_id uuid, athlete_id uuid FK→athletes,
@@ -139,9 +142,12 @@ peakform/
 │   │   │                   # restoreSessionFromSupabase(): Session-Wiederherstellung aus Supabase (Single-User)
 │   │   ├── dateUtils.ts    # ISO 8601 Datums-Helpers: getISOMonday(date), getISOSunday(monday), formatWeekRange(monday)
 │   │   │                   # Woche beginnt Montag; toDateStr nutzt Lokalzeit (nicht UTC) — kritisch für CET/CEST
+│   │   │                   # dayLabelForDate(date): Mo/Di/.../So-Key für PlanJson.days zu einem Datum
 │   │   ├── coachContext.ts # buildCoachContext(): 8 Abschnitte inkl. [HARTE TRAININGS-CONSTRAINTS]
 │   │   │                   # buildSpecialistContext(athleteId, sport): sportart-spezifische Historien
 │   │   │                   # calculateSeasonPhase(), calculateHRZones(), calculatePaceReference() (exportiert)
+│   │   │                   # calculateHRZoneBounds(): Zonen-Untergrenzen als Zahlen (Basis von calculateHRZones()
+│   │   │                   # UND dem Stimulus-Check); resolveHRProfile(athlete): effektive Max-HF (Tanaka-Fallback)
 │   │   ├── coachPrompt.ts  # buildCoachSystemPrompt(athleteId): Promise<string> — dynamisch aus DB
 │   │   │                   # LAUF_COACH_PROMPT | RAD_COACH_PROMPT | KRAFT_COACH_PROMPT (statisch)
 │   │   ├── useVisibleTabs.ts        # useVisibleTabs(): TabDef[] — gefilterte/geordnete BottomNav-Tab-Liste
@@ -151,6 +157,7 @@ peakform/
 │   │   ├── weeklyPlan.ts   # DayPlan/PlanJson-Types, checkPlanConflicts(), dayMatchesSport(), insertPlanVersion()
 │   │   │                   # (geteilte INSERT-only-Speicherlogik, aus WeeklyPlan.tsx extrahiert) — genutzt von
 │   │   │                   # WeeklyPlan.tsx UND planRecommendation.ts
+│   │   │                   # resolveDayZone(day): Zonenzahl (1-5) aus intensity-Präfix "Z1".."Z5", sonst null
 │   │   ├── planRecommendation.ts # extractPlanRecommendation()/applyPlanRecommendation(): Coach-Empfehlung aus
 │   │   │                   # claude_analysis gezielt in einen Plantag übernehmen (ActivityDetail.tsx-Button).
 │   │   │                   # extractChatPlanRecommendation(): gleiches Prinzip für eine freie Chat-Nachricht
@@ -227,6 +234,7 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 - [x] Coach-Routing (`getSpecialistPrompt(activityType)`) in ActivityDetail.tsx
 - [x] `calculateSeasonPhase()`, `calculateHRZones()`, `calculatePaceReference()` in coachContext.ts
 - [x] Recovery-Extraktion: `triggerRecoveryExtraction(analysisText, athleteId, activityId)` — fire-and-forget nach Analyse ODER beim Laden bestehender Analyse (on-load check: `if (act.claude_analysis && !act.recovery_checked)`); setzt `activities.recovery_checked=true` nach jedem Lauf unabhängig vom Ergebnis, bleibt bei Fehler `false` für Retry
+- [x] Stimulus-Check (unzureichender Trainingsreiz): `triggerStimulusCheck(activity, athleteId)` in `activityAnalysis.ts` — im Gegensatz zur Recovery-Extraktion **kein Claude-Call**, rein deterministischer Ist/Soll-Vergleich. Löst über `dayLabelForDate()` (`dateUtils.ts`) den zur Aktivität gehörenden Plantag auf, liest dessen `intensity`-Präfix per `resolveDayZone()` (`weeklyPlan.ts`, parst `/^Z([1-5])/`) und vergleicht `activity.avg_hr` gegen die Zonen-Untergrenze aus `calculateHRZoneBounds()` (`coachContext.ts`, gleiche Karvonen-Formel wie `calculateHRZones()`, jetzt als Zahlen statt nur Text) minus 5 bpm Toleranz. Bewusst nur für Laufen und nur Z2/Z3 (kontinuierliche Belastung, wo Ø-HF ein verlässlicher Proxy ist) — Z1 ist gewollt leicht, Z4/Z5 meist Intervall-Strukturen mit Pausen, bei denen die Gesamt-Ø-HF kein verlässlicher Ist-Wert wäre. Bei struktureller Unterforderung: `coach_decisions`-Insert mit `decision_type: 'stimulus_insufficient'`. Aufruf-Stellen spiegeln `triggerRecoveryExtraction()` 1:1 (nach `analyzeActivity()` UND On-Load-Backfill in ActivityDetail.tsx via `!act.stimulus_checked`), läuft aber unabhängig von `claude_analysis`, da kein API-Call nötig ist. `generatePlan()` in WeeklyPlan.tsx liest `stimulus_insufficient`-Decisions der letzten 14 Tage (weiteres Fenster als Recovery, da Progressions-Signale länger nachwirken dürfen als Verletzungs-Flags) und injiziert sie als eigene "STIMULUS-SIGNALE"-Regel in den Plan-Prompt (niedrigere Priorität als `recoverySection`, überschreibt nie die harten Tage-Constraints). Schließt die Lücke, dass bisher nur `calculateDynamicZ2Pace()` datengetrieben war (Pace-Referenz aus echten Läufen neu berechnet) — die Reaktion darauf ("Intensität erhöhen") hing komplett von Claudes Freitext-Interpretation der letzten Analyse ab, ohne Erzwingung. `resolveHRProfile()` (`coachContext.ts`) wurde aus `buildCoachSystemPrompt()` extrahiert (Tanaka-Fallback-Formel für Max-HF aus Geburtsjahr), damit Prompt-Text und Stimulus-Check dieselbe HF-Zonen-Basis nutzen
 - [x] Automatische Analyse nach Sync (`syncActivitiesToSupabase()` fire-and-forget-Sweep über `claude_analysis IS NULL`, sowie `WeeklyPlan.tsx`s `closeOutstandingAnalyses()`-Fallback) läuft pro Aktivität exakt einmal: `claimActivityForAnalysis(activityId)` claimt atomar über `analysis_claimed_at` (conditional UPDATE), bevor `analyzeActivity()` aufgerufen wird — verhindert doppelte Claude-Calls bei gleichzeitigen Syncs (React StrictMode Doppel-Mount, Dashboard+WeeklyPlan). Claim wird nach Erfolg/Fehlschlag zurückgesetzt; nach 2 Min als abgelaufen behandelt (Selbstheilung bei abgebrochenem Tab). Manueller "Neu analysieren"-Button in ActivityDetail.tsx umgeht den Claim bewusst (soll immer laufen)
 - [x] Coach-Empfehlung gezielt in den Wochenplan übernehmen: Button "Empfehlung übernehmen" in ActivityDetail.tsx (nur Lauf/Rad — Kraft-Tage tragen einen festen "Workout I/II/III"-Namen, siehe WeeklyPlan-Sektion, in den keine Freitext-Empfehlung passt). `extractPlanRecommendation()` (`src/lib/planRecommendation.ts`) extrahiert die Empfehlung aus `claude_analysis` per `/api/analyse`-Call strukturiert als JSON (Tag/Dauer/Distanz/Intensität/Beschreibung); Zielwoche (aktuelle/nächste) wird deterministisch aus dem genannten Wochentag berechnet, nicht von Claude geraten. Bestätigungsdialog zeigt die Empfehlung editierbar, Tag-Dropdown nur mit Tagen, die im Zielplan bereits dieselbe Sportart tragen (`dayMatchesSport()`) — ändert nie die Trainingstag-Struktur, nur `duration_min`/`distance_km`/`intensity`/`description` eines bestehenden Tages. `applyPlanRecommendation()` speichert INSERT-only (version++) über `insertPlanVersion()` (`src/lib/weeklyPlan.ts`, geteilte Speicherlogik, extrahiert aus `WeeklyPlan.tsx`s `saveManualPlanChange()`), plus `coach_decisions`-Audit-Eintrag (`decision_type: 'plan_recommendation_applied'`, `related_activity_id` gesetzt). Laufen behält dabei immer `distance_km: null` (bestehende Invariante)
 - [x] Gleiches Übernahme-Feature jetzt auch im globalen Coach-Chat (Chat.tsx): Button "In Plan übernehmen" unter der letzten Coach-Nachricht. `extractChatPlanRecommendation()` (`src/lib/planRecommendation.ts`) extrahiert zusätzlich zu Tag/Dauer/Distanz/Intensität/Beschreibung auch die Sportart selbst aus dem Chat-Fließtext (anders als bei der Aktivitäts-Analyse dort vorher nicht bekannt); liefert Claude `sport: null` (Kraft oder unklare Nachricht), bricht die Übernahme mit Fehlermeldung ab — gleiche Kraft-Invariante wie beim Aktivitäts-Analyse-Pfad. `applyPlanRecommendation()` wurde dafür generalisiert: `activityName`/`activityId` → optionales `source`-Freitext-Label (z. B. `"Chat-Empfehlung"` vs. `Analyse von "<Aktivitätsname>"`), `activityId` bleibt optional (aus dem Chat heraus gibt es keine Aktivität) — von beiden Einstiegspunkten (ActivityDetail.tsx UND Chat.tsx) genutzt
@@ -318,5 +326,5 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 - Postgres ENUM `goal_priority`: DO-Block-Pattern für idempotente Erstellung
 - `activities.description`: Cache-first — bei WeightTraining erst Supabase prüfen, nur bei null von Strava holen
 - WeeklyPlan Kraft-Einheiten: `description` = "Workout I/II/III" (nie Freitext); Laufen: `distance_km` immer null
-- `coach_decisions.related_activity_id`: FK→activities, gesetzt bei `decision_type = 'recovery_required'`
+- `coach_decisions.related_activity_id`: FK→activities, gesetzt bei `decision_type = 'recovery_required'` und `'stimulus_insufficient'`
 - `activities.avg_watts`/`elevation_m`/`np_watts`: alle drei kommen aus Stravas Summary-Response (`syncActivitiesToSupabase()`), niemals lokal aus `streams_json` neu berechnet — lokale Mittelwertbildung über den rohen watts/altitude-Stream war die Ursache für einen Ø-Watt/Höhenmeter-Bug (Nullen im watts-Stream beim Mitteln ausgeklammert → zu hoher Ø-Watt; unsmoothe Barometer-Rohdaten → zu hohe Höhenmeter)

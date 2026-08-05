@@ -1,4 +1,4 @@
-import { supabase, type Activity, type SportConfig, type EquipmentConfig, type AestheticGoals } from './supabase'
+import { supabase, type Activity, type Athlete, type SportConfig, type EquipmentConfig, type AestheticGoals } from './supabase'
 import { getISOMonday, toLocalDateStr, toLocalWeekdayDateStr, toLocalWeekdayDateTimeStr, relativeDayLabel } from './dateUtils'
 
 const WEEKDAY_ORDER = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
@@ -99,27 +99,56 @@ export function calculateZ2HRRange(maxHR: number, restingHR?: number | null): { 
   return { min: Math.round(maxHR * 0.70), max: Math.round(maxHR * 0.81) }
 }
 
-/** Berechnet HF-Zonen-Text aus Max HF. Karvonen-Methode wenn restingHR vorhanden. */
-export function calculateHRZones(maxHR: number, restingHR?: number | null): string {
+/** Untere bpm-Grenze jeder HF-Zone (1-5). Gemeinsame Basis für calculateHRZones()
+ *  (Text fürs Coach-Prompt) und den Stimulus-Check (Ist-HF vs. Soll-Zone einer
+ *  geplanten Einheit) — beide dürfen nicht divergierende Formeln verwenden. */
+export function calculateHRZoneBounds(maxHR: number, restingHR?: number | null): Record<1 | 2 | 3 | 4 | 5, number> {
   const z2 = calculateZ2HRRange(maxHR, restingHR)
   if (restingHR) {
     const hrr = maxHR - restingHR
-    return [
-      `Z1 Regeneration:    < ${z2.min} bpm`,
-      `Z2 Grundlage:       ${z2.min}–${z2.max} bpm`,
-      `Z3 Tempo:           ${z2.max}–${Math.round(hrr * 0.85 + restingHR)} bpm`,
-      `Z4 Schwelle:        ${Math.round(hrr * 0.85 + restingHR)}–${Math.round(hrr * 0.92 + restingHR)} bpm`,
-      `Z5 VO2max:          > ${Math.round(hrr * 0.92 + restingHR)} bpm`,
-      `(Karvonen-Methode, Ruhe-HF ${restingHR} bpm)`,
-    ].join('\n')
+    return {
+      1: 0,
+      2: z2.min,
+      3: z2.max,
+      4: Math.round(hrr * 0.85 + restingHR),
+      5: Math.round(hrr * 0.92 + restingHR),
+    }
   }
+  return {
+    1: 0,
+    2: z2.min,
+    3: z2.max,
+    4: Math.round(maxHR * 0.90),
+    5: Math.round(maxHR * 0.96),
+  }
+}
+
+/** Berechnet HF-Zonen-Text aus Max HF. Karvonen-Methode wenn restingHR vorhanden. */
+export function calculateHRZones(maxHR: number, restingHR?: number | null): string {
+  const b = calculateHRZoneBounds(maxHR, restingHR)
+  const karvonenNote = restingHR ? `\n(Karvonen-Methode, Ruhe-HF ${restingHR} bpm)` : ''
   return [
-    `Z1 Regeneration:    < ${z2.min} bpm`,
-    `Z2 Grundlage:       ${z2.min}–${z2.max} bpm`,
-    `Z3 Tempo:           ${z2.max}–${Math.round(maxHR * 0.90)} bpm`,
-    `Z4 Schwelle:        ${Math.round(maxHR * 0.90)}–${Math.round(maxHR * 0.96)} bpm`,
-    `Z5 VO2max:          > ${Math.round(maxHR * 0.96)} bpm`,
-  ].join('\n')
+    `Z1 Regeneration:    < ${b[2]} bpm`,
+    `Z2 Grundlage:       ${b[2]}–${b[3]} bpm`,
+    `Z3 Tempo:           ${b[3]}–${b[4]} bpm`,
+    `Z4 Schwelle:        ${b[4]}–${b[5]} bpm`,
+    `Z5 VO2max:          > ${b[5]} bpm`,
+  ].join('\n') + karvonenNote
+}
+
+/** Löst effektive Max-HF (gemessen ODER Tanaka-Schätzung aus Geburtsjahr, Default
+ *  182 bpm) und Ruhe-HF eines Athleten auf. Gemeinsame Basis für buildCoachSystemPrompt()
+ *  (Prompt-Text) und den Stimulus-Check (Zonen-Grenzen für Ist/Soll-Vergleich) — vorher
+ *  nur inline in buildCoachSystemPrompt() dupliziert. */
+export function resolveHRProfile(
+  athlete: Pick<Athlete, 'max_hr' | 'resting_hr' | 'birth_year'>,
+): { effectiveMaxHR: number; restingHR: number | null } {
+  const age = athlete.birth_year ? new Date().getFullYear() - athlete.birth_year : null
+  // Tanaka et al. (2001), präziser für Ausdauersportler als 220-Alter
+  const estimatedMaxHR = age ? Math.round(208 - (0.7 * age)) : null
+  const effectiveMaxHR = (athlete.max_hr ?? estimatedMaxHR) ?? 182
+  const restingHR = athlete.resting_hr ?? null
+  return { effectiveMaxHR, restingHR }
 }
 
 /**

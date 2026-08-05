@@ -1,5 +1,5 @@
 import { supabase, type Activity, type Athlete } from './supabase'
-import { toLocalWeekdayDateTimeStr, relativeDayLabel, formatDurationHuman } from './dateUtils'
+import { toLocalWeekdayDateTimeStr, toLocalDateStr, relativeDayLabel, formatDurationHuman, getISOMonday, toDateStr, dayLabelForDate } from './dateUtils'
 import {
   getValidAccessToken,
   fetchActivityStreams,
@@ -14,7 +14,8 @@ import {
   RAD_COACH_PROMPT,
   KRAFT_COACH_PROMPT,
 } from './coachPrompt'
-import { buildCoachContext, buildSpecialistContext } from './coachContext'
+import { buildCoachContext, buildSpecialistContext, resolveHRProfile, calculateHRZoneBounds } from './coachContext'
+import { resolveDayZone, dayMatchesSport, type PlanJson } from './weeklyPlan'
 
 // ── types (shared with ActivityDetail.tsx display logic) ──────────────────────
 
@@ -181,6 +182,70 @@ export function triggerRecoveryExtraction(analysisText: string, athleteId: strin
     })
     .catch(() => { /* silent — recovery extraction is best-effort; leaves
       recovery_checked false so it's retried on the next load */ })
+}
+
+// Deterministisch (kein Claude-Call): war die Ø-HF strukturell unter der für diesen
+// Tag geplanten Ziel-Zone? Spiegelt den recovery_required-Mechanismus (Signal aus einer
+// Aktivität wird in coach_decisions abgelegt und fließt als harte Regel in die nächste
+// Plan-Generierung ein, siehe WeeklyPlan.tsx generatePlan()), braucht hier aber keinen
+// API-Roundtrip — reiner Ist/Soll-Vergleich zweier Zahlen. Scope bewusst eng: nur Laufen,
+// nur Z2/Z3 (kontinuierliche Belastung, wo Ø-HF ein verlässlicher Proxy ist) — Z1 ist
+// gewollt leicht, Z4/Z5 sind meist Intervall-Strukturen mit Pausen, bei denen die
+// Gesamt-Ø-HF kein verlässlicher Ist-Wert wäre.
+export async function triggerStimulusCheck(activity: Activity, athleteId: string): Promise<void> {
+  try {
+    const isRun = ['Run', 'VirtualRun', 'TrailRun'].includes(activity.type)
+    const longEnough = activity.duration_s != null && activity.duration_s >= 900
+
+    if (isRun && longEnough && activity.avg_hr != null) {
+      const weekStart = toDateStr(getISOMonday(new Date(activity.date)))
+      const { data: planRows } = await supabase
+        .from('weekly_plans')
+        .select('plan_json')
+        .eq('athlete_id', athleteId)
+        .eq('week_start', weekStart)
+        .order('version', { ascending: false })
+        .limit(1)
+
+      const planJson = planRows?.[0]?.plan_json as PlanJson | undefined
+      const day = planJson?.days?.[dayLabelForDate(activity.date)]
+      const zone = day && dayMatchesSport(day, 'running') ? resolveDayZone(day) : null
+
+      if (zone === 2 || zone === 3) {
+        const { data: athleteData } = await supabase
+          .from('athletes')
+          .select('max_hr, resting_hr, birth_year')
+          .eq('id', athleteId)
+          .single()
+
+        if (athleteData) {
+          const { effectiveMaxHR, restingHR } = resolveHRProfile(
+            athleteData as Pick<Athlete, 'max_hr' | 'resting_hr' | 'birth_year'>,
+          )
+          const bounds = calculateHRZoneBounds(effectiveMaxHR, restingHR)
+          const lowerBound = bounds[zone as 2 | 3]
+          const threshold = lowerBound - 5
+
+          if (activity.avg_hr < threshold) {
+            await supabase.from('coach_decisions').insert({
+              athlete_id:          athleteId,
+              decision_type:       'stimulus_insufficient',
+              decision_summary:    `Z${zone}-Lauf am ${toLocalDateStr(activity.date)} blieb unter der Zielzone (Ø ${Math.round(activity.avg_hr)} bpm statt ≥${lowerBound} bpm)`,
+              reasoning:           `Geplant war Z${zone}, tatsächliche Ø-HF (${Math.round(activity.avg_hr)} bpm) blieb unter der Zonen-Untergrenze (${lowerBound} bpm) — die Einheit war wahrscheinlich zu leicht für einen Trainingsreiz in dieser Zone. Pace/Intensität für kommende Z${zone}-Einheiten erhöhen.`,
+              related_plan_id:     null,
+              related_activity_id: activity.id,
+            })
+          }
+        }
+      }
+    }
+
+    // Mark checked regardless of outcome so ActivityDetail.tsx's on-load check
+    // doesn't re-trigger this on every future page load.
+    await supabase.from('activities').update({ stimulus_checked: true }).eq('id', activity.id)
+  } catch {
+    // silent — best-effort; leaves stimulus_checked false so it's retried on the next load
+  }
 }
 
 // A claim older than this is considered abandoned (e.g. tab closed or network
@@ -350,6 +415,7 @@ ${exercises.length > 0
     await supabase.from('activities').update({ claude_analysis: text, analysis_claimed_at: null }).eq('strava_id', activity.strava_id)
 
     triggerRecoveryExtraction(text, athleteId, activity.id)
+    triggerStimulusCheck(activity, athleteId)
 
     return { success: true }
   } catch (e) {

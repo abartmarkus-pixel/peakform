@@ -1,5 +1,5 @@
 import { supabase, type Activity, type SportConfig, type EquipmentConfig, type AestheticGoals } from './supabase'
-import { calculateSeasonPhase, calculateHRZones, calculateZ2HRRange, calculatePaceReference, calculateDynamicZ2Pace, estimateBest5kFromActivities } from './coachContext'
+import { calculateSeasonPhase, calculateHRZones, calculateZ2HRRange, calculatePaceReference, calculateDynamicZ2Pace, estimateBest5kFromActivities, resolveHRProfile } from './coachContext'
 
 // ── format helpers (private) ───────────────────────────────────────────────
 
@@ -175,13 +175,15 @@ export async function buildCoachSystemPrompt(
 
   const phase    = calculateSeasonPhase(weeksUntilEvent, athlete?.season_phase_override ?? null)
 
-  const age = (athlete as { birth_year?: number | null } | null)?.birth_year
-    ? new Date().getFullYear() - ((athlete as { birth_year: number }).birth_year)
-    : null
+  const birthYear = (athlete as { birth_year?: number | null } | null)?.birth_year ?? null
+  const age = birthYear ? new Date().getFullYear() - birthYear : null
   // Tanaka et al. (2001), präziser für Ausdauersportler als 220-Alter
   const estimatedMaxHR = age ? Math.round(208 - (0.7 * age)) : null
-  const effectiveMaxHR = (athlete?.max_hr ?? estimatedMaxHR) ?? 182
-  const restingHR = (athlete as { resting_hr?: number | null } | null)?.resting_hr ?? null
+  const { effectiveMaxHR, restingHR } = resolveHRProfile({
+    max_hr: athlete?.max_hr ?? null,
+    resting_hr: (athlete as { resting_hr?: number | null } | null)?.resting_hr ?? null,
+    birth_year: birthYear,
+  })
   const wPerKg = (athlete?.ftp_watts && athlete?.weight_kg)
     ? (athlete.ftp_watts / (athlete.weight_kg as number)).toFixed(2)
     : null

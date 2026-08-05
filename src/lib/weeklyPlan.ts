@@ -51,6 +51,14 @@ export function dayMatchesSport(d: DayPlan, sport: 'running' | 'cycling' | 'stre
   return SPORT_KEYWORDS[sport].some(k => t.includes(k))
 }
 
+// Generalisiert die /^Z[3-5]/-Konvention aus isIntensiveEndurance/isIntensiveDay
+// auf alle 5 Zonen — genutzt vom Stimulus-Check (Ist-HF vs. für den Tag geplante
+// Soll-Zone, siehe activityAnalysis.ts triggerStimulusCheck()).
+export function resolveDayZone(d: DayPlan): number | null {
+  const match = /^Z([1-5])/i.exec(d.intensity ?? '')
+  return match ? Number(match[1]) : null
+}
+
 function isRestDay(d: DayPlan): boolean {
   return REST_KEYWORDS.some(k => d.type.toLowerCase().includes(k))
 }
