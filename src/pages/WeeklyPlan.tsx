@@ -689,10 +689,13 @@ export default function WeeklyPlan() {
           .order('date', { referencedTable: 'activities', ascending: false }),
         supabase
           .from('coach_decisions')
-          .select('decision_summary, reasoning, created_at, activities!related_activity_id!inner(date)')
+          .select('decision_summary, reasoning, created_at, activities!related_activity_id!inner(date, rpe)')
           .eq('athlete_id', athlete.id)
           .eq('decision_type', 'stimulus_insufficient')
           .gte('activities.date', fourteenDaysAgo)
+          // Hohe wahrgenommene Anstrengung widerspricht dem HF-Befund ("zu leicht") —
+          // in dem Fall wird das Signal ignoriert, ohne die coach_decisions-Zeile zu löschen.
+          .or('rpe.is.null,rpe.lte.6', { foreignTable: 'activities' })
           .order('date', { referencedTable: 'activities', ascending: false }),
       ])
 

@@ -296,6 +296,8 @@ export default function ActivityDetail() {
   const [feedbackText, setFeedbackText] = useState('')
   const [feedbackSaving, setFeedbackSaving] = useState(false)
   const [feedbackToast, setFeedbackToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  // RPE (Rate of Perceived Exertion)
+  const [rpeSaving, setRpeSaving] = useState(false)
   // Empfehlung aus Analyse in Wochenplan übernehmen
   const [recoModalOpen, setRecoModalOpen] = useState(false)
   const [recoLoading, setRecoLoading] = useState(false)
@@ -544,6 +546,27 @@ export default function ActivityDetail() {
     }
   }
 
+  // Sofort-Speicherung auf Tap — kein Modal/Submit-Schritt, die hervorgehobene Zahl
+  // selbst ist die Bestätigung. Optimistisches Update, damit die Auswahl sofort sichtbar
+  // ist, ohne auf den Roundtrip zu warten.
+  async function saveRpe(value: number) {
+    if (!activity || !athleteId) return
+    setRpeSaving(true)
+    try {
+      const { error } = await supabase
+        .from('activities')
+        .update({ rpe: value })
+        .eq('id', activity.id)
+        .eq('athlete_id', athleteId)
+      if (error) throw error
+      setActivity({ ...activity, rpe: value })
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setRpeSaving(false)
+    }
+  }
+
   // Lädt für eine Woche die Tage, die bereits die passende Sportart tragen
   // (nur solche sind im Dropdown wählbar — kein Verschieben der Trainingstag-Struktur).
   async function loadRecoWeek(which: 'current' | 'next', sport: PlanSport, preferDay?: string | null) {
@@ -732,6 +755,32 @@ export default function ActivityDetail() {
           {isRide && stats.avgCadence != null && (
             <StatCard label="Ø Trittfreq." value={`${stats.avgCadence} rpm`} />
           )}
+        </div>
+      )}
+
+      {/* ── RPE (Rate of Perceived Exertion) ──────────────────── */}
+      {isRun && activity && (
+        <div className="mb-6">
+          <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">
+            Wie hart hat sich der Lauf angefühlt?
+          </h2>
+          <div className="grid grid-cols-5 gap-2 max-w-xs">
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => (
+              <button
+                key={n}
+                onClick={() => saveRpe(n)}
+                disabled={rpeSaving}
+                className={`w-9 h-9 rounded-xl text-sm font-semibold transition-colors ${
+                  activity.rpe === n
+                    ? 'bg-brand-500 text-white'
+                    : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                }`}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-slate-500 mt-2">1 = sehr leicht · 10 = maximal</p>
         </div>
       )}
 

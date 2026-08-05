@@ -134,6 +134,7 @@ export type Activity = {
   claude_analysis: string | null
   recovery_checked: boolean
   stimulus_checked: boolean
+  rpe: number | null
   analysis_claimed_at: string | null
   created_at: string
 }

@@ -357,6 +357,7 @@ Distanz: ${activity.distance_m ? (activity.distance_m / 1000).toFixed(2) + ' km'
 Dauer: ${activity.duration_s ? formatDurationHuman(activity.duration_s) : 'k.A.'}
 Ø Herzfrequenz: ${activity.avg_hr ?? 'k.A.'} bpm
 Max. Herzfrequenz: ${activity.max_hr ?? 'k.A.'} bpm
+${activity.rpe ? `Wahrgenommene Anstrengung (RPE): ${activity.rpe}/10` : ''}
 ${activity.np_watts ? `Normalized Power: ${activity.np_watts} W` : ''}
 ${activity.avg_watts ? `Ø Watt: ${activity.avg_watts} W` : ''}
 ${stats.maxWatts ? `Max Watt: ${stats.maxWatts} W` : ''}
