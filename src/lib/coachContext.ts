@@ -53,9 +53,9 @@ function avg(arr: number[]): number {
 
 // ── exported coach-prompt helpers ─────────────────────────────────────────
 
-type PhaseResult = { phase: string; label: string; description: string }
+type PhaseResult = { phase: string; label: string; description: string; progressPct: number | null }
 
-const PHASE_LABELS: Record<string, PhaseResult> = {
+const PHASE_LABELS: Record<string, Omit<PhaseResult, 'progressPct'>> = {
   readaptation: {
     phase: 'readaptation',
     label: 'Phase 1 — Readaptation',
@@ -78,16 +78,34 @@ const PHASE_LABELS: Record<string, PhaseResult> = {
   },
 }
 
-/** Bestimmt die aktuelle Saison-Phase aus Wochen bis A-Event oder manuellem Override. */
+/** [Wochen-bis-Event bei Phasenbeginn, bei Phasenende] — dieselben Schwellen wie in
+ *  calculateSeasonPhase() unten, hier zusätzlich als Intervall für die Fortschrittsanzeige.
+ *  readaptation hat rechnerisch keinen fixen Start (alles ab 10 Wochen); nutzt hier
+ *  dieselbe 4-Wochen-Breite wie die Nachbarphasen als Anzeige-Konvention. */
+const PHASE_WEEK_BOUNDS: Record<string, [start: number, end: number]> = {
+  readaptation: [14, 10],
+  base: [10, 6],
+  race: [6, 2],
+  taper: [2, 0],
+}
+
+/** Bestimmt die aktuelle Saison-Phase aus Wochen bis A-Event oder manuellem Override.
+ *  progressPct: wie weit die Phase bereits durchlaufen ist (0-100), rein aus dem
+ *  Wochen-Countdown berechnet. Bei manuellem Override gibt es keine Zeitbasis dafür → null. */
 export function calculateSeasonPhase(
   weeksUntilEvent: number,
   override: string | null,
 ): PhaseResult {
-  if (override && PHASE_LABELS[override]) return PHASE_LABELS[override]
-  if (weeksUntilEvent >= 10) return PHASE_LABELS.readaptation
-  if (weeksUntilEvent >= 6)  return PHASE_LABELS.base
-  if (weeksUntilEvent >= 2)  return PHASE_LABELS.race
-  return PHASE_LABELS.taper
+  if (override && PHASE_LABELS[override]) return { ...PHASE_LABELS[override], progressPct: null }
+
+  const key =
+    weeksUntilEvent >= 10 ? 'readaptation' :
+    weeksUntilEvent >= 6  ? 'base' :
+    weeksUntilEvent >= 2  ? 'race' :
+    'taper'
+  const [start, end] = PHASE_WEEK_BOUNDS[key]
+  const progressPct = Math.min(100, Math.max(0, ((start - weeksUntilEvent) / (start - end)) * 100))
+  return { ...PHASE_LABELS[key], progressPct }
 }
 
 /** Berechnet die Z2-HF-Grenzen als Zahlen. Karvonen-Methode wenn restingHR vorhanden. */

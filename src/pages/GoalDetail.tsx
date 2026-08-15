@@ -30,6 +30,22 @@ const CONFIDENCE_LABEL: Record<GoalFinishEstimate['confidence'], string> = {
   niedrig: 'Grobe Schätzung',
 }
 
+const METHOD_EXPLANATION: Record<GoalFinishEstimate['method'], { text: string; sources: string[] }> = {
+  efficiency: {
+    text: 'Wir schauen uns an, wie schnell du bei welchem Puls in deinen normalen Trainingsläufen unterwegs warst. Je niedriger dein Puls bei gleichem Tempo, desto fitter bist du gerade — daraus leiten wir ab, welche Zeit für die Zieldistanz realistisch ist.',
+    sources: [
+      'Daniels & Gilbert (1979): "Oxygen Power" – Leistungstabellen für Läufer',
+      'American College of Sports Medicine (ACSM): Formel für den Sauerstoffverbrauch beim Laufen',
+    ],
+  },
+  distance_anchor: {
+    text: 'Wir nehmen deine bisher schnellste vergleichbare Strecke (aus Strava oder einem Trainingslauf) und rechnen sie mit einer bewährten mathematischen Formel auf deine Zieldistanz um.',
+    sources: [
+      'Riegel, P. S. (1977): "Athletic Records and Human Endurance", American Scientist',
+    ],
+  },
+}
+
 export default function GoalDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -38,6 +54,7 @@ export default function GoalDetail() {
   const [estimate, setEstimate] = useState<GoalFinishEstimate | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
+  const [showMethodInfo, setShowMethodInfo] = useState(false)
 
   useEffect(() => {
     const stravaId = localStorage.getItem('athlete_strava_id')
@@ -138,11 +155,16 @@ export default function GoalDetail() {
           <div className="flex gap-1.5 mb-4">
             {PHASE_STEPS.map(step => {
               const isCurrent = step.key === phase.phase
+              if (!isCurrent) {
+                return <div key={step.key} className="flex-1 h-2 rounded-full bg-slate-700" />
+              }
               return (
-                <div
-                  key={step.key}
-                  className={`flex-1 h-2 rounded-full ${isCurrent ? 'bg-brand-500' : 'bg-slate-700'}`}
-                />
+                <div key={step.key} className="flex-1 h-2 rounded-full bg-slate-700 relative overflow-hidden">
+                  <div
+                    className="absolute inset-y-0 left-0 bg-brand-500 rounded-full"
+                    style={{ width: `${phase.progressPct ?? 100}%` }}
+                  />
+                </div>
               )
             })}
           </div>
@@ -162,6 +184,9 @@ export default function GoalDetail() {
 
           <p className="text-slate-100 font-semibold">{phase.label}</p>
           <p className="text-slate-400 text-sm mt-0.5">{phase.description}</p>
+          {phase.progressPct != null && (
+            <p className="text-xs text-slate-500 mt-2">{Math.round(phase.progressPct)}% dieser Phase geschafft</p>
+          )}
         </div>
 
         {/* Zeitschätzung */}
@@ -176,16 +201,45 @@ export default function GoalDetail() {
                   <p className="text-sm text-slate-400">{formatPace(estimate.estimatedSeconds / goal.distance_km)} /km</p>
                 </div>
                 <p className="text-sm text-slate-400 mt-1">{CONFIDENCE_LABEL[estimate.confidence]}</p>
-                <p className="text-xs text-slate-500 mt-3">{estimate.basisText}</p>
-                <p className="text-xs text-slate-600 mt-2">
-                  Diese Schätzung basiert ausschließlich auf deinen bisherigen Trainingsdaten — nichts davon ist geraten.
-                </p>
+                <button
+                  onClick={() => setShowMethodInfo(true)}
+                  className="text-xs text-slate-500 mt-3 underline decoration-dotted underline-offset-2 hover:text-slate-300 text-left"
+                >
+                  {estimate.basisText}
+                </button>
               </>
             ) : (
               <p className="text-slate-400 text-sm">
                 Noch nicht genug Trainingsdaten für eine verlässliche Schätzung. Sobald du ein paar Läufe in Richtung dieser Distanz absolviert hast, erscheint hier eine Zeit.
               </p>
             )}
+          </div>
+        )}
+
+        {showMethodInfo && estimate && (
+          <div
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-4"
+            onClick={() => setShowMethodInfo(false)}
+          >
+            <div
+              className="bg-slate-800 rounded-2xl p-5 max-w-sm w-full"
+              onClick={e => e.stopPropagation()}
+            >
+              <p className="text-slate-100 font-semibold mb-2">Wie wird das berechnet?</p>
+              <p className="text-sm text-slate-300">{METHOD_EXPLANATION[estimate.method].text}</p>
+              <p className="text-xs text-slate-500 uppercase tracking-wider mt-4 mb-1">Quellen</p>
+              <ul className="text-xs text-slate-500 space-y-1">
+                {METHOD_EXPLANATION[estimate.method].sources.map(source => (
+                  <li key={source}>{source}</li>
+                ))}
+              </ul>
+              <button
+                onClick={() => setShowMethodInfo(false)}
+                className="mt-5 w-full text-center text-sm text-brand-500 hover:text-brand-400 py-2"
+              >
+                Schließen
+              </button>
+            </div>
           </div>
         )}
       </div>
