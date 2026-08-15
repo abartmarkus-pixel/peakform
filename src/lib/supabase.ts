@@ -46,6 +46,15 @@ export type Athlete = {
   // Phase 4 dynamic prompt fields
   season_phase_override: 'readaptation' | 'base' | 'race' | 'taper' | null
   best_5k_seconds: number | null
+  // Von Strava selbst ermittelte 5k-Bestzeit (best_efforts/pr_rank aus der Activity-
+  // Detail-Response), siehe saveStrava5kPrIfPresent() in strava.ts. Autoritativer als
+  // die Riegel-Schätzung aus estimateBest5kFromActivities(), aber nachrangig zur
+  // manuell im Profil eingetragenen best_5k_seconds.
+  strava_best_5k_seconds: number | null
+  strava_best_5k_at: string | null
+  // true nach dem einmaligen backfillStrava5kPr()-Durchlauf (strava.ts), unabhängig
+  // vom Ergebnis — verhindert wiederholte Backfill-Versuche bei jedem App-Start
+  strava_best_5k_backfill_done: boolean
   // Performance timestamps (SCHRITT 1 migration)
   ftp_updated_at: string | null
   max_hr_updated_at: string | null

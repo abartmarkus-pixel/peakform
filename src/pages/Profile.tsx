@@ -335,7 +335,10 @@ export default function Profile() {
         const m = Math.floor(a.best_5k_seconds / 60)
         const s = a.best_5k_seconds % 60
         setBest5kInput(`${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`)
-      } else {
+      } else if (!a.strava_best_5k_seconds) {
+        // Riegel-Schätzung nur als letzter Fallback berechnen — steht in der
+        // Priorität hinter der von Strava selbst ermittelten Bestzeit (siehe
+        // "übernehmen?"-Box unten, gleiche Priorität wie in buildCoachSystemPrompt())
         const { data: runs } = await supabase
           .from('activities')
           .select('id, date, distance_m, duration_s, avg_hr')
@@ -930,7 +933,21 @@ export default function Profile() {
                   ? <p className="text-xs text-red-400 mt-1">{best5kError}</p>
                   : <p className="text-xs text-slate-500 mt-1">Wird für Pace-Berechnungen verwendet</p>
                 }
-                {!best5kInput.trim() && !best5kError && best5kEstimate && (
+                {!best5kInput.trim() && !best5kError && athlete?.strava_best_5k_seconds && (
+                  <button
+                    onClick={() => {
+                      const secs = athlete.strava_best_5k_seconds!
+                      const m = Math.floor(secs / 60)
+                      const s = secs % 60
+                      setBest5kInput(`${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`)
+                    }}
+                    className="block text-xs text-brand-400 hover:text-brand-300 underline mt-1 text-left"
+                  >
+                    Strava-PR erkannt: {Math.floor(athlete.strava_best_5k_seconds / 60)}:{String(athlete.strava_best_5k_seconds % 60).padStart(2, '0')}
+                    {athlete.strava_best_5k_at ? ` (${new Date(athlete.strava_best_5k_at).toLocaleDateString('de-DE')})` : ''} — übernehmen?
+                  </button>
+                )}
+                {!best5kInput.trim() && !best5kError && !athlete?.strava_best_5k_seconds && best5kEstimate && (
                   <button
                     onClick={() => {
                       const m = Math.floor(best5kEstimate.estimatedSeconds / 60)

@@ -5,6 +5,7 @@ import {
   fetchActivityStreams,
   fetchActivityLaps,
   fetchActivityDetail,
+  saveStrava5kPrIfPresent,
   type StravaLap,
   type StravaSplitMetric,
 } from './strava'
@@ -317,6 +318,7 @@ export async function analyzeActivity(
           : fetchActivityDetail(token, activity.strava_id).then(async (d) => {
               const sm = d.splits_metric ?? []
               if (sm.length > 0) await supabase.from('activities').update({ splits_metric_json: sm }).eq('strava_id', activity.strava_id).eq('athlete_id', athleteId)
+              await saveStrava5kPrIfPresent(athleteId, d.best_efforts, activity.date)
               return sm
             }).catch(() => [] as StravaSplitMetric[])
         : Promise.resolve([] as StravaSplitMetric[]),

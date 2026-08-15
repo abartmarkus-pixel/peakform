@@ -10,7 +10,7 @@ import {
   Tooltip,
   CartesianGrid,
 } from 'recharts'
-import { fetchActivityStreams, fetchActivityLaps, fetchActivityDetail, getValidAccessToken, type StravaLap, type StravaSplitMetric } from '../lib/strava'
+import { fetchActivityStreams, fetchActivityLaps, fetchActivityDetail, saveStrava5kPrIfPresent, getValidAccessToken, type StravaLap, type StravaSplitMetric } from '../lib/strava'
 import {
   analyzeActivity,
   triggerRecoveryExtraction,
@@ -385,6 +385,7 @@ export default function ActivityDetail() {
                   .then(async (d) => {
                     const sm = d.splits_metric ?? []
                     if (sm.length > 0) await supabase.from('activities').update({ splits_metric_json: sm }).eq('strava_id', Number(id)).eq('athlete_id', athlete.id)
+                    await saveStrava5kPrIfPresent(athlete.id, d.best_efforts, act.date)
                     return sm
                   })
                   .catch(() => [] as StravaSplitMetric[])

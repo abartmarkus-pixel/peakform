@@ -10,7 +10,7 @@ import WeeklyPlan from './pages/WeeklyPlan'
 import Chat from './pages/Chat'
 import Onboarding from './pages/Onboarding'
 import BottomNav from './components/BottomNav'
-import { restoreSessionFromSupabase } from './lib/strava'
+import { restoreSessionFromSupabase, backfillStrava5kPr } from './lib/strava'
 import { supabase } from './lib/supabase'
 import { useTabSwipeNavigation } from './lib/useTabSwipeNavigation'
 import { syncPushSubscription } from './lib/push'
@@ -69,6 +69,9 @@ function Layout() {
       // Fängt das bekannte iOS-Problem ab, bei dem Push-Subscriptions nach
       // Inaktivität serverseitig verfallen, ohne dass die App es merkt.
       if (data?.id) void syncPushSubscription(data.id, data.push_opted_out)
+      // Einmaliger Nachhol-Check der Strava-eigenen 5k-Bestzeit für bereits vor
+      // diesem Feature analysierte Läufe — no-op sobald strava_best_5k_backfill_done.
+      if (data?.id) void backfillStrava5kPr(data.id)
     })()
 
     if (!isLoggedIn) return

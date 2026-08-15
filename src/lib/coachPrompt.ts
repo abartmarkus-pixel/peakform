@@ -145,7 +145,7 @@ export async function buildCoachSystemPrompt(
   const [{ data: athlete }, { data: goalRows }, { data: recentRuns }] = await Promise.all([
     supabase
       .from('athletes')
-      .select('name, ftp_watts, max_hr, weight_kg, sport_types, coach_persona, body_goals, aesthetic_goals, equipment, season_phase_override, best_5k_seconds, gender, birth_year, resting_hr')
+      .select('name, ftp_watts, max_hr, weight_kg, sport_types, coach_persona, body_goals, aesthetic_goals, equipment, season_phase_override, best_5k_seconds, strava_best_5k_seconds, gender, birth_year, resting_hr')
       .eq('id', athleteId)
       .single(),
     supabase
@@ -193,18 +193,25 @@ export async function buildCoachSystemPrompt(
   const z2Range  = calculateZ2HRRange(effectiveMaxHR, restingHR)
   const dynamicZ2 = calculateDynamicZ2Pace((recentRuns ?? []) as Activity[], z2Range.min, z2Range.max)
 
-  // Ohne eigene 5k-PB: aus den letzten echten Läufen schätzen (Riegel-Formel),
-  // damit Zielpace/Schwellenpace auch ohne Onboarding-Angabe verfügbar sind.
-  const best5kEstimate = athlete?.best_5k_seconds
+  // Priorität: manuell im Profil eingetragene PB > von Strava selbst ermittelte
+  // 5k-Bestzeit (best_efforts/pr_rank, siehe saveStrava5kPrIfPresent() in strava.ts,
+  // autoritativer als eine Schätzung) > Riegel-Schätzung aus den letzten echten
+  // Läufen als letzter Fallback, damit Zielpace/Schwellenpace auch ganz ohne
+  // Onboarding-Angabe verfügbar sind.
+  const stravaBest5k = athlete?.strava_best_5k_seconds ?? null
+  const best5kEstimate = (athlete?.best_5k_seconds || stravaBest5k)
     ? null
     : estimateBest5kFromActivities((recentRuns ?? []) as Activity[])
-  const effectiveBest5k = athlete?.best_5k_seconds ?? best5kEstimate?.estimatedSeconds ?? null
+  const effectiveBest5k = athlete?.best_5k_seconds ?? stravaBest5k ?? best5kEstimate?.estimatedSeconds ?? null
+  const best5kSource: 'estimated' | 'strava' | undefined = athlete?.best_5k_seconds
+    ? undefined
+    : stravaBest5k ? 'strava' : (best5kEstimate ? 'estimated' : undefined)
 
   const paceRef  = calculatePaceReference(
     effectiveBest5k,
     primaryGoal?.distance_km ?? 8,
     dynamicZ2,
-    best5kEstimate != null,
+    best5kSource,
   )
 
   const athleteName = athlete?.name ?? 'der Athlet'

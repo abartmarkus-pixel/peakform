@@ -102,16 +102,99 @@ export async function fetchActivityLaps(
   return res.json()
 }
 
+// Strava berechnet best_efforts (Bestzeiten über Standarddistanzen wie "5k", "10k")
+// automatisch aus den GPS/Zeit-Daten jeder Laufaktivität. pr_rank ist nur bei den
+// aktuellen Top-3-Leistungen des Athleten über diese Distanz gesetzt (1 = aktuelle
+// Bestzeit), sonst null/fehlend.
+export type StravaBestEffort = {
+  name: string
+  distance: number
+  moving_time: number
+  pr_rank: number | null
+}
+
 export async function fetchActivityDetail(
   accessToken: string,
   activityId: number,
-): Promise<{ description?: string; splits_metric?: StravaSplitMetric[] }> {
+): Promise<{ description?: string; splits_metric?: StravaSplitMetric[]; best_efforts?: StravaBestEffort[] }> {
   const res = await fetch(
     `https://www.strava.com/api/v3/activities/${activityId}`,
     { headers: { Authorization: `Bearer ${accessToken}` } },
   )
   if (!res.ok) throw new Error('Failed to fetch activity detail')
   return res.json()
+}
+
+// pr_rank === 1 bei "5k" bedeutet: DIESE Aktivität hält aktuell (Stand des frischen
+// API-Calls) athletenweit die 5k-Bestzeit auf Strava — direkt aus GPS/Zeit-Daten
+// ermittelt, nicht aus einem beliebig langen Lauf hochgerechnet wie
+// estimateBest5kFromActivities() in coachContext.ts. Wird unconditional überschrieben,
+// da Stravas pr_rank zum Abfragezeitpunkt bereits athletenweit autoritativ ist (kein
+// Vergleich mit dem bisherigen Wert nötig). Läuft nur beim erstmaligen Detail-Fetch
+// einer Aktivität (cache-first via splits_metric_json, siehe activityAnalysis.ts /
+// ActivityDetail.tsx) — ältere Aktivitäten, deren Splits schon vor diesem Feature
+// gecacht wurden, werden dadurch NICHT automatisch erfasst; dafür gibt es
+// backfillStrava5kPr() weiter unten.
+export async function saveStrava5kPrIfPresent(
+  athleteId: string,
+  bestEfforts: StravaBestEffort[] | undefined,
+  activityDate: string,
+): Promise<void> {
+  const pr = bestEfforts?.find(e => e.name.toLowerCase() === '5k' && e.pr_rank === 1)
+  if (!pr) return
+  await supabase
+    .from('athletes')
+    .update({ strava_best_5k_seconds: pr.moving_time, strava_best_5k_at: activityDate })
+    .eq('id', athleteId)
+}
+
+const BACKFILL_RUN_LIMIT = 20
+
+// Einmaliger Nachhol-Check für Aktivitäten, deren splits_metric_json schon vor
+// saveStrava5kPrIfPresent() gecacht wurde (siehe Kommentar oben) — für die läuft
+// fetchActivityDetail() im Normalbetrieb nie mehr, der aktuelle Strava-5k-Rekord
+// bliebe also dauerhaft unentdeckt, bis zufällig ein neuer PR gelaufen wird. Holt
+// deshalb für die letzten BACKFILL_RUN_LIMIT Läufe einmalig gezielt best_efforts
+// nach — unabhängig vom splits_metric_json-Cache, ohne diesen zu verändern.
+// Gate über athletes.strava_best_5k_backfill_done (analog recovery_checked/
+// stimulus_checked auf Aktivitätsebene, hier aber athletenweit statt pro Aktivität,
+// da es sich um einen einmaligen Vorgang und nicht ein Pro-Aktivität-Flag handelt).
+// Wird das Flag NICHT gesetzt (z. B. weil getValidAccessToken() wegen eines
+// abgelaufenen Refresh-Tokens wirft), bleibt der Backfill offen und der nächste
+// App-Start versucht es erneut — silent failure analog zu syncPushSubscription().
+export async function backfillStrava5kPr(athleteId: string): Promise<void> {
+  const { data: athleteRow } = await supabase
+    .from('athletes')
+    .select('*')
+    .eq('id', athleteId)
+    .single()
+  if (!athleteRow) return
+  const athlete = athleteRow as Athlete
+  if (athlete.strava_best_5k_backfill_done) return
+
+  try {
+    const token = await getValidAccessToken(athlete)
+
+    const { data: runs } = await supabase
+      .from('activities')
+      .select('strava_id, date')
+      .eq('athlete_id', athleteId)
+      .in('type', ['Run', 'VirtualRun', 'TrailRun'])
+      .order('date', { ascending: false })
+      .limit(BACKFILL_RUN_LIMIT)
+
+    await Promise.all(
+      (runs ?? []).map(r =>
+        fetchActivityDetail(token, r.strava_id)
+          .then(d => saveStrava5kPrIfPresent(athleteId, d.best_efforts, r.date))
+          .catch(() => {}),
+      ),
+    )
+
+    await supabase.from('athletes').update({ strava_best_5k_backfill_done: true }).eq('id', athleteId)
+  } catch {
+    // stiller Fehlschlag (z. B. Token-Refresh) — nächster App-Start versucht es erneut
+  }
 }
 
 export async function fetchActivityStreams(

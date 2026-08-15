@@ -182,15 +182,17 @@ export function calculateDynamicZ2Pace(
  * bleiben immer formelbasiert aus der 5k-PB. Die Z2-Trainingspace nutzt
  * stattdessen `dynamicZ2` (aus `calculateDynamicZ2Pace()`), sobald genug
  * echte Läufe vorliegen — sonst Fallback auf dieselbe Formel wie bisher.
- * `best5kEstimated`: true wenn `best5kSeconds` aus `estimateBest5kFromActivities()`
- * stammt (keine eigene 5k-PB hinterlegt) — kennzeichnet Zielpace/Schwellenpace analog
- * zur dynamicZ2-Kennzeichnung.
+ * `best5kSource`: kennzeichnet Zielpace/Schwellenpace, wenn `best5kSeconds` nicht aus
+ * der manuell im Profil eingetragenen PB stammt — 'strava' (Stravas eigener
+ * best_efforts/pr_rank-Wert, siehe saveStrava5kPrIfPresent() in strava.ts) oder
+ * 'estimated' (Riegel-Schätzung aus estimateBest5kFromActivities(), nur wenn Strava
+ * selbst keinen 5k-Effort liefert).
  */
 export function calculatePaceReference(
   best5kSeconds: number | null,
   targetEventKm: number,
   dynamicZ2?: { paceSecPerKm: number; basedOnRuns: number } | null,
-  best5kEstimated?: boolean,
+  best5kSource?: 'estimated' | 'strava',
 ): string {
   if (!best5kSeconds) return 'Noch keine 5k Bestzeit hinterlegt.'
   const pacePerKm = best5kSeconds / 5
@@ -201,7 +203,9 @@ export function calculatePaceReference(
     ? `Z2 Trainingspace:   ${formatPace(dynamicZ2.paceSecPerKm - 15)}–${formatPace(dynamicZ2.paceSecPerKm + 15)} min/km (aus deinen letzten ${dynamicZ2.basedOnRuns} Läufen berechnet, nicht aus 5k-PB geschätzt)`
     : `Z2 Trainingspace:   ${formatPace(Math.round(pacePerKm * 1.15))}–${formatPace(Math.round(pacePerKm * 1.30))} min/km (deutlich langsamer als gefühlt nötig)`
 
-  const estimateNote = best5kEstimated
+  const estimateNote = best5kSource === 'strava'
+    ? ' (Strava-PR, keine eigene 5k-Bestzeit im Profil hinterlegt)'
+    : best5kSource === 'estimated'
     ? ' (geschätzt aus deinen letzten Läufen, keine eigene 5k-Bestzeit hinterlegt)'
     : ''
 
