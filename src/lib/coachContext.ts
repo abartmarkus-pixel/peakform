@@ -108,6 +108,70 @@ export function calculateSeasonPhase(
   return { ...PHASE_LABELS[key], progressPct }
 }
 
+export type PhaseProgressNarrative = { text: string }
+
+/** Datenbasierte Beschreibung des Trainingsfortschritts aus echten Läufen, als Ersatz für
+ *  die rein kalenderbasierte progressPct aus calculateSeasonPhase() (die nichts über das
+ *  tatsächliche Training aussagt, nur über die verstrichene Zeit bis zum Event). Gibt null
+ *  zurück, wenn zu wenig Trainingsdaten vorhanden sind — Aufrufer fällt dann auf die
+ *  Kalender-Prozentzahl zurück. 'taper' liefert bewusst immer null: die Taper-Phase wird in
+ *  der Trainingslehre kalendarisch VOR dem Rennen geplant (Trainingsreduktion), es gibt kein
+ *  echtes Datensignal, das sie sinnvoll ersetzen könnte. Nur für Laufen (wie Zonen/Pace-
+ *  Referenzen anderswo im Projekt). */
+export function calculatePhaseProgressNarrative(
+  phaseKey: string,
+  runningActivities: Activity[],
+  effectiveMaxHR: number,
+  restingHR: number | null | undefined,
+): PhaseProgressNarrative | null {
+  const now = Date.now()
+  const DAY = 24 * 60 * 60 * 1000
+
+  if (phaseKey === 'base') {
+    const recent = runningActivities.filter(a => now - new Date(a.date).getTime() <= 28 * DAY)
+    const earlier = runningActivities.filter(a => {
+      const age = now - new Date(a.date).getTime()
+      return age > 28 * DAY && age <= 56 * DAY
+    })
+    if (recent.length < 2 || earlier.length < 2) return null
+    const recentKmPerWeek = Math.round(recent.reduce((s, a) => s + (a.distance_m ?? 0), 0) / 1000 / 4)
+    const earlierKmPerWeek = Math.round(earlier.reduce((s, a) => s + (a.distance_m ?? 0), 0) / 1000 / 4)
+    if (recentKmPerWeek > earlierKmPerWeek * 1.05) {
+      return { text: `Dein Laufvolumen ist in den letzten 4 Wochen von ${earlierKmPerWeek} auf ${recentKmPerWeek} km pro Woche gestiegen.` }
+    }
+    if (recentKmPerWeek < earlierKmPerWeek * 0.95) {
+      return { text: `Dein Laufvolumen ist in den letzten 4 Wochen von ${earlierKmPerWeek} auf ${recentKmPerWeek} km pro Woche gesunken.` }
+    }
+    return { text: `Dein Laufvolumen ist mit rund ${recentKmPerWeek} km pro Woche stabil geblieben.` }
+  }
+
+  if (phaseKey === 'race') {
+    const recent = runningActivities.filter(a => now - new Date(a.date).getTime() <= 28 * DAY && a.avg_hr != null)
+    if (recent.length < 3) return null
+    const bounds = calculateHRZoneBounds(effectiveMaxHR, restingHR)
+    const tempoCount = recent.filter(a => (a.avg_hr ?? 0) >= bounds[3]).length
+    return { text: `In den letzten 4 Wochen liefst du ${tempoCount} von ${recent.length} Läufen im Tempo- oder Schwellenbereich.` }
+  }
+
+  if (phaseKey === 'readaptation') {
+    const sorted = [...runningActivities].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    let longestGapDays = 0
+    let gapEndDate: string | null = null
+    for (let i = 1; i < sorted.length; i++) {
+      const gapDays = (new Date(sorted[i].date).getTime() - new Date(sorted[i - 1].date).getTime()) / DAY
+      if (gapDays > longestGapDays) { longestGapDays = gapDays; gapEndDate = sorted[i].date }
+    }
+    if (longestGapDays < 14 || !gapEndDate) return null
+    const daysSinceReturn = Math.round((now - new Date(gapEndDate).getTime()) / DAY)
+    if (daysSinceReturn > 30) return null
+    return {
+      text: `Du bist vor ${daysSinceReturn} ${daysSinceReturn === 1 ? 'Tag' : 'Tagen'} nach einer ${Math.round(longestGapDays)}-tägigen Trainingspause wieder eingestiegen.`,
+    }
+  }
+
+  return null
+}
+
 /** Berechnet die Z2-HF-Grenzen als Zahlen. Karvonen-Methode wenn restingHR vorhanden. */
 export function calculateZ2HRRange(maxHR: number, restingHR?: number | null): { min: number; max: number } {
   if (restingHR) {

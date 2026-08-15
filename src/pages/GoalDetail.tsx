@@ -5,10 +5,12 @@ import { AppHeader } from '../components/AppHeader'
 import { IconChevronLeft, IconStar } from '../lib/icons'
 import {
   calculateSeasonPhase,
+  calculatePhaseProgressNarrative,
   estimateGoalFinishTime,
   estimateGoalFinishTimeFromEfficiency,
   resolveHRProfile,
   type GoalFinishEstimate,
+  type PhaseProgressNarrative,
 } from '../lib/coachContext'
 import { formatRaceTime } from '../lib/dateUtils'
 
@@ -52,6 +54,7 @@ export default function GoalDetail() {
   const [athlete, setAthlete] = useState<Athlete | null>(null)
   const [goal, setGoal] = useState<SeasonGoal | null>(null)
   const [estimate, setEstimate] = useState<GoalFinishEstimate | null>(null)
+  const [narrative, setNarrative] = useState<PhaseProgressNarrative | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [showMethodInfo, setShowMethodInfo] = useState(false)
@@ -81,7 +84,7 @@ export default function GoalDetail() {
       const g = goalData as SeasonGoal
       setGoal(g)
 
-      if (g.sport_type === 'Laufen' && g.distance_km) {
+      if (g.sport_type === 'Laufen') {
         const sixMonthsAgo = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString()
         const { data: runs } = await supabase
           .from('activities')
@@ -93,10 +96,17 @@ export default function GoalDetail() {
         const runningActivities = (runs ?? []) as Activity[]
 
         const { effectiveMaxHR, restingHR } = resolveHRProfile(a)
-        const efficiencyEstimate = estimateGoalFinishTimeFromEfficiency(
-          g.distance_km, effectiveMaxHR, restingHR, a.max_hr != null, runningActivities,
-        )
-        setEstimate(efficiencyEstimate ?? estimateGoalFinishTime(g.distance_km, a.strava_prs, runningActivities))
+
+        if (g.distance_km) {
+          const efficiencyEstimate = estimateGoalFinishTimeFromEfficiency(
+            g.distance_km, effectiveMaxHR, restingHR, a.max_hr != null, runningActivities,
+          )
+          setEstimate(efficiencyEstimate ?? estimateGoalFinishTime(g.distance_km, a.strava_prs, runningActivities))
+        }
+
+        const weeksUntilEventNow = Math.round((new Date(g.event_date).getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000))
+        const phaseNow = calculateSeasonPhase(weeksUntilEventNow, a.season_phase_override ?? null)
+        setNarrative(calculatePhaseProgressNarrative(phaseNow.phase, runningActivities, effectiveMaxHR, restingHR))
       }
 
       setLoading(false)
@@ -197,9 +207,11 @@ export default function GoalDetail() {
 
           <p className="text-slate-100 font-semibold">{phase.label}</p>
           <p className="text-slate-400 text-sm mt-0.5">{phase.description}</p>
-          {phase.progressPct != null && (
+          {narrative ? (
+            <p className="text-xs text-slate-500 mt-2">{narrative.text}</p>
+          ) : phase.progressPct != null ? (
             <p className="text-xs text-slate-500 mt-2">{Math.round(phase.progressPct)}% dieser Phase geschafft</p>
-          )}
+          ) : null}
         </div>
 
         {/* Zeitschätzung */}
