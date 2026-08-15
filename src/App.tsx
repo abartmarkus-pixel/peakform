@@ -6,11 +6,12 @@ import Dashboard from './pages/Dashboard'
 import ActivityDetail from './pages/ActivityDetail'
 import Profile from './pages/Profile'
 import Goals from './pages/Goals'
+import GoalDetail from './pages/GoalDetail'
 import WeeklyPlan from './pages/WeeklyPlan'
 import Chat from './pages/Chat'
 import Onboarding from './pages/Onboarding'
 import BottomNav from './components/BottomNav'
-import { restoreSessionFromSupabase, backfillStrava5kPr } from './lib/strava'
+import { restoreSessionFromSupabase, backfillStravaPrs } from './lib/strava'
 import { supabase } from './lib/supabase'
 import { useTabSwipeNavigation } from './lib/useTabSwipeNavigation'
 import { syncPushSubscription } from './lib/push'
@@ -69,9 +70,9 @@ function Layout() {
       // Fängt das bekannte iOS-Problem ab, bei dem Push-Subscriptions nach
       // Inaktivität serverseitig verfallen, ohne dass die App es merkt.
       if (data?.id) void syncPushSubscription(data.id, data.push_opted_out)
-      // Einmaliger Nachhol-Check der Strava-eigenen 5k-Bestzeit für bereits vor
-      // diesem Feature analysierte Läufe — no-op sobald strava_best_5k_backfill_done.
-      if (data?.id) void backfillStrava5kPr(data.id)
+      // Einmaliger Nachhol-Check der Strava-eigenen Bestzeiten für bereits vor
+      // diesem Feature analysierte Läufe — no-op sobald strava_prs_backfill_done.
+      if (data?.id) void backfillStravaPrs(data.id)
     })()
 
     if (!isLoggedIn) return
@@ -92,6 +93,7 @@ function Layout() {
         <Route path="/activity/:id" element={<ActivityDetail />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/goals" element={<Goals />} />
+        <Route path="/goals/:id" element={<GoalDetail />} />
         <Route path="/plan" element={<WeeklyPlan />} />
         <Route path="/chat" element={<Chat />} />
         <Route path="/onboarding" element={<Onboarding />} />

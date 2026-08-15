@@ -214,7 +214,11 @@ export default function Goals() {
           {sorted.map(g => {
             const cd = countdown(g.event_date)
             return (
-              <li key={g.id} className="bg-slate-800 rounded-2xl p-4">
+              <li
+                key={g.id}
+                onClick={() => navigate(`/goals/${g.id}`)}
+                className="bg-slate-800 hover:bg-slate-700 rounded-2xl p-4 cursor-pointer transition-colors"
+              >
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <div className="flex items-center gap-2 min-w-0">
                     <span className={`text-xs font-bold px-2 py-0.5 rounded-full shrink-0 ${PRIORITY_STYLE[g.priority].badge}`}>
@@ -224,14 +228,14 @@ export default function Goals() {
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <button
-                      onClick={() => openEdit(g)}
+                      onClick={e => { e.stopPropagation(); openEdit(g) }}
                       className="text-slate-500 hover:text-slate-300 p-1"
                       title="Bearbeiten"
                     >
                       <IconEdit size={14} />
                     </button>
                     <button
-                      onClick={() => handleDeactivate(g.id)}
+                      onClick={e => { e.stopPropagation(); handleDeactivate(g.id) }}
                       className="text-slate-600 hover:text-red-400 p-1"
                       title="Deaktivieren"
                     >

@@ -79,6 +79,17 @@ export function formatDurationHuman(seconds: number): string {
   return m > 0 ? `${h} Std ${m} Min` : `${h} Std`
 }
 
+/** Formatiert Sekunden als Ziel-/Wettkampfzeit: "h:mm:ss" ab 1 Std, sonst "mm:ss". */
+export function formatRaceTime(seconds: number): string {
+  const s = Math.round(seconds)
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = s % 60
+  return h > 0
+    ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+    : `${m}:${String(sec).padStart(2, '0')}`
+}
+
 /** Gibt eine explizite Tag-Relation zu heute zurück ("heute" | "gestern" | "vor X Tagen" | "morgen" | "in X Tagen"),
  *  damit Claude Datumsdifferenzen nicht selbst berechnen (und dabei erfinden) muss. */
 export function relativeDayLabel(date: Date | string): string {

@@ -145,7 +145,7 @@ export async function buildCoachSystemPrompt(
   const [{ data: athlete }, { data: goalRows }, { data: recentRuns }] = await Promise.all([
     supabase
       .from('athletes')
-      .select('name, ftp_watts, max_hr, weight_kg, sport_types, coach_persona, body_goals, aesthetic_goals, equipment, season_phase_override, best_5k_seconds, strava_best_5k_seconds, gender, birth_year, resting_hr')
+      .select('name, ftp_watts, max_hr, weight_kg, sport_types, coach_persona, body_goals, aesthetic_goals, equipment, season_phase_override, best_5k_seconds, strava_prs, gender, birth_year, resting_hr')
       .eq('id', athleteId)
       .single(),
     supabase
@@ -193,12 +193,12 @@ export async function buildCoachSystemPrompt(
   const z2Range  = calculateZ2HRRange(effectiveMaxHR, restingHR)
   const dynamicZ2 = calculateDynamicZ2Pace((recentRuns ?? []) as Activity[], z2Range.min, z2Range.max)
 
-  // Priorität: manuell im Profil eingetragene PB > von Strava selbst ermittelte
-  // 5k-Bestzeit (best_efforts/pr_rank, siehe saveStrava5kPrIfPresent() in strava.ts,
+  // Priorität: manuell im Profil eingetragene PB > von Strava selbst erkannte
+  // 5k-Bestzeit (best_efforts/pr_rank, siehe saveStravaPrsIfPresent() in strava.ts,
   // autoritativer als eine Schätzung) > Riegel-Schätzung aus den letzten echten
   // Läufen als letzter Fallback, damit Zielpace/Schwellenpace auch ganz ohne
   // Onboarding-Angabe verfügbar sind.
-  const stravaBest5k = athlete?.strava_best_5k_seconds ?? null
+  const stravaBest5k = athlete?.strava_prs?.['5k']?.seconds ?? null
   const best5kEstimate = (athlete?.best_5k_seconds || stravaBest5k)
     ? null
     : estimateBest5kFromActivities((recentRuns ?? []) as Activity[])

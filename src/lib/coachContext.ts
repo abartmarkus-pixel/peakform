@@ -184,7 +184,7 @@ export function calculateDynamicZ2Pace(
  * echte Läufe vorliegen — sonst Fallback auf dieselbe Formel wie bisher.
  * `best5kSource`: kennzeichnet Zielpace/Schwellenpace, wenn `best5kSeconds` nicht aus
  * der manuell im Profil eingetragenen PB stammt — 'strava' (Stravas eigener
- * best_efforts/pr_rank-Wert, siehe saveStrava5kPrIfPresent() in strava.ts) oder
+ * best_efforts/pr_rank-Wert, siehe saveStravaPrsIfPresent() in strava.ts) oder
  * 'estimated' (Riegel-Schätzung aus estimateBest5kFromActivities(), nur wenn Strava
  * selbst keinen 5k-Effort liefert).
  */
@@ -216,6 +216,34 @@ export function calculatePaceReference(
   ].join('\n')
 }
 
+// Peter Riegel (1977): "Athletic Records and Human Endurance" — Standardformel, um eine
+// Zeit über eine Distanz auf eine andere Distanz hochzurechnen. Je größer der Abstand
+// zwischen den beiden Distanzen, desto unsicherer die Hochrechnung (siehe gapRatio in
+// estimateGoalFinishTime()) — das ist eine Eigenschaft der Sportwissenschaft, keine
+// Modellierungsschwäche hier.
+function riegelProject(seconds: number, fromKm: number, toKm: number): number {
+  return seconds * Math.pow(toKm / fromKm, 1.06)
+}
+
+// Von Strava selbst erkannte Bestzeiten (best_efforts/pr_rank, siehe strava.ts) je
+// Standarddistanz → Kilometer. Namen exakt wie von der Strava-API geliefert
+// (lowercased). Gemeinsame Basis für saveStravaPrsIfPresent() (strava.ts, was beim
+// Speichern akzeptiert wird) und estimateGoalFinishTime() (welche Distanz als
+// Rechen-Anker in Frage kommt).
+export const STANDARD_DISTANCES_KM: Record<string, number> = {
+  '1k': 1,
+  '1 mile': 1.60934,
+  '2 mile': 3.21869,
+  '5k': 5,
+  '10k': 10,
+  '15k': 15,
+  '10 mile': 16.0934,
+  '20k': 20,
+  'half-marathon': 21.0975,
+  '30k': 30,
+  'marathon': 42.195,
+}
+
 /**
  * Schätzt eine 5k-Äquivalenzzeit aus echten Lauf-Aktivitäten (Riegel-Formel),
  * für Athleten ohne eigene `best_5k_seconds`-Angabe. Ab 3 qualifizierenden
@@ -239,9 +267,175 @@ export function estimateBest5kFromActivities(
     : qualifying.reduce((best, a) => (a.distance_m! < best.distance_m! ? a : best))
 
   const refKm = ref.distance_m! / 1000
-  const estimatedSeconds = Math.round(ref.duration_s! * Math.pow(5 / refKm, 1.06))
+  const estimatedSeconds = Math.round(riegelProject(ref.duration_s!, refKm, 5))
 
   return { estimatedSeconds, basedOnRunId: ref.id, basedOnDate: ref.date }
+}
+
+export type GoalFinishEstimate = {
+  estimatedSeconds: number
+  method: 'efficiency' | 'distance_anchor'
+  confidence: 'hoch' | 'mittel' | 'niedrig'
+  basisText: string
+}
+
+// Schätzt die Zielzeit für eine beliebige Renndistanz (z.B. das season_goals-Ziel) rein
+// aus real erbrachten Leistungen — nie erfunden, nie über einen Claude-Call geschätzt.
+// Kandidaten sind (a) von Strava selbst erkannte Bestzeiten je Standarddistanz
+// (strava_prs, siehe strava.ts) und (b) echte Trainingsläufe ≥ 3 km. Gewählt wird IMMER
+// der Kandidat, dessen Distanz der Zieldistanz am nächsten kommt (kleinstes gapRatio) —
+// unabhängig davon, ob es eine Bestzeit oder ein normaler Trainingslauf war; welche
+// Quelle es war, steht transparent im Ergebnis, damit sich niemand auf einen
+// Trainingstempo-Lauf verlässt, der wie ein Maximaleffort aussieht. Riegel-Formel
+// überbrückt nur die verbleibende Distanz-Lücke zum Ziel — je kleiner die Lücke, desto
+// zuverlässiger. Ist der nächstgelegene Kandidat mehr als 6x von der Zieldistanz
+// entfernt, ist die Hochrechnung nicht mehr aussagekräftig — dann lieber gar keinen
+// Wert zeigen als eine Zahl, die faktisch geraten wäre.
+//
+// Nur der Fallback, wenn estimateGoalFinishTimeFromEfficiency() (weiter unten) keine
+// verlässliche Schätzung liefern kann — die nimmt gar nicht erst nur die nächstgelegene
+// Distanz, sondern rechnet über die Tempo-Puls-Effizienz, was auch aus einem bewusst
+// ruhig gelaufenen Grundlagenlauf eine belastbare Schätzung macht.
+export function estimateGoalFinishTime(
+  goalKm: number,
+  stravaPrs: Record<string, { seconds: number; at: string }> | null,
+  runningActivities: Activity[],
+): GoalFinishEstimate | null {
+  type Candidate = { km: number; seconds: number; source: 'strava_pr' | 'training_run'; label: string; date: string }
+  const candidates: Candidate[] = []
+
+  for (const [name, pr] of Object.entries(stravaPrs ?? {})) {
+    const km = STANDARD_DISTANCES_KM[name.toLowerCase()]
+    if (km && pr?.seconds) candidates.push({ km, seconds: pr.seconds, source: 'strava_pr', label: name, date: pr.at })
+  }
+  for (const a of runningActivities) {
+    if (!a.distance_m || !a.duration_s || a.distance_m / 1000 < 3) continue
+    candidates.push({ km: a.distance_m / 1000, seconds: a.duration_s, source: 'training_run', label: 'Trainingslauf', date: a.date })
+  }
+
+  if (candidates.length === 0) return null
+
+  const withGap = candidates.map(c => ({ ...c, gapRatio: Math.max(c.km, goalKm) / Math.min(c.km, goalKm) }))
+  const anchor = withGap.sort((a, b) => a.gapRatio - b.gapRatio || (a.source === 'strava_pr' ? -1 : 1))[0]
+
+  if (anchor.gapRatio > 6) return null
+
+  const estimatedSeconds = Math.round(riegelProject(anchor.seconds, anchor.km, goalKm))
+  const confidence: GoalFinishEstimate['confidence'] =
+    anchor.gapRatio <= 1.5 ? 'hoch' : anchor.gapRatio <= 3 ? 'mittel' : 'niedrig'
+
+  const dateStr = new Date(anchor.date).toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' })
+  const kmStr = anchor.km % 1 === 0 ? `${anchor.km} km` : `${anchor.km.toFixed(1)} km`
+  const basisText = anchor.source === 'strava_pr'
+    ? `Basierend auf deiner ${kmStr}-Bestzeit vom ${dateStr}`
+    : `Basierend auf deinem ${kmStr}-Trainingslauf vom ${dateStr}`
+
+  return { estimatedSeconds, method: 'distance_anchor', confidence, basisText }
+}
+
+// ── Tempo-Puls-Effizienz-Schätzung (VO2max-Modell) ─────────────────────────
+//
+// Löst genau das Problem der reinen Distanz-Hochrechnung oben: die nimmt den
+// nächstgelegenen echten Lauf, egal wie hart er gelaufen wurde — in einer bewusst
+// ruhig gehaltenen Grundlagenphase liefert das systematisch zu langsame Schätzungen,
+// weil dort kein Lauf ein echter Maximaleinsatz war. Diese Methode braucht KEINEN
+// Maximaleinsatz: aus dem Verhältnis von Tempo zu Herzfrequenz während eines ganz
+// normalen, durchgehenden Laufs lässt sich die aktuelle aerobe Fitness ablesen (exakt
+// das Prinzip, das Garmin/COROS für ihre Fitness-Schätzung nutzen) — unabhängig davon,
+// wie hart gelaufen wurde, solange der Puls dabei in einem aussagekräftigen Bereich lag.
+//
+// Zwei unabhängig veröffentlichte, nicht selbst hergeleitete Formeln:
+// (1) Daniels & Gilbert (1979, "Oxygen Power"): Sauerstoffkosten-Kurve, wandelt Tempo
+//     in benötigten Sauerstoffverbrauch (VO2, ml/kg/min) um.
+// (2) ACSM (American College of Sports Medicine): %Herzfrequenzreserve (Karvonen)
+//     entspricht im Bereich 30–90% HFR näherungsweise %VO2-Reserve — daraus lässt sich
+//     aus EINEM submaximalen Lauf (Tempo + Ø-Puls) auf die VO2max zurückrechnen, ohne
+//     dass der Lauf selbst ein Maximaleinsatz gewesen sein muss.
+// Danach wird (2. Formel von Daniels & Gilbert) die für die Zieldauer durchhaltbare
+// %VO2max bestimmt und daraus per Sauerstoffkosten-Kurve rückwärts das Zieltempo
+// berechnet (iterative Suche, da die Zieldauer selbst vom gesuchten Tempo abhängt —
+// gleiches Prinzip wie öffentliche VDOT-Rechner).
+
+function danielsVO2(vMPerMin: number): number {
+  return -4.6 + 0.182258 * vMPerMin + 0.000104 * vMPerMin * vMPerMin
+}
+
+function danielsPctVO2Max(tMin: number): number {
+  return 0.8 + 0.1894393 * Math.exp(-0.012778 * tMin) + 0.2989558 * Math.exp(-0.1932605 * tMin)
+}
+
+const REST_VO2 = 3.5 // ml/kg/min — 1 MET, Ruheumsatz
+
+// Schätzt die aktuelle VO2max aus mehreren echten, durchgehenden Läufen (≥10 Min,
+// %HFR zwischen 30–90%, der von der ACSM validierte Bereich für die %HFR≈%VO2R-
+// Beziehung). Nimmt den Median der 3 höchsten Einzelschätzungen: ein schlechter Tag
+// (Hitze, Schlafmangel, Stress) drückt die HF bei gleichem Tempo nach oben und damit
+// die implizierte VO2max fälschlich nach unten — die besseren Tage liegen näher an der
+// wahren Fitness. Ein einzelner Ausreißer nach oben (Sensor-Glitch) trägt durch den
+// Median nicht allein das Ergebnis. Mindestens 3 qualifizierende Läufe nötig.
+function estimateVO2MaxFromRuns(
+  effectiveMaxHR: number,
+  restingHR: number | null,
+  runs: Activity[],
+): { vo2max: number; basedOnRuns: number } | null {
+  if (!restingHR) return null // Karvonen-Basis (%HFR) braucht eine Ruhe-HF
+
+  const candidates: number[] = []
+  for (const a of runs) {
+    if (!a.distance_m || !a.duration_s || !a.avg_hr) continue
+    if (a.duration_s < 600) continue
+    const hrr = (a.avg_hr - restingHR) / (effectiveMaxHR - restingHR)
+    if (hrr < 0.3 || hrr > 0.9) continue
+
+    const vMPerMin = (a.distance_m / a.duration_s) * 60
+    const vo2AtPace = danielsVO2(vMPerMin)
+    if (vo2AtPace <= REST_VO2) continue
+    candidates.push((vo2AtPace - REST_VO2) / hrr + REST_VO2)
+  }
+
+  if (candidates.length < 3) return null
+
+  const top3 = candidates.sort((a, b) => b - a).slice(0, 3).sort((a, b) => a - b)
+  return { vo2max: top3[Math.floor(top3.length / 2)], basedOnRuns: candidates.length }
+}
+
+// Iterative Suche (Bisektion) der Zieldauer, bei der das dafür nötige Tempo genau die
+// laut Formel (2) für diese Dauer durchhaltbare VO2max ausschöpft — Standardverfahren
+// öffentlicher VDOT-Rechner, hier auf eine beliebige Zieldistanz angewendet.
+function predictSecondsFromVO2Max(vo2max: number, goalKm: number): number {
+  let lo = 60, hi = 36000
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2
+    const tMin = mid / 60
+    const requiredVO2 = danielsVO2((goalKm * 1000) / tMin)
+    const sustainableVO2 = vo2max * danielsPctVO2Max(tMin)
+    if (requiredVO2 > sustainableVO2) lo = mid
+    else hi = mid
+  }
+  return Math.round((lo + hi) / 2)
+}
+
+// Primäre Schätzmethode für die Ziel-Detailseite — liefert null, wenn keine
+// Ruhe-Herzfrequenz hinterlegt ist oder zu wenige qualifizierende Läufe vorliegen;
+// GoalDetail.tsx fällt dann auf estimateGoalFinishTime() (Distanz-Anker) zurück.
+export function estimateGoalFinishTimeFromEfficiency(
+  goalKm: number,
+  effectiveMaxHR: number,
+  restingHR: number | null,
+  maxHrIsMeasured: boolean,
+  runningActivities: Activity[],
+): GoalFinishEstimate | null {
+  const fit = estimateVO2MaxFromRuns(effectiveMaxHR, restingHR, runningActivities)
+  if (!fit) return null
+
+  const estimatedSeconds = predictSecondsFromVO2Max(fit.vo2max, goalKm)
+  const confidence: GoalFinishEstimate['confidence'] =
+    fit.basedOnRuns >= 6 && maxHrIsMeasured ? 'hoch' : fit.basedOnRuns >= 4 ? 'mittel' : 'niedrig'
+
+  const basisText = `Berechnet aus deiner Tempo-Puls-Effizienz der letzten ${fit.basedOnRuns} passenden Läufe`
+    + (maxHrIsMeasured ? '' : ' (mit geschätzter statt gemessener Maximal-Herzfrequenz — ein gemessener Wert im Profil macht die Schätzung genauer)')
+
+  return { estimatedSeconds, method: 'efficiency', confidence, basisText }
 }
 
 // ── main ───────────────────────────────────────────────────────────────────
