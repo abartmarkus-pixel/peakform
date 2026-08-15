@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase, type Athlete, type SeasonGoal, type Activity } from '../lib/supabase'
 import { AppHeader } from '../components/AppHeader'
-import { IconChevronLeft } from '../lib/icons'
+import { IconChevronLeft, IconStar } from '../lib/icons'
 import {
   calculateSeasonPhase,
   estimateGoalFinishTime,
@@ -129,6 +129,7 @@ export default function GoalDetail() {
   const weeksUntilEvent = Math.round((new Date(goal.event_date).getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000))
   const phase = calculateSeasonPhase(weeksUntilEvent, athlete?.season_phase_override ?? null)
   const totalDays = Math.ceil((new Date(goal.event_date).getTime() - Date.now()) / (24 * 60 * 60 * 1000))
+  const currentPhaseIndex = PHASE_STEPS.findIndex(step => step.key === phase.phase)
 
   return (
     <>
@@ -153,9 +154,18 @@ export default function GoalDetail() {
           <p className="text-xs text-slate-400 uppercase tracking-wider mb-3">Wo du im Trainingsplan stehst</p>
 
           <div className="flex gap-1.5 mb-4">
-            {PHASE_STEPS.map(step => {
-              const isCurrent = step.key === phase.phase
-              if (!isCurrent) {
+            {PHASE_STEPS.map((step, index) => {
+              if (index < currentPhaseIndex) {
+                return (
+                  <div key={step.key} className="flex-1 h-2 rounded-full bg-brand-500 relative">
+                    <IconStar
+                      size={16}
+                      className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-yellow-400"
+                    />
+                  </div>
+                )
+              }
+              if (index > currentPhaseIndex) {
                 return <div key={step.key} className="flex-1 h-2 rounded-full bg-slate-700" />
               }
               return (
@@ -169,12 +179,15 @@ export default function GoalDetail() {
             })}
           </div>
           <div className="flex gap-1.5 mb-4">
-            {PHASE_STEPS.map(step => {
+            {PHASE_STEPS.map((step, index) => {
               const isCurrent = step.key === phase.phase
+              const isCompleted = index < currentPhaseIndex
               return (
                 <div
                   key={step.key}
-                  className={`flex-1 text-center text-[10px] leading-tight whitespace-pre-line ${isCurrent ? 'text-brand-400 font-semibold' : 'text-slate-600'}`}
+                  className={`flex-1 text-center text-[10px] leading-tight whitespace-pre-line ${
+                    isCurrent ? 'text-brand-400 font-semibold' : isCompleted ? 'text-yellow-400' : 'text-slate-600'
+                  }`}
                 >
                   {step.label}
                 </div>
