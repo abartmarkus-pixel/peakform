@@ -186,13 +186,44 @@ Neuer Button "Empfehlung übernehmen" in ActivityDetail.tsx (nur Lauf/Rad — Kr
 
 Verifiziert per Wegwerf-Testathlet (Playwright headless): Extraktion, Tag-Vorauswahl, Übernahme, neue Plan-Version mit korrektem Tag-Update, alle übrigen Tage unverändert, Testdaten anschließend gelöscht.
 
-### 🟡 Dynamische Pace-Kalibrierung
-Statt statischer 5k Bestzeit berechnet der Coach die aktuelle Z2-Pace aus den letzten 3-4 echten Läufen (tatsächliche Pace bei HF 127-148 bpm). Erst implementieren wenn 3-4 echte Läufe in der Datenbank sind.
-Aufwand: Klein
+### ✅ Push-Abmeldung überlebte Logout und iOS-Icon-Reinstall nicht (behoben 31.7.2026)
+Das Opt-out-Flag lag bisher nur in `localStorage` (`pf_push_opted_out`), das sowohl bei Logout als auch beim iOS-Trick "Icon entfernen + neu hinzufügen" geleert wird. Da `Notification.permission` dabei `granted` bleibt (kann JS nicht zurücksetzen), machte `syncPushSubscription()` einen bewussten Abmelde-Klick beim nächsten App-Start klaglos rückgängig — genau dieser Bug trat live auf. Fix: neue Spalte `athletes.push_opted_out` (serverseitig statt nur lokal), `syncPushSubscription(athleteId, pushOptedOut)` bekommt das Flag als Parameter aus der beim App-Start ohnehin geladenen Athleten-Row.
 
-### 🟡 Chat-Kontext Erweiterung
-Aktuell nur letzte 10 Chat-Nachrichten. Längere Gespräche verlieren ihren Faden. Optionen: mehr Nachrichten (20-30), komprimierte Zusammenfassung als Kontext, oder themen-basierte Segmentierung.
-Aufwand: Klein bis Mittel
+### ✅ Chat-Historie floss nicht in Wochenplan-Generierung/-Review ein (behoben 2.8.2026)
+`buildCoachContext()` wurde in `generatePlan()`/`startReview()` (`WeeklyPlan.tsx`) bisher ohne `threadId` aufgerufen — die Chat-Session-Sektion des Kontexts blieb dadurch immer leer, Wünsche/Absprachen aus dem Coach-Chat hatten keinen Einfluss auf den generierten Plan. Fix: beide Aufrufe übergeben jetzt `threadId = athlete.id` mit (kein hartes Erzwingen, nur ein zusätzliches Signal für Claude).
+
+### ✅ Coach behauptete im Chat fälschlich, den Plan gespeichert zu haben (behoben 2.8.2026)
+`Chat.tsx` schreibt technisch nie in `weekly_plans` (nur `chat_messages`) — auf Bitten wie "übernimm das in den Plan" bestätigte der Coach trotzdem mit "Plan aktualisiert ✅", ohne dass real etwas gespeichert wurde. Fix: neuer Prompt-Abschnitt "WOCHENPLAN-ÄNDERUNGEN IM CHAT" in `coachPrompt.ts` verpflichtet den Coach, die Empfehlung stattdessen konkret zu formulieren und auf den neuen "In Plan übernehmen"-Button zu verweisen (siehe nächster Eintrag).
+
+### ✅ Coach-Empfehlung aus dem Chat gezielt in den Wochenplan übernehmen (implementiert 2.8.2026)
+Analog zum bestehenden "Empfehlung übernehmen"-Button in `ActivityDetail.tsx`, jetzt auch im globalen Coach-Chat: Button "In Plan übernehmen" unter der letzten Coach-Nachricht. `extractChatPlanRecommendation()` extrahiert Tag/Dauer/Distanz/Intensität/Beschreibung **und** die Sportart selbst strukturiert per `/api/analyse`-Call aus der Chat-Nachricht (anders als bei der Aktivitäts-Analyse vorher nicht bekannt) — Kraft/unklare Nachrichten werden mit Fehlermeldung abgelehnt. `applyPlanRecommendation()` generalisiert (`activityName`/`activityId` → optionales `source`-Freitextlabel), damit beide Einstiegspunkte dieselbe Speicherlogik (INSERT-only + `coach_decisions`-Audit) nutzen.
+
+### ✅ Chat lud dauerhaft die ältesten statt der neuesten Nachrichten (behoben 4.8.2026)
+`Chat.tsx` holte Nachrichten aufsteigend sortiert mit `limit(50)` — bei mehr als 50 Nachrichten in einem Thread wurden dauerhaft die ältesten 50 angezeigt, neue Nachrichten schienen nach dem Senden zu verschwinden. Fix: `order('created_at', {ascending: false}).limit(50)` + `.reverse()` für die chronologische Anzeige. Zusätzlich berücksichtigt `buildCoachContext()` jetzt die letzten 20 statt 10 Chat-Nachrichten für mehr Gesprächskontinuität (löst damit auch den unten stehenden "Chat-Kontext Erweiterung"-Punkt).
+
+### ✅ Erkennung von unzureichendem Trainingsreiz — HF unter Zielzone (implementiert 5.8.2026)
+Deterministischer Check (kein Claude-Call): `triggerStimulusCheck()` (`src/lib/activityAnalysis.ts`) vergleicht bei einem Lauf ≥15 Min mit geplanter Z2/Z3-Zone die tatsächliche Ø-HF mit der Zonen-Untergrenze — bleibt sie mehr als 5 bpm darunter, wird ein `coach_decisions`-Eintrag (`decision_type: 'stimulus_insufficient'`) angelegt und als harte Regel in die nächste Wochenplan-Generierung injiziert. Spiegelt den bestehenden `recovery_required`-Mechanismus, schließt aber die Lücke, dass bisher nur die Pace-Referenz datengetrieben war, nicht die Reaktion auf zu leichte Einheiten.
+
+### ✅ RPE-Erfassung nach Laufeinheiten als Korrektiv zum Stimulus-Check (implementiert 5.8.2026)
+Kurzer 1-10-Picker in `ActivityDetail.tsx` (nur Laufen, Sofort-Speicherung auf Tap). Fließt in die Claude-Einzelanalyse ein und dient vor allem als Veto für den obigen `stimulus_insufficient`-Check: eine hohe RPE (>6) bei einer als "zu leicht" geflaggten Einheit widerspricht dem reinen HF-Befund (kann durch Hitze, Schlafmangel etc. täuschen) und verhindert, dass das Signal als harte Regel in die nächste Plan-Generierung einfließt.
+
+### ✅ Neue Ziel-Detailseite mit Trainingsphase + Zielzeit-Schätzung (implementiert 15.8.2026)
+Neue Unterseite pro Saisonziel (`/goals/:id`, `GoalDetail.tsx`, verlinkt von `Goals.tsx`): grafische Phasen-Anzeige (Readaptation/Grundlage/Wettkampfvorbereitung/Taper, aus der bestehenden `calculateSeasonPhase()`-Logik) und, für Laufziele mit Distanz, eine geschätzte Zielzeit inkl. Pace/km — komplett ohne Claude-Call, reine Arithmetik auf echten Trainingsdaten. Zwei Methoden: (1) `estimateGoalFinishTimeFromEfficiency()` (primär) — VO2max-Modell nach Daniels & Gilbert (1979) + ACSM-Beziehung, liest die aktuelle aerobe Fitness aus Tempo/Puls normaler Läufe, braucht keinen Maximaleinsatz; (2) `estimateGoalFinishTime()` (Fallback) — Riegel-Hochrechnung vom nächstgelegenen echten Lauf/Strava-PR. Voraussetzung: `saveStravaPrsIfPresent()`/`backfillStravaPrs()` erfassen jetzt alle von Strava erkannten Bestzeiten (nicht mehr nur 5k) in `athletes.strava_prs` (JSONB), löst die frühere 5k-spezifische Spalten-Lösung vom selben Tag ab (siehe nächster Punkt).
+
+### ✅ Von Strava selbst ermittelte 5k-Bestzeit als Pace-Referenz-Quelle (implementiert 15.8.2026, noch am selben Tag generalisiert)
+Strava berechnet `best_efforts` automatisch aus GPS/Zeit-Daten jeder Laufaktivität; Priorität in `buildCoachSystemPrompt()`: manuelle Profil-PB > Strava-PR > Riegel-Schätzung als letzter Fallback. Ursprünglich nur für 5k gebaut (`strava_best_5k_seconds/_at`), noch am selben Tag für die Ziel-Detailseite (siehe oben) auf alle Standarddistanzen generalisiert (`strava_prs` JSONB) — die alten Spalten bleiben ungenutzt in der DB, nicht gedroppt.
+
+### ✅ Phasen-Fortschritt + Erklärungs-Overlay + datenbasierte Fortschrittsbeschreibung auf der Ziel-Detailseite (implementiert 15.8.2026, drei Nachbesserungen am selben Tag)
+Nach dem ersten Aufbau der Ziel-Detailseite (siehe oben) drei Verfeinerungen: (1) die Phasen-Balkengrafik füllt sich anteilig statt nur binär aktiv/inaktiv zu sein (`progressPct` aus `calculateSeasonPhase()`); (2) bereits durchlaufene Phasen werden grün mit gelbem Stern markiert statt grau wie kommende Phasen; (3) Klick auf die Zielzeit-Herleitung öffnet ein Overlay mit laienverständlicher Erklärung der Schätzmethode + Quellenangaben, und `calculatePhaseProgressNarrative()` ersetzt die reine "X% dieser Phase geschafft"-Kalenderanzeige, wo möglich, durch einen Satz aus echten Trainingsdaten (Wochenkilometer-Trend in der Grundlage, Tempo-/Schwellenlauf-Anteil in der Wettkampfvorbereitung, echte Trainingspause+Wiedereinstieg bei Readaptation) — Grund: die reine Kalenderrechnung zeigte bei identischem Wochen-Countdown denselben Fortschritt, unabhängig vom tatsächlichen Training.
+
+### ✅ Wochenplan zeigte eingefrorene, teils erfundene Trainingsphase statt der live berechneten (behoben 16.8.2026)
+Der Wochenplan zeigte im Summary-Banner "Phase 1 Woche 7: …", während die neue Ziel-Detailseite (live berechnet, siehe oben) zur selben Zeit "Phase 2 — Grundlagenaufbau" auswies. Ursache: `plan_json.summary` wird von Claude einmalig bei Plan-Generierung frei formuliert und danach unverändert gespeichert — Claude schrieb dabei zusätzlich zum eigentlichen Wochen-Überblick eine eigene Phasen-Einschätzung inkl. einer erfundenen "Woche N"-Zählung hinein (kein Wochenzähler existiert im Code), die mit der Zeit von der live berechneten Phase abweichen konnte. Fix: `WeeklyPlan.tsx` zeigt die Phase jetzt wie die Ziel-Detailseite live über `calculateSeasonPhase()` als eigenes Badge; der `summary`-Prompt (Plan-Generierung **und** Dashboard.tsx's Echtzeit-Konflikt-Anpassung) verbietet Claude seitdem explizit, Phase/Wochenzahl zu nennen.
+
+### ✅ Dynamische Pace-Kalibrierung (implementiert 5.7.2026)
+Statt (nur) statischer 5k-Bestzeit berechnet der Coach die aktuelle Z2-Pace aus den letzten echten Läufen. `calculateDynamicZ2Pace()` (`coachContext.ts`) filtert Läufe mit Ø-HF in der Z2-Range (letzte 8 qualifizierende, ab 3 aktiv), distanzgewichteter Pace-Durchschnitt statt einfachem Mittelwert. Fallback auf die bisherige Formel (aus 5k-PB), solange zu wenig qualifizierende Läufe vorliegen. Zielpace/Schwellenpace bleiben unverändert formelbasiert aus der 5k-PB, da sie Zielwerte für ein zukünftiges Event sind, keine Ist-Werte der aktuellen Form.
+
+### ✅ Chat-Kontext Erweiterung (behoben 4.8.2026)
+Gewählte Option: mehr Nachrichten statt Zusammenfassung/Segmentierung — `buildCoachContext()` berücksichtigt jetzt die letzten 20 statt 10 Chat-Nachrichten (siehe "Chat lud dauerhaft die ältesten..." oben, selber Commit).
 
 ### 🟢 Langzeit-Trainingshistorie
 Aktuell nur 4-8 Wochen Kontext. Monatliche Zusammenfassungen automatisch generieren und als Langzeitgedächtnis speichern.
@@ -209,10 +240,6 @@ Aufwand: Mittel
 ### 🟢 Leistungsentwicklung Dashboard
 Eigener Screen mit Langzeit-Trends: FTP-Verlauf, 5k Bestzeit-Entwicklung, wöchentliches Volumen (km + TSS), Verhältnis Laufen/Rad/Kraft.
 Aufwand: Mittel
-
-### 🟢 Strava-Bestzeiten Import
-Automatisch 5k, 10k, HM Bestzeiten aus Strava-Aktivitäten extrahieren statt manuell einzutragen.
-Aufwand: Klein (Strava Personal Records API)
 
 ### 🟢 Dark/Light Mode Toggle
 App ist aktuell nur Dark Mode.
