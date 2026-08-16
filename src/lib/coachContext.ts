@@ -53,7 +53,7 @@ function avg(arr: number[]): number {
 
 // ── exported coach-prompt helpers ─────────────────────────────────────────
 
-type PhaseResult = { phase: string; label: string; description: string; progressPct: number | null }
+export type PhaseResult = { phase: string; label: string; description: string; progressPct: number | null }
 
 const PHASE_LABELS: Record<string, Omit<PhaseResult, 'progressPct'>> = {
   readaptation: {

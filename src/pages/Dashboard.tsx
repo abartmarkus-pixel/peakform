@@ -291,7 +291,7 @@ Passe die verbleibenden (noch nicht absolvierten) Tage dieser Woche an, um den K
 
 Antworte AUSSCHLIESSLICH mit einem JSON-Objekt im gleichen Format wie der Original-Plan — kein Text davor oder danach, kein Markdown:
 {
-  "summary": "Einzeiliger Wochen-Überblick (max 120 Zeichen)",
+  "summary": "Einzeiliger Wochen-Überblick zum Trainingsinhalt dieser Woche (max 120 Zeichen). Nenne KEINE Trainingsphase und KEINE Wochenzahl (z.B. nicht 'Phase 1 Woche 7') — die Phase wird bereits separat und live berechnet angezeigt und würde sonst veralten/widersprechen.",
   "days": {
     "Mo": { "type": "Ruhetag|Radfahren|Laufen|Kraft", "duration_min": 0, "distance_km": null, "intensity": null, "description": "Kurze Beschreibung (oder 'Workout I/II/III' bei Kraft)" },
     "Di": { "type": "...", "duration_min": 0, "distance_km": null, "intensity": null, "description": "..." },

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, type Athlete, type WeeklyPlan, type Activity, type SportConfig } from '../lib/supabase'
-import { buildCoachContext } from '../lib/coachContext'
+import { buildCoachContext, calculateSeasonPhase, type PhaseResult } from '../lib/coachContext'
 import { buildCoachSystemPrompt } from '../lib/coachPrompt'
 import { getValidAccessToken, fetchRecentActivities, syncActivitiesToSupabase } from '../lib/strava'
 import { analyzeActivity, claimActivityForAnalysis, parseHevyDescription } from '../lib/activityAnalysis'
@@ -466,6 +466,7 @@ function WeeklyReviewCard({ reviewNotes, userInput }: { reviewNotes: string; use
 export default function WeeklyPlan() {
   const navigate = useNavigate()
   const [athlete, setAthlete]         = useState<Athlete | null>(null)
+  const [phase, setPhase]             = useState<PhaseResult | null>(null)
   const [monday, setMonday]           = useState<Date>(() => {
     const saved = sessionStorage.getItem('weeklyplan_monday')
     if (saved) {
@@ -539,6 +540,29 @@ export default function WeeklyPlan() {
         setAthlete(a)
       })
   }, [navigate])
+
+  // Live berechnete Trainingsphase (analog GoalDetail.tsx) — komplett Claude-frei, damit sie
+  // nie von Claudes Freitext im Plan-Summary abweichen kann (der zu Generierungszeitpunkt
+  // eingefroren wird und daher veralten kann).
+  useEffect(() => {
+    if (!athlete) return
+    supabase
+      .from('season_goals')
+      .select('event_date')
+      .eq('athlete_id', athlete.id)
+      .eq('active', true)
+      .eq('priority', 'A')
+      .order('event_date', { ascending: true })
+      .limit(1)
+      .then(({ data }) => {
+        const primaryGoal = data?.[0] ?? null
+        if (!primaryGoal) { setPhase(null); return }
+        const weeksUntilEvent = Math.round(
+          (new Date(primaryGoal.event_date).getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000),
+        )
+        setPhase(calculateSeasonPhase(weeksUntilEvent, athlete.season_phase_override ?? null))
+      })
+  }, [athlete])
 
   // load plan + week activities whenever week changes (with Strava mini-sync)
   useEffect(() => {
@@ -772,7 +796,7 @@ Wenn eine Prüfung fehlschlägt, korrigiere den Plan BEVOR du ihn ausgibst.
 
 Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, kein Markdown:
 {
-  "summary": "Einzeiliger Wochen-Überblick (max 120 Zeichen)",
+  "summary": "Einzeiliger Wochen-Überblick zum Trainingsinhalt dieser Woche (max 120 Zeichen). Nenne KEINE Trainingsphase und KEINE Wochenzahl (z.B. nicht 'Phase 1 Woche 7') — die Phase wird bereits separat und live berechnet angezeigt und würde sonst veralten/widersprechen.",
   "days": {
     "Mo": { "type": "Ruhetag|Radfahren|Laufen|Kraft", "duration_min": 0, "distance_km": null, "intensity": null, "description": "Kurze Beschreibung (oder 'Workout I' bei Kraft)" },
     "Di": { "type": "...", "duration_min": 0, "distance_km": null, "intensity": null, "description": "..." },
@@ -1180,9 +1204,14 @@ Antworte AUSSCHLIESSLICH mit diesem JSON (kein Text davor/danach, kein Markdown)
       {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
 
       {/* Plan summary */}
-      {displayPlanJson?.summary && (
+      {(phase || displayPlanJson?.summary) && (
         <div className="bg-brand-500/10 border border-brand-500/20 rounded-xl px-4 py-3 mb-4">
-          <p className="text-sm text-slate-300 leading-relaxed">{displayPlanJson.summary}</p>
+          {phase && (
+            <p className="text-xs font-semibold text-brand-400 uppercase tracking-wider mb-1">{phase.label}</p>
+          )}
+          {displayPlanJson?.summary && (
+            <p className="text-sm text-slate-300 leading-relaxed">{displayPlanJson.summary}</p>
+          )}
         </div>
       )}
 
