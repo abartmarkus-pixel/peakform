@@ -1,18 +1,28 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts'
 import { supabase, type Athlete, type SeasonGoal, type Activity } from '../lib/supabase'
 import { AppHeader } from '../components/AppHeader'
 import { IconChevronLeft, IconStar } from '../lib/icons'
 import {
   calculateSeasonPhase,
   calculatePhaseProgressNarrative,
+  calculateFinishTimeProgression,
   estimateGoalFinishTime,
   estimateGoalFinishTimeFromEfficiency,
   resolveHRProfile,
   type GoalFinishEstimate,
   type PhaseProgressNarrative,
+  type FinishTimeProgressionPoint,
 } from '../lib/coachContext'
 import { formatRaceTime } from '../lib/dateUtils'
+
+// Progressions-Grafik: 8 Punkte im 14-Tage-Abstand, die letzten 98 Tage abdeckend.
+const PROGRESSION_POINTS = 8
+const PROGRESSION_STEP_DAYS = 14
+// Läufe müssen so weit zurückreichen, dass auch der älteste Auswertungspunkt noch sein
+// eigenes 180-Tage-Fenster bekommt (siehe calculateFinishTimeProgression()).
+const PROGRESSION_FETCH_DAYS = (PROGRESSION_POINTS - 1) * PROGRESSION_STEP_DAYS + 180
 
 const PHASE_STEPS: { key: string; label: string }[] = [
   { key: 'readaptation', label: 'Readaptation' },
@@ -54,6 +64,7 @@ export default function GoalDetail() {
   const [athlete, setAthlete] = useState<Athlete | null>(null)
   const [goal, setGoal] = useState<SeasonGoal | null>(null)
   const [estimate, setEstimate] = useState<GoalFinishEstimate | null>(null)
+  const [progression, setProgression] = useState<FinishTimeProgressionPoint[]>([])
   const [narrative, setNarrative] = useState<PhaseProgressNarrative | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
@@ -85,15 +96,17 @@ export default function GoalDetail() {
       setGoal(g)
 
       if (g.sport_type === 'Laufen') {
-        const sixMonthsAgo = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString()
+        const fetchSince = new Date(Date.now() - PROGRESSION_FETCH_DAYS * 24 * 60 * 60 * 1000).toISOString()
         const { data: runs } = await supabase
           .from('activities')
           .select('id, date, distance_m, duration_s, avg_hr')
           .eq('athlete_id', a.id)
           .in('type', ['Run', 'VirtualRun', 'TrailRun'])
-          .gte('date', sixMonthsAgo)
+          .gte('date', fetchSince)
           .order('date', { ascending: false })
-        const runningActivities = (runs ?? []) as Activity[]
+        const allRunningActivities = (runs ?? []) as Activity[]
+        const sixMonthsAgoMs = Date.now() - 180 * 24 * 60 * 60 * 1000
+        const runningActivities = allRunningActivities.filter(act => new Date(act.date).getTime() >= sixMonthsAgoMs)
 
         const { effectiveMaxHR, restingHR } = resolveHRProfile(a)
 
@@ -102,6 +115,14 @@ export default function GoalDetail() {
             g.distance_km, effectiveMaxHR, restingHR, a.max_hr != null, runningActivities,
           )
           setEstimate(efficiencyEstimate ?? estimateGoalFinishTime(g.distance_km, a.strava_prs, runningActivities))
+
+          const evaluationDates: Date[] = []
+          for (let i = PROGRESSION_POINTS - 1; i >= 0; i--) {
+            evaluationDates.push(new Date(Date.now() - i * PROGRESSION_STEP_DAYS * 24 * 60 * 60 * 1000))
+          }
+          setProgression(calculateFinishTimeProgression(
+            g.distance_km, effectiveMaxHR, restingHR, a.max_hr != null, a.strava_prs, allRunningActivities, evaluationDates,
+          ))
         }
 
         const weeksUntilEventNow = Math.round((new Date(g.event_date).getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000))
@@ -238,6 +259,46 @@ export default function GoalDetail() {
                 Noch nicht genug Trainingsdaten für eine verlässliche Schätzung. Sobald du ein paar Läufe in Richtung dieser Distanz absolviert hast, erscheint hier eine Zeit.
               </p>
             )}
+          </div>
+        )}
+
+        {/* Zielzeit-Entwicklung */}
+        {goal.sport_type === 'Laufen' && goal.distance_km && progression.length >= 2 && (
+          <div className="bg-slate-800 rounded-2xl p-5 mt-4">
+            <p className="text-xs text-slate-400 uppercase tracking-wider mb-3">Entwicklung der Zielzeit</p>
+            <ResponsiveContainer width="100%" height={160}>
+              <LineChart
+                data={progression.map(p => ({
+                  label: new Date(p.date).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }),
+                  fullDate: p.date,
+                  seconds: p.estimatedSeconds,
+                }))}
+                margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                <XAxis dataKey="label" stroke="#64748b" tick={{ fontSize: 11 }} />
+                <YAxis
+                  domain={['auto', 'auto']}
+                  reversed
+                  stroke="#64748b"
+                  tick={{ fontSize: 11 }}
+                  tickFormatter={(v: number) => formatRaceTime(v)}
+                  width={56}
+                />
+                <Tooltip
+                  contentStyle={{ background: '#1e293b', border: 'none', borderRadius: 8 }}
+                  labelFormatter={(_, payload) => {
+                    const fullDate = payload?.[0]?.payload?.fullDate
+                    return fullDate ? new Date(fullDate).toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' }) : ''
+                  }}
+                  formatter={(v: unknown) => [formatRaceTime(Number(v)), 'Zielzeit']}
+                />
+                <Line type="monotone" dataKey="seconds" stroke="#1D9E75" strokeWidth={2} dot={{ r: 3, fill: '#1D9E75' }} />
+              </LineChart>
+            </ResponsiveContainer>
+            <p className="text-xs text-slate-500 mt-2">
+              Oben = schneller. Rückwirkend mit denselben Methoden wie oben berechnet, jeweils nur mit den Trainingsdaten, die zu diesem Zeitpunkt vorlagen.
+            </p>
           </div>
         )}
 

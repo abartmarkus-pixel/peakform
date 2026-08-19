@@ -520,6 +520,52 @@ export function estimateGoalFinishTimeFromEfficiency(
   return { estimatedSeconds, method: 'efficiency', confidence, basisText }
 }
 
+export type FinishTimeProgressionPoint = { date: string; estimatedSeconds: number; method: GoalFinishEstimate['method'] }
+
+/**
+ * Rechnet die Zielzeit-Schätzung rückwirkend an mehreren Zeitpunkten neu — für die
+ * Progressions-Grafik auf GoalDetail.tsx. Es gibt keine gespeicherte Historie der
+ * Schätzung (sie wird immer live berechnet), also wird für jeden `evaluationDates`-
+ * Zeitpunkt dieselbe Methodenkette (Effizienz → Distanz-Anker) erneut ausgeführt, aber
+ * nur mit Läufen/PRs, die zu diesem Zeitpunkt bereits vorlagen (180-Tage-Fenster wie
+ * beim aktuellen Wert, PRs nach ihrem `at`-Datum gefiltert) — sonst würde ein späterer
+ * Formfortschritt fälschlich in frühere Punkte durchsickern. `runningActivities` sollte
+ * daher ein entsprechend weiteres Fenster abdecken (180 Tage vor dem ältesten
+ * `evaluationDates`-Eintrag). Punkte ohne genug Daten werden ausgelassen, nicht als 0
+ * geplottet — HF-Profil (`effectiveMaxHR`/`restingHR`/`maxHrIsMeasured`) wird als aktuell
+ * für alle Zeitpunkte angenommen, da keine Historie davon existiert.
+ */
+export function calculateFinishTimeProgression(
+  goalKm: number,
+  effectiveMaxHR: number,
+  restingHR: number | null,
+  maxHrIsMeasured: boolean,
+  stravaPrs: Record<string, { seconds: number; at: string }> | null,
+  runningActivities: Activity[],
+  evaluationDates: Date[],
+): FinishTimeProgressionPoint[] {
+  const points: FinishTimeProgressionPoint[] = []
+
+  for (const evalDate of evaluationDates) {
+    const evalTime = evalDate.getTime()
+    const windowStart = evalTime - 180 * 24 * 60 * 60 * 1000
+    const windowActs = runningActivities.filter(a => {
+      const t = new Date(a.date).getTime()
+      return t <= evalTime && t >= windowStart
+    })
+    const priorPrs = Object.fromEntries(
+      Object.entries(stravaPrs ?? {}).filter(([, pr]) => pr?.at && new Date(pr.at).getTime() <= evalTime)
+    )
+
+    const est = estimateGoalFinishTimeFromEfficiency(goalKm, effectiveMaxHR, restingHR, maxHrIsMeasured, windowActs)
+      ?? estimateGoalFinishTime(goalKm, priorPrs, windowActs)
+
+    if (est) points.push({ date: evalDate.toISOString(), estimatedSeconds: est.estimatedSeconds, method: est.method })
+  }
+
+  return points
+}
+
 // ── main ───────────────────────────────────────────────────────────────────
 
 /**
