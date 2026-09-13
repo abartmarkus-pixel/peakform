@@ -14,7 +14,7 @@ import {
 } from '../lib/icons'
 import { AppHeader } from '../components/AppHeader'
 import { useFeatures } from '../lib/features'
-import { getISOMonday, getISOSunday, formatWeekRange, formatDurationHuman, toDateStr } from '../lib/dateUtils'
+import { getISOMonday, getISOSunday, formatWeekRange, formatDurationHuman, toDateStr, dayLabelForDate } from '../lib/dateUtils'
 import { DAYS, DAY_FULL, REST_KEYWORDS, SPORT_KEYWORDS, checkPlanConflicts, type DayPlan, type PlanJson } from '../lib/weeklyPlan'
 import {
   DndContext,
@@ -40,6 +40,12 @@ import { CSS } from '@dnd-kit/utilities'
 
 type ReviewJson = {
   review: string
+  // Claudes eigene Einschätzung (aus Aktivitäten UND Freitext-Feedback), ob ein
+  // aktives körperliches Problem für die KOMMENDE Woche zwingend zu beachten ist.
+  // null wenn nicht. Wird als 'review_constraint'-coach_decisions-Eintrag
+  // gespeichert und fließt dadurch — anders als der reine review_notes-Fließtext —
+  // als harte Regel in generatePlan() ein (siehe dortige recoverySection).
+  constraint: string | null
 }
 
 type MatchStatus = 'completed' | 'missed' | 'pending' | 'extra'
@@ -102,6 +108,39 @@ function validateConstraints(planJson: PlanJson, sportConfigs: SportConfig[], tr
     const actual = counts[sc.type] ?? 0
     if (actual !== sc.days) {
       issues.push(`${SPORT_LABEL[sc.type] ?? sc.type}: ${actual} statt ${sc.days} Tage`)
+    }
+  }
+  return issues
+}
+
+// Harte, Claude-unabhängige Kontrolle: ein Saisonziel darf nie in der falschen
+// Woche als Renntag landen (Vorfall: "Tiroler Firmenlauf" wurde trotz korrekt
+// genanntem Datum eine Woche zu früh eingetragen — Claude hatte Wochentag↔Datum
+// selbst falsch verrechnet). Prüft rein anhand von event_date, ohne auf Claudes
+// eigene Datumsangabe im Fließtext zu vertrauen.
+function checkGoalPlacement(
+  planJson: PlanJson,
+  monday: Date,
+  goals: { event_name: string; event_date: string }[],
+): string[] {
+  const sunday = getISOSunday(monday)
+  const issues: string[] = []
+
+  for (const goal of goals) {
+    const [y, m, d] = goal.event_date.split('-').map(Number)
+    const eventDate = new Date(y, m - 1, d)
+    const inThisWeek = eventDate >= monday && eventDate <= sunday
+    const expectedDay = inThisWeek ? dayLabelForDate(eventDate) : null
+
+    for (const [dayKey, dayPlan] of Object.entries(planJson.days)) {
+      const mentionsGoal = dayPlan.description.toLowerCase().includes(goal.event_name.toLowerCase())
+      if (mentionsGoal && dayKey !== expectedDay) {
+        issues.push(
+          inThisWeek
+            ? `"${goal.event_name}" steht am ${dayKey}, gehört aber an ${expectedDay} (${goal.event_date}).`
+            : `"${goal.event_name}" ist diese Woche eingeplant, das Datum (${goal.event_date}) liegt aber in einer anderen Woche.`
+        )
+      }
     }
   }
   return issues
@@ -701,7 +740,7 @@ export default function WeeklyPlan() {
       // als Verletzungs-Flags — daher ein größeres Fenster als bei recovery_required.
       const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString()
 
-      const [context, systemPrompt, { data: recoveryRows }, { data: stimulusRows }] = await Promise.all([
+      const [context, systemPrompt, { data: recoveryRows }, { data: stimulusRows }, { data: reviewConstraintRows }, { data: activeGoals }] = await Promise.all([
         buildCoachContext(athlete.id, athlete.id),
         buildCoachSystemPrompt(athlete.id),
         supabase
@@ -721,11 +760,41 @@ export default function WeeklyPlan() {
           // in dem Fall wird das Signal ignoriert, ohne die coach_decisions-Zeile zu löschen.
           .or('rpe.is.null,rpe.lte.6', { foreignTable: 'activities' })
           .order('date', { referencedTable: 'activities', ascending: false }),
+        // Körperliche Einschränkungen aus dem Wochenreview (siehe saveReviewData) —
+        // kein related_activity_id, daher Fenster über created_at statt Aktivitätsdatum.
+        supabase
+          .from('coach_decisions')
+          .select('decision_summary, reasoning, created_at')
+          .eq('athlete_id', athlete.id)
+          .eq('decision_type', 'review_constraint')
+          .gte('created_at', sevenDaysAgo)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('season_goals')
+          .select('event_name, event_date')
+          .eq('athlete_id', athlete.id)
+          .eq('active', true),
       ])
 
       const monday8 = monday.toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' })
       const sunday8 = getISOSunday(monday)
         .toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' })
+
+      // Fest berechnet statt von Claude selbst aus Event-Datum + Wochenbereich
+      // abgeleitet (siehe checkGoalPlacement-Kommentar) — nimmt Claude die
+      // Wochentag-Zuordnung komplett ab, statt sie nur "irgendwo im Prompt" zu
+      // erwähnen und auf korrekte Eigenrechnung zu hoffen.
+      const sunday = getISOSunday(monday)
+      const goalsThisWeek = (activeGoals ?? []).filter(g => {
+        const [y, m, d] = g.event_date.split('-').map(Number)
+        const eventDate = new Date(y, m - 1, d)
+        return eventDate >= monday && eventDate <= sunday
+      })
+      const goalWeekSection = goalsThisWeek.length
+        ? `\nWETTKAMPF IN DIESER WOCHE (fest berechnet, nicht selbst nachrechnen):\n${
+            goalsThisWeek.map(g => `- "${g.event_name}" ist am ${dayLabelForDate(g.event_date)} (${g.event_date}) — trage an GENAU diesem Wochentag den Wettkampf ein, an keinem anderen Tag.`).join('\n')
+          }\n`
+        : `\nKEIN Wettkampf/Saisonziel in dieser Woche (alle Ziel-Termine liegen in anderen Wochen) — plane KEINE Renn-/Wettkampfeinheit, auch wenn ein Ziel im Kontext erwähnt wird.\n`
 
       const sportConfigs = (athlete.sport_types as SportConfig[] | null) ?? []
       const trainingDays = athlete.training_days_per_week ?? 0
@@ -743,12 +812,20 @@ export default function WeeklyPlan() {
         `- ${SPORT_LABEL[s.type] ?? s.type}: exakt ${s.days} ${s.days === 1 ? 'Tag' : 'Tage'} geplant?`
       ).join('\n')
 
-      const recoverySection = recoveryRows?.length
-        ? `\nAKTUELLE ERHOLUNGS-EINSCHRÄNKUNGEN (höchste Priorität — überschreiben alle anderen Regeln):\n${
-            recoveryRows.map(d =>
-              `- ${new Date(embeddedActivityDate(d) ?? d.created_at).toLocaleDateString('de-DE')}: ${d.reasoning ?? d.decision_summary}`
-            ).join('\n')
-          }\n`
+      // Verletzungssignale aus Aktivitäts-Analyse UND aus dem Wochenreview
+      // (review_constraint) laufen in derselben Höchste-Priorität-Regel zusammen —
+      // ein im Review genanntes Problem (z.B. Achillessehne) darf beim nächsten
+      // Plan genauso wenig untergehen wie ein automatisch erkanntes.
+      const recoveryLines = [
+        ...(recoveryRows ?? []).map(d =>
+          `- ${new Date(embeddedActivityDate(d) ?? d.created_at).toLocaleDateString('de-DE')}: ${d.reasoning ?? d.decision_summary}`
+        ),
+        ...(reviewConstraintRows ?? []).map(d =>
+          `- ${new Date(d.created_at).toLocaleDateString('de-DE')} (Wochenreview): ${d.reasoning ?? d.decision_summary}`
+        ),
+      ]
+      const recoverySection = recoveryLines.length
+        ? `\nAKTUELLE ERHOLUNGS-EINSCHRÄNKUNGEN (höchste Priorität — überschreiben alle anderen Regeln):\n${recoveryLines.join('\n')}\n`
         : ''
 
       const stimulusSection = stimulusRows?.length
@@ -764,7 +841,7 @@ export default function WeeklyPlan() {
 ---
 
 Erstelle den Wochenplan für die Woche vom ${monday8} bis ${sunday8}.
-
+${goalWeekSection}
 HARTE REGELN (nicht verhandelbar):
 1. Gesamttage: Der Plan enthält exakt ${trainingDays} Trainingstage und ${calendarRestDays} Ruhetage (Mo–So = 7 Tage).
 2. Sportarten-Verteilung (exakt einhalten):
@@ -818,7 +895,10 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, 
       const planJson = parsePlanJson(text)
 
       // Validate constraints
-      const issues = validateConstraints(planJson, sportConfigs, trainingDays)
+      const issues = [
+        ...validateConstraints(planJson, sportConfigs, trainingDays),
+        ...checkGoalPlacement(planJson, monday, activeGoals ?? []),
+      ]
       if (issues.length > 0) {
         setPendingPlanJson(planJson)
         setViolation(issues)
@@ -838,7 +918,7 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, 
   // Speichert die Review-Bewertung als neue Version der BEWERTETEN Woche (weekStr)
   // selbst — plan_json bleibt unverändert (NOT-NULL-Spalte, daher vom bisherigen
   // plan übernommen), nur review_notes/review_user_input kommen neu hinzu.
-  async function saveReviewData(reviewText: string) {
+  async function saveReviewData(reviewText: string, constraint: string | null) {
     if (!athlete) return
     if (!plan?.plan_json) {
       setReviewError('Für diese Woche existiert noch kein Plan — ein Review kann erst nach "Plan generieren" gespeichert werden.')
@@ -875,6 +955,20 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, 
       reasoning:        reviewText,
       related_plan_id:  (newPlan as WeeklyPlan)?.id ?? null,
     })
+
+    // Separater Eintrag, damit generatePlan() ein aktives körperliches Problem
+    // als harte Regel behandeln kann (gleicher Mechanismus wie recovery_required),
+    // statt sich darauf zu verlassen, dass der review_notes-Fließtext gelesen
+    // und ausreichend stark gewichtet wird.
+    if (constraint) {
+      await supabase.from('coach_decisions').insert({
+        athlete_id:       athlete.id,
+        decision_type:    'review_constraint',
+        decision_summary: `Einschränkung aus Wochenreview KW ${weekStr}`,
+        reasoning:        constraint,
+        related_plan_id:  (newPlan as WeeklyPlan)?.id ?? null,
+      })
+    }
 
     setPlan(newPlan as WeeklyPlan)
   }
@@ -919,9 +1013,12 @@ ${reviewFeedback.trim() || 'Kein Feedback angegeben.'}
 
 Erstelle eine direkte Wochenbewertung (3-4 Sätze): Belastungssteuerung, Ausführung vs. Plan, was gut lief, was nicht.
 
+Zusätzlich: Gibt es ein aktives körperliches Problem (Schmerzen, Verletzung, Beschwerden — aus den Aktivitäten ODER dem Feedback des Athleten), das bei der Planung der KOMMENDEN Woche zwingend berücksichtigt werden muss? Falls ja, fasse es in einem kurzen, konkreten Satz zusammen. Falls nein, setze null.
+
 Antworte AUSSCHLIESSLICH mit diesem JSON (kein Text davor/danach, kein Markdown):
 {
-  "review": "Deine Wochenbewertung (3-4 Sätze, direkt und konkret, auf Deutsch)"
+  "review": "Deine Wochenbewertung (3-4 Sätze, direkt und konkret, auf Deutsch)",
+  "constraint": "Kurzer Satz zum aktiven körperlichen Problem, oder null"
 }`
 
       const res = await fetch('/api/analyse', {
@@ -933,7 +1030,7 @@ Antworte AUSSCHLIESSLICH mit diesem JSON (kein Text davor/danach, kein Markdown)
       const { text } = await res.json() as { text: string }
 
       const parsed = parseReviewJson(text)
-      await saveReviewData(parsed.review)
+      await saveReviewData(parsed.review, parsed.constraint ?? null)
     } catch (e) {
       console.error(e)
       setReviewError('Review fehlgeschlagen. Bitte erneut versuchen.')
