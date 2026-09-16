@@ -145,6 +145,7 @@ export type Activity = {
   recovery_checked: boolean
   stimulus_checked: boolean
   rpe: number | null
+  is_interval: boolean | null
   analysis_claimed_at: string | null
   created_at: string
 }

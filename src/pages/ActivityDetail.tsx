@@ -298,6 +298,9 @@ export default function ActivityDetail() {
   const [feedbackToast, setFeedbackToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   // RPE (Rate of Perceived Exertion)
   const [rpeSaving, setRpeSaving] = useState(false)
+  // Manuelle Intervalltraining-Markierung (Fallback für die automatische Z4/Z5-Erkennung
+  // aus dem Plantag, siehe activityAnalysis.ts)
+  const [intervalSaving, setIntervalSaving] = useState(false)
   // Empfehlung aus Analyse in Wochenplan übernehmen
   const [recoModalOpen, setRecoModalOpen] = useState(false)
   const [recoLoading, setRecoLoading] = useState(false)
@@ -447,12 +450,15 @@ export default function ActivityDetail() {
     return () => clearInterval(interval)
   }, [id, awaitingBackgroundAnalysis])
 
-  async function runAnalysis() {
-    if (!activity || !athleteId) return
+  // overrideActivity: für Aufrufe direkt nach einem State-Update (z.B. toggleIsInterval),
+  // wo `activity` aus dem Closure noch den alten Wert hätte (React-State-Batching).
+  async function runAnalysis(overrideActivity?: Activity) {
+    const act = overrideActivity ?? activity
+    if (!act || !athleteId) return
     setAnalysing(true)
     setAwaitingBackgroundAnalysis(false)
     try {
-      const result = await analyzeActivity(activity, athleteId)
+      const result = await analyzeActivity(act, athleteId)
       if (!result.success) throw new Error(result.error ?? 'Analyse fehlgeschlagen')
 
       const { data } = await supabase
@@ -568,6 +574,31 @@ export default function ActivityDetail() {
     }
   }
 
+  // Speichert die manuelle Intervalltraining-Markierung und stößt danach sofort eine
+  // Neu-Analyse an (wie der "Neu analysieren"-Button) — die automatische Analyse nach
+  // dem Sync lief ja schon VOR diesem Tap und kennt die Markierung noch nicht, ohne den
+  // Re-Trigger würde die (ggf. falsche) alte Analyse einfach stehen bleiben.
+  async function toggleIsInterval() {
+    if (!activity || !athleteId) return
+    const next = !activity.is_interval
+    setIntervalSaving(true)
+    try {
+      const { error } = await supabase
+        .from('activities')
+        .update({ is_interval: next })
+        .eq('id', activity.id)
+        .eq('athlete_id', athleteId)
+      if (error) throw error
+      const updated = { ...activity, is_interval: next }
+      setActivity(updated)
+      await runAnalysis(updated)
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setIntervalSaving(false)
+    }
+  }
+
   // Lädt für eine Woche die Tage, die bereits die passende Sportart tragen
   // (nur solche sind im Dropdown wählbar — kein Verschieben der Trainingstag-Struktur).
   async function loadRecoWeek(which: 'current' | 'next', sport: PlanSport, preferDay?: string | null) {
@@ -656,6 +687,9 @@ export default function ActivityDetail() {
 
   const isRide = activity?.type === 'Ride' || activity?.type === 'VirtualRide'
   const isRun = ['Run', 'VirtualRun', 'TrailRun'].includes(activity?.type ?? '')
+  // Breiter als isRide (schließt MountainBikeRide/GravelRide mit ein) — deckt sich mit
+  // der Sportart-Erkennung für den Intervall-Fallback in activityAnalysis.ts.
+  const isCyclingForInterval = ['Ride', 'VirtualRide', 'MountainBikeRide', 'GravelRide'].includes(activity?.type ?? '')
   const isWeightTraining = activity?.type === 'WeightTraining'
   const hasHr = chartData.some(d => d.hr !== undefined)
   const hasAlt = !isWeightTraining && chartData.some(d => d.alt !== undefined)
@@ -782,6 +816,26 @@ export default function ActivityDetail() {
             ))}
           </div>
           <p className="text-xs text-slate-500 mt-2">1 = sehr leicht · 10 = maximal</p>
+        </div>
+      )}
+
+      {/* ── Intervalltraining-Markierung (Fallback für die automatische Erkennung) ── */}
+      {(isRun || isCyclingForInterval) && activity && (
+        <div className="mb-6">
+          <button
+            onClick={toggleIsInterval}
+            disabled={intervalSaving}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+              activity.is_interval
+                ? 'bg-brand-500 text-white'
+                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+            }`}
+          >
+            {activity.is_interval ? '✓ ' : ''}Intervalltraining?
+          </button>
+          <p className="text-xs text-slate-500 mt-2">
+            Hilft der Analyse, wenn keine einzelnen Runden aufgezeichnet wurden.
+          </p>
         </div>
       )}
 
@@ -991,7 +1045,7 @@ export default function ActivityDetail() {
       {/* ── Analyse-Button + Feedback ─────────────────────────── */}
       <div className="mb-6 flex justify-between gap-3">
         <button
-          onClick={runAnalysis}
+          onClick={() => runAnalysis()}
           disabled={analysing}
           className="bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white font-semibold px-5 py-2.5 rounded-xl transition-colors flex items-center gap-2"
         >
