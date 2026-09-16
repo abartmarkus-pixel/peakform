@@ -253,7 +253,7 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 
 ### Krafttraining-Detailansicht (WeightTraining)
 - [x] Hevy → Strava description Parser (`parseHevyDescription`)
-- [x] Übungskarten mit Volumen-Pill + Muskelgruppe-Pill
+- [x] Übungskarten mit Volumen-Pill + Muskelgruppe-Pill: `primaryMuscleLabel(name)` (`ActivityDetail.tsx`) rät die Muskelgruppe rein aus dem Übungsnamen über eine Keyword-Liste (`MUSCLE_LABELS`) — Hevy überträgt selbst keine Muskelgruppen-Metadaten. Enthält sowohl englische als auch deutsche Keywords (Hevy-Übungsnamen sind je nach Nutzer-Locale in beiden Sprachen), z.B. "Fliegende"/"Chest Fly" → Brust, "Seitheben"/"Lateral Raise" → Schulter, "Beckenheben"/"Hip Thrust" → Gesäß. Spezifischere Begriffe stehen vor generischen Fallbacks derselben Wortfamilie, wenn sie ein anderes Label brauchen (z.B. "enges Bankdrücken" → Trizeps vor dem generischen "Bankdrücken" → Brust)
 - [x] activities.description: Cache-first (Supabase → Strava Detail-API Fallback)
 
 ### Coach-System
