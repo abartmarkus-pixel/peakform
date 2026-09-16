@@ -8,6 +8,10 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 export type SportConfig = {
   type: string
   days: number
+  // Optional: Ø verfügbare Trainingsstunden/Woche für diese Sportart — steuert die
+  // sportartspezifische Trainingsphilosophie (polarisiert vs. effizienzfokussiert),
+  // siehe determineTrainingPhilosophy() in coachContext.ts. Nur für cycling/running relevant.
+  hours_per_week?: number | null
 }
 
 export type EquipmentConfig = {

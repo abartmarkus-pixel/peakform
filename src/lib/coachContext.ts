@@ -89,14 +89,48 @@ const PHASE_WEEK_BOUNDS: Record<string, [start: number, end: number]> = {
   taper: [2, 0],
 }
 
+/** Rad-Variante von PHASE_LABELS — dieselben 4 Phasen-Keys (identische Zeitgrenzen,
+ *  identisch mit season_phase_override-Werten), aber ohne die lauf-spezifische
+ *  Wortwahl ("Sehnen/Laufmuskulatur readaptieren" o.ä.), die bei einem reinen Rad-Ziel
+ *  inhaltlich nicht passt. Nur genutzt, wenn das A-Ziel sport_type "Radfahren" ist
+ *  (siehe calculateSeasonPhase()-Aufrufer). */
+const PHASE_LABELS_CYCLING: Record<string, Omit<PhaseResult, 'progressPct'>> = {
+  readaptation: {
+    phase: 'readaptation',
+    label: 'Phase 1 — Grundlage',
+    description: 'Aerobe Basis aufbauen, überwiegend lockeres Fahren (Z2)',
+  },
+  base: {
+    phase: 'base',
+    label: 'Phase 2 — Aufbau',
+    description: 'Schwellen-/VO2max-Intervalle einführen, Formaufbau',
+  },
+  race: {
+    phase: 'race',
+    label: 'Phase 3 — Wettkampfvorbereitung',
+    description: 'Renn-spezifische Belastung (z. B. Kletterintervalle bei Höhenmeter-Events)',
+  },
+  taper: {
+    phase: 'taper',
+    label: 'Phase 4 — Taper',
+    description: 'Volumen reduzieren, Frische aufbauen, Intensität beibehalten',
+  },
+}
+
 /** Bestimmt die aktuelle Saison-Phase aus Wochen bis A-Event oder manuellem Override.
  *  progressPct: wie weit die Phase bereits durchlaufen ist (0-100), rein aus dem
- *  Wochen-Countdown berechnet. Bei manuellem Override gibt es keine Zeitbasis dafür → null. */
+ *  Wochen-Countdown berechnet. Bei manuellem Override gibt es keine Zeitbasis dafür → null.
+ *  sportType: season_goals.sport_type des A-Ziels (z. B. "Radfahren", "Laufen") — wählt
+ *  nur den Beschreibungstext (PHASE_LABELS vs. PHASE_LABELS_CYCLING), die Zeitgrenzen
+ *  selbst sind sportartunabhängig identisch. Ohne Angabe (oder jeder andere Wert als
+ *  "Radfahren") bleibt das bisherige, ursprünglich für Laufen geschriebene Wording. */
 export function calculateSeasonPhase(
   weeksUntilEvent: number,
   override: string | null,
+  sportType?: string | null,
 ): PhaseResult {
-  if (override && PHASE_LABELS[override]) return { ...PHASE_LABELS[override], progressPct: null }
+  const labels = sportType === 'Radfahren' ? PHASE_LABELS_CYCLING : PHASE_LABELS
+  if (override && labels[override]) return { ...labels[override], progressPct: null }
 
   const key =
     weeksUntilEvent >= 10 ? 'readaptation' :
@@ -105,7 +139,66 @@ export function calculateSeasonPhase(
     'taper'
   const [start, end] = PHASE_WEEK_BOUNDS[key]
   const progressPct = Math.min(100, Math.max(0, ((start - weeksUntilEvent) / (start - end)) * 100))
-  return { ...PHASE_LABELS[key], progressPct }
+  return { ...labels[key], progressPct }
+}
+
+// ── Trainingsphilosophie aus verfügbarer Wochenstundenzahl ─────────────────
+
+export type TrainingPhilosophy = {
+  key: 'polarized' | 'efficiency'
+  label: string
+  description: string
+}
+
+/** Stundenschwelle, ab der genug Zeit für einen polarisierten Ansatz (viel lockeres
+ *  Volumen + wenig, dafür harte Intervalle) da ist — darunter ist ein effizienzfokussierter
+ *  Ansatz (mehr Tempo-/Schwellenarbeit bei weniger Gesamtvolumen) je Zeiteinheit wirksamer.
+ *  Laufen niedriger angesetzt als Rad: höhere Gelenk-/Sehnenbelastung pro Stunde erlaubt
+ *  bei begrenzter Zeit weniger zusätzliches lockeres Volumen als beim (Impact-freien) Rad. */
+const PHILOSOPHY_HOURS_THRESHOLD: Record<'cycling' | 'running', number> = {
+  cycling: 8,
+  running: 5,
+}
+
+const PHILOSOPHY_TEXT: Record<'cycling' | 'running', Record<'polarized' | 'efficiency', TrainingPhilosophy>> = {
+  cycling: {
+    polarized: {
+      key: 'polarized',
+      label: 'Polarisiert (80/20)',
+      description: '~80% der Trainingszeit locker (Z1/Z2), ~20% hart (Z4/Z5) — Tempo/Sweet-Spot (Z3) bewusst minimieren.',
+    },
+    efficiency: {
+      key: 'efficiency',
+      label: 'Sweet-Spot-Base',
+      description: 'Gezielte Sweet-Spot-/Tempo-Blöcke (oberer Z3-Bereich) statt hohem Grundlagenvolumen — mehr Trainingsreiz pro Zeiteinheit bei begrenzter Wochenstundenzahl.',
+    },
+  },
+  running: {
+    polarized: {
+      key: 'polarized',
+      label: 'Polarisiert (80/20)',
+      description: '~80% der Laufzeit locker (Z1/Z2), ~20% hart (Z4/Z5) — wenig Tempo im Schwellenbereich (Z3).',
+    },
+    efficiency: {
+      key: 'efficiency',
+      label: 'Schwellen-fokussiert',
+      description: 'Mehr Tempo-/Schwellenläufe (Z3/Z4) bei begrenztem Wochenumfang statt hohem lockerem Kilometervolumen.',
+    },
+  },
+}
+
+/** Wählt die Trainingsphilosophie aus der vom Athleten angegebenen Wochenstundenzahl
+ *  (SportConfig.hours_per_week) für die jeweilige Sportart. Gibt null zurück, wenn keine
+ *  Stundenzahl hinterlegt ist — Aufrufer injiziert dann keine philosophie-spezifische Regel
+ *  in den Plan-Prompt, statt aus fehlender Information zu raten. */
+export function determineTrainingPhilosophy(
+  sportType: 'cycling' | 'running',
+  hoursPerWeek: number | null | undefined,
+): TrainingPhilosophy | null {
+  if (hoursPerWeek == null) return null
+  const threshold = PHILOSOPHY_HOURS_THRESHOLD[sportType]
+  const key = hoursPerWeek >= threshold ? 'polarized' : 'efficiency'
+  return PHILOSOPHY_TEXT[sportType][key]
 }
 
 export type PhaseProgressNarrative = { text: string }

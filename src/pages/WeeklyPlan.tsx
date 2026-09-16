@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, type Athlete, type WeeklyPlan, type Activity, type SportConfig } from '../lib/supabase'
-import { buildCoachContext, calculateSeasonPhase, type PhaseResult } from '../lib/coachContext'
+import { buildCoachContext, calculateSeasonPhase, determineTrainingPhilosophy, type PhaseResult } from '../lib/coachContext'
 import { buildCoachSystemPrompt } from '../lib/coachPrompt'
 import { getValidAccessToken, fetchRecentActivities, syncActivitiesToSupabase } from '../lib/strava'
 import { analyzeActivity, claimActivityForAnalysis, parseHevyDescription } from '../lib/activityAnalysis'
@@ -587,7 +587,7 @@ export default function WeeklyPlan() {
     if (!athlete) return
     supabase
       .from('season_goals')
-      .select('event_date')
+      .select('event_date, sport_type')
       .eq('athlete_id', athlete.id)
       .eq('active', true)
       .eq('priority', 'A')
@@ -599,7 +599,7 @@ export default function WeeklyPlan() {
         const weeksUntilEvent = Math.round(
           (new Date(primaryGoal.event_date).getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000),
         )
-        setPhase(calculateSeasonPhase(weeksUntilEvent, athlete.season_phase_override ?? null))
+        setPhase(calculateSeasonPhase(weeksUntilEvent, athlete.season_phase_override ?? null, primaryGoal.sport_type))
       })
   }, [athlete])
 
@@ -771,7 +771,7 @@ export default function WeeklyPlan() {
           .order('created_at', { ascending: false }),
         supabase
           .from('season_goals')
-          .select('event_name, event_date')
+          .select('event_name, event_date, priority, sport_type')
           .eq('athlete_id', athlete.id)
           .eq('active', true),
       ])
@@ -836,6 +836,60 @@ export default function WeeklyPlan() {
           }\n`
         : ''
 
+      // Sportspezifische Periodisierung (Phasen-Intervalltyp, Trainingsphilosophie aus
+      // Wochenstunden) — nur wenn das primäre A-Ziel Radfahren oder Laufen ist. Bei einem
+      // Kraft-Ziel, einer anderen Sportart oder ganz ohne A-Ziel bleibt es beim bisherigen,
+      // rein generischen Regelwerk (kein "Radziel"-spezifisches Vorschreiben, wenn Rad z.B.
+      // nur unterstützende Nebensportart zu einem Laufziel ist).
+      const primaryGoal = (activeGoals ?? [])
+        .filter(g => g.priority === 'A')
+        .sort((a, b) => a.event_date.localeCompare(b.event_date))[0] ?? null
+      const primaryGoalSportKey: 'cycling' | 'running' | null =
+        primaryGoal?.sport_type === 'Radfahren' ? 'cycling' :
+        primaryGoal?.sport_type === 'Laufen'    ? 'running' :
+        null
+
+      let periodizationSection = ''
+      let periodizationPhaseLabel = ''
+      if (primaryGoal && primaryGoalSportKey) {
+        const weeksUntilPrimaryGoal = Math.round(
+          (new Date(primaryGoal.event_date).getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000),
+        )
+        const sportPhase = calculateSeasonPhase(weeksUntilPrimaryGoal, athlete.season_phase_override ?? null, primaryGoal.sport_type)
+        periodizationPhaseLabel = sportPhase.label
+        const hoursPerWeek = sportConfigs.find(s => s.type === primaryGoalSportKey)?.hours_per_week ?? null
+        const philosophy = determineTrainingPhilosophy(primaryGoalSportKey, hoursPerWeek)
+
+        // Phasenspezifische Intervall-/Zonenvorgabe: an etablierten Periodisierungsprinzipien
+        // orientiert (Coggan/Allen-Leistungszonen fürs Rad, Daniels/Pfitzinger-Tempoarbeit
+        // fürs Laufen, Seiler-Polarisierungsforschung für den 80/20-Zweig). Keine Prozentzahlen
+        // pro Zone hart erzwungen — das würde ohne Streckenprofil/Wattmessung pro Einheit zu
+        // starr; stattdessen strukturelle Vorgabe (welcher Intervalltyp diese Phase), analog
+        // zum bestehenden Detailgrad der anderen harten Regeln.
+        const phaseRules: Record<'cycling' | 'running', Record<string, string>> = {
+          cycling: {
+            readaptation: 'Überwiegend Z2-Grundlagenfahrten, Volumen aufbauen. Keine VO2max- oder anaeroben Intervalle (Z5).',
+            base:         '1–2× Schwellen- oder VO2max-Intervalltraining pro Woche einbauen, Rest weiterhin Z2. Umfang kann zugunsten der Intensität leicht sinken.',
+            race:         'Renn-spezifische Intervalle (Streckenprofil beachten, z. B. Kletterintervalle bei Höhenmeter-Zielen). Intensität hoch halten, Umfang stabilisieren.',
+            taper:        'Umfang gemäß COACHING-PRINZIPIEN Punkt 8 (Taper) reduzieren, kurze intensive Reize beibehalten.',
+          },
+          running: {
+            readaptation: 'Überwiegend lockeres Z2-Grundlagenlaufen, Kilometer vorsichtig aufbauen (10%-Regel). Keine Intervalle in Z4/Z5.',
+            base:         '1× Tempo-/Schwellenlauf pro Woche einbauen, Rest Z2-Grundlage. Sehnen-/Gelenkbelastung weiter im Blick behalten.',
+            race:         '1× Intervalltraining (Z4/Z5) und 1× Tempolauf im Zielrennen-Tempo pro Woche. Wettkampfspezifische Distanz-/Pace-Simulation einbauen.',
+            taper:        'Kilometer gemäß COACHING-PRINZIPIEN Punkt 8 (Taper) reduzieren, Renntempo-Kontakt kurz beibehalten.',
+          },
+        }
+
+        periodizationSection = `
+SPORTSPEZIFISCHE PERIODISIERUNG (${SPORT_LABEL[primaryGoalSportKey]}, A-Ziel "${primaryGoal.event_name}", aktuelle Phase: ${sportPhase.label}):
+- ${phaseRules[primaryGoalSportKey][sportPhase.phase]}${philosophy
+            ? `\n- Trainingsphilosophie (${hoursPerWeek}h/Woche laut Profil): ${philosophy.label} — ${philosophy.description}`
+            : `\n- Keine Wochenstundenzahl im Profil hinterlegt (Sportarten-Sektion) — Intervall-/Zonenmix innerhalb der obigen Phasenregel frei wählen.`}
+Diese Regel gilt NUR für ${SPORT_LABEL[primaryGoalSportKey]}-Einheiten in diesem Plan, nicht für andere Sportarten.
+`
+      }
+
       const prompt = `${context}
 
 ---
@@ -846,7 +900,7 @@ HARTE REGELN (nicht verhandelbar):
 1. Gesamttage: Der Plan enthält exakt ${trainingDays} Trainingstage und ${calendarRestDays} Ruhetage (Mo–So = 7 Tage).
 2. Sportarten-Verteilung (exakt einhalten):
 ${sportConstraintLines}
-${recoverySection}${stimulusSection}
+${recoverySection}${stimulusSection}${periodizationSection}
 SPORTWISSENSCHAFTLICHE REIHENFOLGE-REGELN:
 3. Nie zwei intensive Einheiten (Z3+, Tempolauf, schweres Krafttraining) an aufeinanderfolgenden Tagen.
 4. Krafttraining nie am Tag vor einer intensiven Ausdauereinheit.
@@ -868,7 +922,9 @@ ${selfCheckLines}
 - Keine zwei intensiven Tage aufeinanderfolgend?
 - Kein Krafttraining vor intensiver Ausdauer?
 - Intensity-Feld bei jeder Lauf-/Rad-Einheit mit "Z1"-"Z5"-Präfix?
-- Kraft-description exakt "Workout I", "Workout II" oder "Workout III" und korrekte Rotation?
+- Kraft-description exakt "Workout I", "Workout II" oder "Workout III" und korrekte Rotation?${
+  primaryGoalSportKey ? `\n- ${SPORT_LABEL[primaryGoalSportKey]}-Einheiten passend zur Phase "${periodizationPhaseLabel}" (siehe SPORTSPEZIFISCHE PERIODISIERUNG)?` : ''
+}
 Wenn eine Prüfung fehlschlägt, korrigiere den Plan BEVOR du ihn ausgibst.
 
 Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, kein Markdown:

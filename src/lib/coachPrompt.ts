@@ -1,5 +1,8 @@
 import { supabase, type Activity, type SportConfig, type EquipmentConfig, type AestheticGoals } from './supabase'
 import { calculateSeasonPhase, calculateHRZones, calculateZ2HRRange, calculatePaceReference, calculateDynamicZ2Pace, estimateBest5kFromActivities, resolveHRProfile } from './coachContext'
+// determineTrainingPhilosophy: siehe coachContext.ts — hier nicht importiert, da die
+// Philosophie-Regel sportspezifisch nur im Wochenplan-Prompt (WeeklyPlan.tsx) injiziert
+// wird, nicht im allgemeinen System-Prompt (der für Chat/Analyse jeder Sportart gilt).
 
 // ── format helpers (private) ───────────────────────────────────────────────
 
@@ -150,7 +153,7 @@ export async function buildCoachSystemPrompt(
       .single(),
     supabase
       .from('season_goals')
-      .select('event_name, event_date, distance_km, elevation_m')
+      .select('event_name, event_date, distance_km, elevation_m, sport_type')
       .eq('athlete_id', athleteId)
       .eq('active', true)
       .eq('priority', 'A')
@@ -173,7 +176,7 @@ export async function buildCoachSystemPrompt(
       )
     : 99
 
-  const phase    = calculateSeasonPhase(weeksUntilEvent, athlete?.season_phase_override ?? null)
+  const phase    = calculateSeasonPhase(weeksUntilEvent, athlete?.season_phase_override ?? null, primaryGoal?.sport_type)
 
   const birthYear = (athlete as { birth_year?: number | null } | null)?.birth_year ?? null
   const age = birthYear ? new Date().getFullYear() - birthYear : null
@@ -312,7 +315,7 @@ ${paceRef}
 5. 10%-Regel: Wochenkilometer nie mehr als 10% steigern
 6. Bei Schmerzen (nicht Muskelkater): sofort zurückrudern, nie "durchtrainieren"
 7. Lauf und Rad ergänzen sich in Phase 1–2, konkurrieren in Phase 3–4
-8. Taper: -30% Volumen Woche 13, -50% Woche 14 — Intensität bleibt erhalten
+8. Taper: in den letzten 2 Wochen vor dem A-Event Volumen reduzieren (vorletzte Woche ca. -30%, letzte Woche ca. -50%) — Intensität bleibt erhalten. Diese Reduktion bezieht sich auf die tatsächlichen Wochen vor dem im Kontext genannten Event-Datum, nicht auf eine feste Wochennummer im Trainingsplan.
 
 ## DATENNUTZUNG
 Du hast Zugriff auf ${athleteName}s Strava-Aktivitäten und Hevy-Workouts über den Athleten-Kontext. Beziehe dich immer auf konkrete Daten:

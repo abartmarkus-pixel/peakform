@@ -126,7 +126,7 @@ export default function GoalDetail() {
         }
 
         const weeksUntilEventNow = Math.round((new Date(g.event_date).getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000))
-        const phaseNow = calculateSeasonPhase(weeksUntilEventNow, a.season_phase_override ?? null)
+        const phaseNow = calculateSeasonPhase(weeksUntilEventNow, a.season_phase_override ?? null, g.sport_type)
         setNarrative(calculatePhaseProgressNarrative(phaseNow.phase, runningActivities, effectiveMaxHR, restingHR))
       }
 
@@ -158,7 +158,7 @@ export default function GoalDetail() {
   }
 
   const weeksUntilEvent = Math.round((new Date(goal.event_date).getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000))
-  const phase = calculateSeasonPhase(weeksUntilEvent, athlete?.season_phase_override ?? null)
+  const phase = calculateSeasonPhase(weeksUntilEvent, athlete?.season_phase_override ?? null, goal.sport_type)
   const totalDays = Math.ceil((new Date(goal.event_date).getTime() - Date.now()) / (24 * 60 * 60 * 1000))
   const currentPhaseIndex = PHASE_STEPS.findIndex(step => step.key === phase.phase)
 

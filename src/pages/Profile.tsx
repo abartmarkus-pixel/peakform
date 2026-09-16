@@ -271,6 +271,7 @@ export default function Profile() {
   const [aestheticGoals,     setAestheticGoals]     = useState<AestheticGoals>(DEFAULT_AESTHETIC)
   const [seasonPhaseOverride, setSeasonPhaseOverride] = useState<'readaptation' | 'base' | 'race' | 'taper' | null>(null)
   const [primaryEventDate,   setPrimaryEventDate]   = useState<string | null>(null)
+  const [primaryEventSport,  setPrimaryEventSport]  = useState<string | null>(null)
 
   // account deletion
   const [deleteState, setDeleteState] = useState<'closed' | 'confirm' | 'deleting' | 'error' | 'strava-warning'>('closed')
@@ -386,13 +387,14 @@ export default function Profile() {
 
       const { data: goalData } = await supabase
         .from('season_goals')
-        .select('event_date')
+        .select('event_date, sport_type')
         .eq('athlete_id', a.id)
         .eq('priority', 'A')
         .eq('active', true)
         .order('event_date', { ascending: true })
         .limit(1)
       setPrimaryEventDate(goalData?.[0]?.event_date ?? null)
+      setPrimaryEventSport(goalData?.[0]?.sport_type ?? null)
 
       initialized.current = true
     })()
@@ -678,9 +680,9 @@ export default function Profile() {
     const weeksUntilEvent = primaryEventDate
       ? Math.round((new Date(primaryEventDate).getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000))
       : 99
-    const autoPhase = calculateSeasonPhase(weeksUntilEvent, null)
+    const autoPhase = calculateSeasonPhase(weeksUntilEvent, null, primaryEventSport)
     if (seasonPhaseOverride) {
-      const overridePhase = calculateSeasonPhase(weeksUntilEvent, seasonPhaseOverride)
+      const overridePhase = calculateSeasonPhase(weeksUntilEvent, seasonPhaseOverride, primaryEventSport)
       return `${overridePhase.label} (manuell gesetzt) ⚠`
     }
     return `${autoPhase.label} (automatisch)`
@@ -832,29 +834,52 @@ export default function Profile() {
             {/* Akkordeon-Stepper */}
             {(() => {
               const config = focusedSport ? sportConfigs.find(s => s.type === focusedSport) : null
+              // Stunden/Woche nur für Rad/Lauf abfragen — steuert die Trainingsphilosophie
+              // (polarisiert vs. effizienzfokussiert) in der Wochenplan-Periodisierung,
+              // siehe determineTrainingPhilosophy() in coachContext.ts. Für Kraft irrelevant.
+              const showHours = config && (focusedSport === 'cycling' || focusedSport === 'running')
               return (
-                <div style={{ maxHeight: config ? '72px' : '0', overflow: 'hidden', transition: 'max-height 200ms ease-out' }}>
+                <div style={{ maxHeight: config ? (showHours ? '132px' : '72px') : '0', overflow: 'hidden', transition: 'max-height 200ms ease-out' }}>
                   {config && (
-                    <div className="mt-3 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Stepper
-                          value={config.days}
-                          onDec={() => {
-                            if (config.days <= 1) {
-                              setSportConfigs(prev => prev.filter(s => s.type !== focusedSport))
-                              setFocusedSport(null)
-                            } else {
-                              updateSportConfig(focusedSport!, { days: config.days - 1 })
-                            }
-                          }}
-                          onInc={() => updateSportConfig(focusedSport!, { days: config.days + 1 })}
-                          disableDec={false}
-                          disableInc={trainingDaysNum > 0 && totalDays >= trainingDaysNum}
-                          titleInc="Maximale Trainingstage erreicht"
-                        />
-                        <span className="text-xs text-slate-500">{config.days === 1 ? 'Tag' : 'Tage'}</span>
+                    <div className="mt-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Stepper
+                            value={config.days}
+                            onDec={() => {
+                              if (config.days <= 1) {
+                                setSportConfigs(prev => prev.filter(s => s.type !== focusedSport))
+                                setFocusedSport(null)
+                              } else {
+                                updateSportConfig(focusedSport!, { days: config.days - 1 })
+                              }
+                            }}
+                            onInc={() => updateSportConfig(focusedSport!, { days: config.days + 1 })}
+                            disableDec={false}
+                            disableInc={trainingDaysNum > 0 && totalDays >= trainingDaysNum}
+                            titleInc="Maximale Trainingstage erreicht"
+                          />
+                          <span className="text-xs text-slate-500">{config.days === 1 ? 'Tag' : 'Tage'}</span>
+                        </div>
+                        <span className="text-xs text-slate-500">{totalDays} / {trainingDaysNum || '—'} Tage</span>
                       </div>
-                      <span className="text-xs text-slate-500">{totalDays} / {trainingDaysNum || '—'} Tage</span>
+                      {showHours && (
+                        <div className="mt-2 flex items-center gap-2">
+                          <label className="text-xs text-slate-500 shrink-0">Ø Std./Woche (optional)</label>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.5}
+                            value={config.hours_per_week ?? ''}
+                            onChange={e => updateSportConfig(focusedSport!, {
+                              hours_per_week: e.target.value === '' ? null : Math.max(0, parseFloat(e.target.value)),
+                            })}
+                            placeholder="z.B. 6"
+                            className="w-20 bg-slate-700 rounded-lg px-2 py-1 text-sm text-slate-100 border border-slate-600 focus:border-brand-500 outline-none"
+                          />
+                          <span className="text-xs text-slate-500">bestimmt die Trainingsphilosophie im Plan</span>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1035,7 +1060,7 @@ export default function Profile() {
             const weeksUntilEvent = primaryEventDate
               ? Math.round((new Date(primaryEventDate).getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000))
               : 99
-            const autoPhase = calculateSeasonPhase(weeksUntilEvent, null)
+            const autoPhase = calculateSeasonPhase(weeksUntilEvent, null, primaryEventSport)
             const autoLabel = primaryEventDate
               ? `Automatisch: ${autoPhase.label} (${weeksUntilEvent} Wochen bis Event)`
               : `Automatisch: ${autoPhase.label} (kein A-Event gesetzt)`
