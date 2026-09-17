@@ -297,15 +297,13 @@ export async function buildCoachSystemPrompt(
 
 ${athleteSection}
 
-${goalSection}
-
-${showSeasonPhase ? phaseSection : strengthGoalSection}
+${showSeasonPhase ? `${goalSection}\n\n${phaseSection}` : strengthGoalSection}
 
 ## HERZFREQUENZZONEN
 ${hrZones}
-
+${showSeasonPhase ? `
 ## LAUFPACE-REFERENZ
-${paceRef}
+${paceRef}` : ''}
 
 ## COACHING-PRINZIPIEN
 1. Verletzungsprävention hat Priorität über Performance

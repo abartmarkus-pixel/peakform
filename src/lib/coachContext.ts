@@ -798,6 +798,14 @@ export async function buildCoachContext(
   ].join('\n'))
 
   // ── 2. SAISON-ZIELE (~300 tokens) ─────────────────────────────────────
+  // Saisonziele (Lauf-/Rad-Events) verfolgt Kraft nicht — bei einer Kraft-Analyse
+  // sollen sie nicht als Kontext einfließen (Kraft hat ein eigenständiges
+  // Ästhetik-/Hypertrophie-Ziel, siehe ATHLETEN-PROFIL). Bei Wochenplan-Generierung
+  // und Chat (activeSport == null) bleiben sie sichtbar, weil dort weiterhin die
+  // sportartübergreifende Belastungssteuerung berücksichtigt werden muss (z.B. kein
+  // intensiver Lauf/Rad-Tag nach einem intensiven Bein-Workout).
+  const showEnduranceGoals = activeSport !== 'strength'
+
   const nextA = goals?.find(g => g.priority === 'A')
   const aCountdown = nextA
     ? `\nNächstes A-Event in ${countdown(nextA.event_date)}: ${nextA.event_name} (${nextA.event_date})`
@@ -813,7 +821,11 @@ export async function buildCoachContext(
       ).join('\n')
     : 'Keine aktiven Ziele.'
 
-  sections.push(`[SAISON-ZIELE]${aCountdown}\n${goalLines}`)
+  sections.push(
+    showEnduranceGoals
+      ? `[SAISON-ZIELE]${aCountdown}\n${goalLines}`
+      : `[SAISON-ZIELE]\nFür die Krafttraining-Analyse nicht relevant (Kraft folgt einem eigenständigen Ästhetik-/Hypertrophie-Ziel, siehe ATHLETEN-PROFIL statt hier).`
+  )
 
   // ── 3. AKTUELLER WOCHENPLAN (~400 tokens) ─────────────────────────────
   const currentPlan = currentPlanRows?.[0] ?? null
