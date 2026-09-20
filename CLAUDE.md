@@ -201,6 +201,9 @@ peakform/
 │   │                       # push/notificationclick-Handler; von tsconfig.json bewusst ausgeschlossen
 │   │                       # (WebWorker- vs DOM-Lib-Konflikt mit dem Rest von src/)
 │   └── vite-env.d.ts       # Env-Variable-Types
+├── docs/
+│   └── regelliste_rad_v1.md  # Entwurf validiertes Regelwerk Rad (FEST/LEITPLANKEN/KEINE REGEL, Evidenz-Noten);
+│                       # Grundlage für geplante Code-Regeln, noch nichts davon implementiert
 ├── vite.config.ts          # PWA-Config (strategies: injectManifest, srcDir: src, filename: sw.ts) +
 │                           # /api/analyse + /api/strava-token + /api/calendar Middleware für lokales Dev
 ├── vercel.json             # SPA Rewrites + SW Cache-Header + Cron (send-daily-reminder) + Build-Config
@@ -353,6 +356,7 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 - [x] Git-Author-Email: `abart.markus@gmail.com` (global konfiguriert)
 
 ## Was fehlt noch (optional)
+- Validiertes Regelwerk Radtraining (Plan-Gerüst per Code, Indoor/Outdoor-Funktion) — in Planung, siehe `docs/regelliste_rad_v1.md` und PEAKFORM_ROADMAP.md; 8-h/Woche-Grenze in `determineTrainingPhilosophy()` ist nicht belegt
 - Mehr als 10 Aktivitäten (Pagination)
 - CTL / ATL / TSB Fitness-Kurve
 - P3/P4 Code-Qualität: `select('*')` einschränken, OAuth State-Parameter

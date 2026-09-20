@@ -240,6 +240,15 @@ Anlass: Vorbereitung auf ein Rad-Event ab Ende Oktober mit Ziel im April (~24-26
 ### ✅ Muskelgruppe-Pill fehlte bei deutsch benannten Hevy-Übungen (behoben 16.9.2026)
 `primaryMuscleLabel()` (`ActivityDetail.tsx`) rät die Muskelgruppen-Pille der Übungskarten rein aus dem Übungsnamen über eine Keyword-Liste (Hevy überträgt selbst keine Muskelgruppen-Metadaten) — die Liste enthielt bisher nur englische Keywords. Bei deutsch benannten Übungen wie „Fliegende", „Vorgebeugtes Rudern", „Seitheben", „Einbeiniges Beckenheben", „Trizepsdrücken", „Clamshell" und „Pallof Press" blieb die Pille dadurch leer, während englisch benannte Übungen ("Chin Up", "Bulgarian Split Squat", "Hammer Curl") korrekt funktionierten. Fix: deutsche Keyword-Äquivalente je Wortfamilie ergänzt, spezifische Begriffe mit abweichendem Label (z. B. „enges Bankdrücken" → Trizeps) vor dem generischen Fallback derselben Familie (z. B. „Bankdrücken" → Brust) platziert — analog zur bestehenden Reihenfolge bei den englischen Keywords.
 
+### ✅ Wochenplan: Tages-Keys mit Datum ("Sa 26.9.2026") führten zu leeren Karten und falscher Ziel-Warnung (behoben 20.9.2026)
+Folgefehler der Datums-Verbesserung vom 2. Juli: `planJsonWithDates()` zeigt Claude den Plan mit Datum im Key, Claude übernahm das Format in die eigene Plan-Ausgabe. Die UI suchte weiter nach `Mi`/`Do`/… und fand nichts (leere Tageskarten), `checkGoalPlacement()` meldete „Tiroler Firmenlauf steht am Sa 26.9.2026, gehört aber an Sa". Fix: `normalizePlanDayKeys()` (`weeklyPlan.ts`) normalisiert die Keys direkt nach dem Parsen, in `WeeklyPlan.tsx` und in der Konflikt-Anpassung in `Dashboard.tsx`.
+
+### ✅ Lokale Entwicklung: Dev-Login und API-Weiterleitung (implementiert 20.9.2026)
+Anlass: Strava leitet nach dem Login immer auf die Live-Adresse um; für Tests auf `localhost` musste bisher der Session-Zustand per Browser-Konsole gesetzt werden. Neu: Button „Dev-Login (ohne Strava)" auf `Home.tsx` (nur bei `import.meta.env.DEV`, `devLoginAs()` in `strava.ts`). Zusätzlich leitet die Dev-Middleware (`vite.config.ts`, `forwardToLive()`) `/api/analyse` und `/api/strava-token` an `peakform-wheat.vercel.app` weiter, wenn lokal `ANTHROPIC_API_KEY`/`STRAVA_CLIENT_SECRET` fehlen. Beides teilt die Live-Datenbank; lokale Claude-Calls laufen über den Live-Zugang.
+
+### 🟡 Validiertes Regelwerk für Radtraining (in Planung, Stand 20.9.2026, noch kein Code)
+Ziel: Plan-Struktur (Blöcke, Belastungssteigerung, Einheitentypen, Taper) kommt aus festem, belegtem Regelwerk im Code; Claude wählt/erklärt nur innerhalb der Grenzen (Vorbild TrainerRoad/Runna). Erstes Anwendungsbeispiel: Mallorca 312 am 24.4.2027 (~31 Wochen, FTP 205 W, Winter ca. 6 h/Woche indoor, ab März outdoor mit mehr Stunden). Recherche (Studien, Coggan/Seiler/Rønnestad/Bosquet, Praxis inkl. TrainerRoad, rennrad-news.de, speed-ville.de) abgeschlossen; Ergebnis: `docs/regelliste_rad_v1.md` mit drei Klassen (FEST/LEITPLANKEN/BEWUSST KEINE REGEL) und Evidenz-Noten. Wichtige Befunde: die 8-h/Woche-Grenze in `determineTrainingPhilosophy()` ist nicht belegt (Faustregel); `calculateSeasonPhase()` kennt nur die letzten 14 Wochen vor dem Event (für 31 Wochen zu grob); Taper-Regel (2 Wochen, −41–60 % Volumen, Intensität gleich) ist belegt (Bosquet 2007). Geplant zusätzlich: Indoor/Outdoor-Funktion für Radeinheiten (Strava liefert `VirtualRide` vs. `Ride`, im Code bisher gleich behandelt). Offene Entscheidungen: Märzstunden, FTP getestet/geschätzt, Blocklängen 12/10/7/2, Indoor-Obergrenze 2/2,5 h. Ideen für später: Fitness-/Wellness-Daten aus Intervals.icu (API), Plan als strukturierte Workouts nach Intervals.icu/Garmin schreiben.
+
 ### 🟢 Langzeit-Trainingshistorie
 Aktuell nur 4-8 Wochen Kontext. Monatliche Zusammenfassungen automatisch generieren und als Langzeitgedächtnis speichern.
 Aufwand: Mittel
@@ -435,3 +444,6 @@ Aufwand: Mittel
 | ✅ Saisonziel-Woche/Review-Einschränkungen hart abgesichert | Behoben | — | 13.9.2026 |
 | ✅ Intervallstruktur-Erkennung ohne Rundendaten | Umgesetzt | — | 16.9.2026 |
 | ✅ Sportspezifische Periodisierung Rad/Lauf | Umgesetzt | — | 16.9.2026 |
+| ✅ Wochenplan-Tages-Keys mit Datum normalisiert | Behoben | — | 20.9.2026 |
+| ✅ Dev-Login + API-Weiterleitung lokal | Umgesetzt | — | 20.9.2026 |
+| 🟡 Validiertes Regelwerk Radtraining (Regelliste v1) | In Planung | Groß | 20.9.2026 |

@@ -40,6 +40,8 @@ npm run dev
 # → http://localhost:5173
 ```
 
+**Login lokal:** Strava leitet nach dem OAuth-Login immer auf die in `VITE_STRAVA_REDIRECT_URI` hinterlegte (Live-)Adresse um, nicht auf localhost. Auf `http://localhost:5173/` erscheint deshalb nur im Dev-Modus ein Button **„Dev-Login (ohne Strava)"**, der die Sitzung direkt aus Supabase übernimmt (im Produktions-Build nicht vorhanden). Fehlen `ANTHROPIC_API_KEY`/`STRAVA_CLIENT_SECRET` in der lokalen `.env`, leitet der Dev-Server `/api/analyse` und `/api/strava-token` an die Live-Version weiter — eigene Schlüssel sind lokal optional.
+
 ## Umgebungsvariablen
 
 Siehe `.env.example` für alle benötigten Variablen:
