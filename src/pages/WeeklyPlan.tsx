@@ -15,7 +15,7 @@ import {
 import { AppHeader } from '../components/AppHeader'
 import { useFeatures } from '../lib/features'
 import { getISOMonday, getISOSunday, formatWeekRange, formatDurationHuman, toDateStr, dayLabelForDate } from '../lib/dateUtils'
-import { DAYS, DAY_FULL, REST_KEYWORDS, SPORT_KEYWORDS, checkPlanConflicts, type DayPlan, type PlanJson } from '../lib/weeklyPlan'
+import { DAYS, DAY_FULL, REST_KEYWORDS, SPORT_KEYWORDS, checkPlanConflicts, normalizePlanDayKeys, type DayPlan, type PlanJson } from '../lib/weeklyPlan'
 import {
   DndContext,
   closestCenter,
@@ -169,7 +169,7 @@ function formatFulfilledDate(dateStr: string): string {
 function parsePlanJson(text: string): PlanJson {
   const match = text.match(/```(?:json)?\s*([\s\S]*?)```/)
   const raw = match ? match[1] : text
-  return JSON.parse(raw.trim()) as PlanJson
+  return normalizePlanDayKeys(JSON.parse(raw.trim()) as PlanJson)
 }
 
 function parseReviewJson(text: string): ReviewJson {

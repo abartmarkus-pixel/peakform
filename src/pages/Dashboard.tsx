@@ -5,6 +5,7 @@ import { fetchRecentActivities, getValidAccessToken, syncActivitiesToSupabase, t
 import { supabase, type Athlete } from '../lib/supabase'
 import { buildCoachSystemPrompt } from '../lib/coachPrompt'
 import { planJsonWithDates } from '../lib/coachContext'
+import { normalizePlanDayKeys } from '../lib/weeklyPlan'
 import { getISOMonday, formatDurationHuman } from '../lib/dateUtils'
 import {
   IconLogout, IconRunning, IconCycling, IconStrength, IconOther, IconWarning, IconCommentFilled,
@@ -33,7 +34,7 @@ type PlanJson = {
 function parsePlanJson(text: string): PlanJson {
   const match = text.match(/```(?:json)?\s*([\s\S]*?)```/)
   const raw = match ? match[1] : text
-  return JSON.parse(raw.trim()) as PlanJson
+  return normalizePlanDayKeys(JSON.parse(raw.trim()) as PlanJson)
 }
 
 function mondayOf(date: Date): string {

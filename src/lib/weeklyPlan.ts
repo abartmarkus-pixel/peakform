@@ -31,6 +31,20 @@ export const DAY_FULL: Record<string, string> = {
   Fr: 'Freitag', Sa: 'Samstag', So: 'Sonntag',
 }
 
+/** Normalisiert die Tages-Keys eines von Claude erzeugten Plans auf reines "Mo".."So".
+ *  Hintergrund: planJsonWithDates() (coachContext.ts) zeigt Claude den aktuellen Plan mit
+ *  Datum im Key ("Sa 26.9.2026"); Claude übernimmt dieses Format gern auch in der eigenen
+ *  Ausgabe. Ohne Normalisierung findet die UI keinen Tag mehr (leere Karten) und
+ *  checkGoalPlacement() meldet fälschlich einen falschen Wochentag. */
+export function normalizePlanDayKeys<T extends { days: Record<string, unknown> }>(planJson: T): T {
+  const days: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(planJson.days ?? {})) {
+    const label = DAYS.find(d => key.trim().startsWith(d))
+    days[label ?? key] = value
+  }
+  return { ...planJson, days }
+}
+
 // ── manual-edit conflict check (client-seitig, kein Claude-Call) ───────────
 // "intensiv" folgt denselben sportwissenschaftlichen Regeln, die der Coach
 // beim Planen bekommt (siehe generatePlan()-Prompt in WeeklyPlan.tsx, Regeln 3-4):
