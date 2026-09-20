@@ -15,6 +15,22 @@ type ContentBlock =
   | { type: 'text'; text: string }
   | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
 
+// Lokale Entwicklung ohne eigene Geheimnisse: fehlen ANTHROPIC_API_KEY bzw.
+// STRAVA_CLIENT_SECRET in der lokalen .env, leitet die Dev-Middleware den Aufruf an die
+// Live-Funktionen weiter (dort liegen die Schlüssel bei Vercel). Kein Schlüssel-Kopieren nötig.
+const LIVE_API_BASE = 'https://peakform-wheat.vercel.app'
+
+async function forwardToLive(path: string, body: string, res: ServerResponse): Promise<void> {
+  const r = await fetch(`${LIVE_API_BASE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+  })
+  res.statusCode = r.status
+  res.setHeader('Content-Type', 'application/json')
+  res.end(await r.text())
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
 
@@ -93,8 +109,7 @@ export default defineConfig(({ mode }) => {
                   const clientId = env.VITE_STRAVA_CLIENT_ID
                   const clientSecret = env.STRAVA_CLIENT_SECRET
                   if (!clientId || !clientSecret) {
-                    res.statusCode = 500
-                    res.end(JSON.stringify({ error: 'Server config error' })); return
+                    await forwardToLive('/api/strava-token', body, res); return
                   }
                   const payload: Record<string, string> = { client_id: clientId, client_secret: clientSecret, grant_type }
                   if (code) payload.code = code
@@ -155,6 +170,9 @@ export default defineConfig(({ mode }) => {
                     content = blocks
                   }
                   const apiKey = env.ANTHROPIC_API_KEY
+                  if (!apiKey) {
+                    await forwardToLive('/api/analyse', body, res); return
+                  }
                   const response = await fetch('https://api.anthropic.com/v1/messages', {
                     method: 'POST',
                     headers: {

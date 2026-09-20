@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { generateOAuthState, getStravaAuthUrl } from '../lib/strava'
+import {
+  generateOAuthState, getStravaAuthUrl, listDevAthletes, devLoginAs, type DevAthleteOption,
+} from '../lib/strava'
 
 export default function Home() {
   const navigate = useNavigate()
   const location = useLocation()
   const [authUrl, setAuthUrl] = useState<string>('#')
+  const [devAthletes, setDevAthletes] = useState<DevAthleteOption[]>([])
   const loginError = (location.state as { error?: string } | null)?.error ?? null
 
   useEffect(() => {
@@ -13,6 +16,11 @@ export default function Home() {
       navigate('/dashboard', { replace: true })
     }
   }, [navigate])
+
+  // Nur lokal (npm run dev): Athleten für den Ein-Klick-Login ohne Strava-Umweg laden
+  useEffect(() => {
+    if (import.meta.env.DEV) void listDevAthletes().then(setDevAthletes)
+  }, [])
 
   useEffect(() => {
     setAuthUrl(getStravaAuthUrl(generateOAuthState()))
@@ -46,6 +54,19 @@ export default function Home() {
           />
           Mit Strava verbinden
         </a>
+
+        {import.meta.env.DEV && devAthletes.map(a => (
+          <button
+            key={a.strava_athlete_id}
+            onClick={async () => {
+              await devLoginAs(a.strava_athlete_id)
+              navigate('/dashboard', { replace: true })
+            }}
+            className="w-full bg-slate-700 hover:bg-slate-600 text-white text-sm font-semibold px-6 py-3 rounded-xl border border-amber-400/60"
+          >
+            Dev-Login{a.name ? `: ${a.name}` : ''} (ohne Strava)
+          </button>
+        ))}
 
         <p className="text-white/70 text-sm text-center">
           PeakForm liest deine Trainingsaktivitäten und erstellt KI-basierte Analysen

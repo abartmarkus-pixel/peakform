@@ -227,6 +227,7 @@ CRON_SECRET=...             ← schützt /api/send-daily-reminder; Vercel setzt 
 npm run dev       # Vite Dev-Server auf localhost:5173
                   # /api/analyse + /api/strava-token als Vite-Middleware (kein vercel dev nötig)
 ```
+**Login lokal:** Strava leitet nach dem OAuth-Login immer auf die Live-Adresse (`VITE_STRAVA_REDIRECT_URI`) um. Auf `localhost:5173` zeigt `Home.tsx` deshalb nur bei `import.meta.env.DEV` je Athlet einen Button "Dev-Login (ohne Strava)" — `devLoginAs()` (`strava.ts`) setzt Session-Zustand (localStorage/sessionStorage/`pf_athlete_id`-Cookie) direkt aus Supabase. Im Produktions-Build wird der Button nicht gerendert. Nutzt dieselbe Datenbank wie live. Fehlen `ANTHROPIC_API_KEY`/`STRAVA_CLIENT_SECRET` in der lokalen `.env`, leitet die Dev-Middleware in `vite.config.ts` (`forwardToLive()`) `/api/analyse` und `/api/strava-token` an `peakform-wheat.vercel.app` weiter — lokal sind keine eigenen Schlüssel nötig, Claude-Calls laufen dabei aber über den Live-Zugang.
 
 ## Was ist implementiert ✅
 

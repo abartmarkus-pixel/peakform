@@ -277,6 +277,26 @@ export async function restoreSessionFromSupabase(): Promise<boolean> {
   }
 }
 
+/** Nur für lokale Entwicklung (Home.tsx zeigt den Button nur bei import.meta.env.DEV):
+ *  Strava leitet nach dem OAuth-Login immer auf die in VITE_STRAVA_REDIRECT_URI hinterlegte
+ *  Live-Adresse um, nie auf localhost. Statt dafür jedes Mal localStorage in der Browser-Konsole
+ *  zu setzen, übernimmt dieser Login den Session-Zustand direkt aus Supabase (Tokens dort sind
+ *  dieselben wie live). */
+export type DevAthleteOption = { strava_athlete_id: number; name: string | null }
+
+export async function listDevAthletes(): Promise<DevAthleteOption[]> {
+  const { data } = await supabase.from('athletes').select('strava_athlete_id, name').order('created_at')
+  return (data ?? []) as DevAthleteOption[]
+}
+
+export async function devLoginAs(stravaAthleteId: number): Promise<void> {
+  const stravaId = String(stravaAthleteId)
+  localStorage.setItem('athlete_strava_id', stravaId)
+  sessionStorage.setItem('athlete_strava_id', stravaId)
+  document.cookie = `pf_athlete_id=${stravaId}; max-age=31536000; path=/; SameSite=Lax`
+  await supabase.rpc('set_athlete_context', { athlete_id: stravaId })
+}
+
 export async function syncActivitiesToSupabase(
   activities: StravaActivity[],
   athleteId: string,
