@@ -37,7 +37,7 @@ PeakForm ist eine PWA (Progressive Web App) die als KI-Trainingscoach fungiert. 
 | Backend/DB | Supabase (PostgreSQL) | @supabase/supabase-js 2.43 |
 | Hosting | Vercel (Fluid Compute) | — |
 | PWA | vite-plugin-pwa | 0.20 |
-| KI | Claude Sonnet (claude-sonnet-4-6) via `/api/analyse` | — |
+| KI | Claude Sonnet (claude-sonnet-5) via `/api/analyse` | — |
 | Ausdauer/Kraft | Strava API v3 (scope: `read,activity:read_all`) | — |
 
 **Kein Hevy API** — Krafttraining-Daten kommen aus der Strava-`description`-Spalte (Hevy schreibt Workouts automatisch in Strava-Beschreibungen).
@@ -420,7 +420,7 @@ Claude API Proxy — niemals direkt vom Browser aufrufen.
 
 **Limits:** Prompt max 80.000 Zeichen, max_tokens Cap 4.096, max. 10 Bilder, max. 2.000.000 Base64-Zeichen pro Bild  
 **Response:** `{ "text": "..." }`  
-**Modell:** `claude-sonnet-4-6`
+**Modell:** `claude-sonnet-5`
 
 ---
 

@@ -12,7 +12,7 @@ Zielgruppe: persönlicher Einsatz (kein SaaS).
 | Routing | React Router v6 |
 | Drag & Drop | @dnd-kit/core + @dnd-kit/sortable |
 | Backend/DB | Supabase (PostgreSQL) |
-| KI | Claude Sonnet (claude-sonnet-4-6) via `/api/analyse` |
+| KI | Claude Sonnet (claude-sonnet-5) via `/api/analyse` |
 | Hosting | Vercel — deployed auf `peakform-wheat.vercel.app` |
 | PWA | vite-plugin-pwa |
 

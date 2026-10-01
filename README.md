@@ -21,7 +21,7 @@ KI-Trainingscoach als Progressive Web App — verbindet Strava und Hevy mit Clau
 | Routing | React Router v6 |
 | Drag & Drop | @dnd-kit/core + @dnd-kit/sortable |
 | Backend/DB | Supabase (PostgreSQL) |
-| KI | Claude Sonnet (claude-sonnet-4-6) via Vercel Serverless Function |
+| KI | Claude Sonnet (claude-sonnet-5) via Vercel Serverless Function |
 | Hosting | Vercel |
 | PWA | vite-plugin-pwa |
 
