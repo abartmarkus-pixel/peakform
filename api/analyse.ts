@@ -46,6 +46,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     body: JSON.stringify({
       model: 'claude-sonnet-5',
       max_tokens: Math.min(max_tokens ?? 1024, MAX_TOKENS_CAP),
+      // Sonnet 5 denkt ohne diese Angabe standardmäßig nach (adaptive thinking) —
+      // das verbraucht max_tokens und schiebt einen leeren thinking-Block vor den Text.
+      thinking: { type: 'disabled' },
       ...(system && { system }),
       messages: [{ role: 'user', content }],
     }),
@@ -53,6 +56,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (!response.ok) return res.status(response.status).json({ error: 'Claude API error' })
 
-  const data = await response.json() as { content: { text: string }[] }
-  return res.status(200).json({ text: data.content[0].text })
+  const data = await response.json() as { content: { type: string; text?: string }[] }
+  const text = data.content.filter(b => b.type === 'text').map(b => b.text).join('')
+  if (!text) return res.status(502).json({ error: 'Claude API error' })
+  return res.status(200).json({ text })
 }

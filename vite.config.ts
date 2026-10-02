@@ -183,12 +183,15 @@ export default defineConfig(({ mode }) => {
                     body: JSON.stringify({
                       model: 'claude-sonnet-5',
                       max_tokens: Math.min(max_tokens ?? 1024, MAX_TOKENS_CAP),
+                      thinking: { type: 'disabled' },
                       ...(system && { system }),
                       messages: [{ role: 'user', content }],
                     }),
                   })
-                  const data = await response.json() as { content: { text: string }[] }
-                  res.end(JSON.stringify({ text: data.content[0].text }))
+                  const data = await response.json() as { content: { type: string; text?: string }[] }
+                  const text = data.content.filter(b => b.type === 'text').map(b => b.text).join('')
+                  if (!text) { res.statusCode = 502; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ error: 'Claude API error' })); return }
+                  res.end(JSON.stringify({ text }))
                 } catch (e) {
                   res.statusCode = 500
                   res.setHeader('Content-Type', 'application/json')
