@@ -532,6 +532,9 @@ Runden (${laps.length} gesamt):
 ${laps.map(lap => {
   const parts = [`  Runde ${lap.lap_index}: ${formatDuration(lap.elapsed_time)}`]
   if (lap.distance > 0) parts.push(`${(lap.distance / 1000).toFixed(2)} km`)
+  // Tempo pro Runde (nur Laufen) — ohne diese Angabe bewertete Claude Intervalle rein
+  // am Puls, der in kurzen Intervallen verzögert ansteigt (Tempo im Ziel, Ø-HF darunter).
+  if (isRun && lap.distance > 0) parts.push(`${formatDuration(Math.round(lap.elapsed_time / (lap.distance / 1000)))} min/km`)
   if (lap.average_watts != null) parts.push(`Ø ${Math.round(lap.average_watts)} W`)
   if (lap.average_heartrate != null) parts.push(`Ø ${Math.round(lap.average_heartrate)} bpm`)
   if (lap.average_cadence != null) parts.push(`Ø ${Math.round(lap.average_cadence)} rpm`)
