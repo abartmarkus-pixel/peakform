@@ -149,6 +149,61 @@ function isGenericAutoSplit(laps: StravaLap[]): boolean {
   return isUniform(body.map(l => l.distance)) || isUniform(body.map(l => l.elapsed_time))
 }
 
+// Mischen sich Auto-Laps (z.B. jeder km) mit manuell gedrückten Runden, zerhackt der
+// Auto-km ein Intervall, wenn er kurz vor dessen Ende fällt: "5:50 + 0:09" statt 5:59.
+// Claude las diese Sekunden-Reste als eigene "Spitzen"/Messfehler und unterschätzte die
+// Intervalldauer. Solche Reste (< 30 s UND < 10 % der Runde davor) werden für die Analyse
+// an die vorherige Runde angehängt. Kurze, gewollte Belastungen (z.B. 15-s-Steigerungen
+// nach 60 s Trab) bleiben erhalten, weil sie relativ zur Runde davor nicht winzig sind.
+// Betrifft nur den Analyse-Prompt — Strava und die Rundentabelle bleiben unverändert.
+const LAP_FRAGMENT_MAX_S = 30
+const LAP_FRAGMENT_MAX_RATIO = 0.1
+
+export function mergeLapFragments(laps: StravaLap[]): StravaLap[] {
+  const merged: StravaLap[] = []
+  for (const lap of laps) {
+    const prev = merged[merged.length - 1]
+    const isFragment = prev
+      && lap.elapsed_time < LAP_FRAGMENT_MAX_S
+      && lap.elapsed_time < prev.elapsed_time * LAP_FRAGMENT_MAX_RATIO
+    if (!isFragment) { merged.push({ ...lap }); continue }
+
+    const t = prev.elapsed_time + lap.elapsed_time
+    const weighted = (a?: number, b?: number) =>
+      a != null && b != null ? (a * prev.elapsed_time + b * lap.elapsed_time) / t : (a ?? b)
+    merged[merged.length - 1] = {
+      ...prev,
+      elapsed_time: t,
+      distance: prev.distance + lap.distance,
+      average_speed: t > 0 ? (prev.distance + lap.distance) / t : prev.average_speed,
+      average_heartrate: weighted(prev.average_heartrate, lap.average_heartrate),
+      average_watts: weighted(prev.average_watts, lap.average_watts),
+      average_cadence: weighted(prev.average_cadence, lap.average_cadence),
+      max_heartrate: Math.max(prev.max_heartrate ?? 0, lap.max_heartrate ?? 0) || undefined,
+      end_index: lap.end_index ?? prev.end_index,
+    }
+  }
+  return merged.map((l, i) => ({ ...l, lap_index: i + 1 }))
+}
+
+// Ø-Puls der letzten 60 s einer Runde — der Puls reagiert 1-3 Min verzögert auf eine
+// Belastung, der Runden-Durchschnitt eines Intervalls ist daher systematisch zu niedrig.
+// Nur für Runden ≥ 2 Min (bei kürzeren wäre "letzte 60 s" fast der ganze Durchschnitt).
+const LAP_END_HR_WINDOW_S = 60
+const LAP_END_HR_MIN_LAP_S = 120
+
+function lapEndHr(lap: StravaLap, data: ChartPoint[]): number | null {
+  if (lap.elapsed_time < LAP_END_HR_MIN_LAP_S || lap.end_index == null) return null
+  const end = Math.min(lap.end_index, data.length - 1)
+  const endT = data[end]?.t
+  if (endT == null) return null
+  const hrs: number[] = []
+  for (let i = end; i >= (lap.start_index ?? 0) && data[i].t > endT - LAP_END_HR_WINDOW_S; i--) {
+    if (data[i].hr) hrs.push(data[i].hr!)
+  }
+  return hrs.length >= 10 ? Math.round(mean(hrs)) : null
+}
+
 // Fallback für Intervall-Aktivitäten ohne brauchbare Rundendaten (siehe isGenericAutoSplit
 // bzw. gar keine Runden): segmentiert die ohnehin vorhandenen Sekundendaten (streams_json)
 // deterministisch in Belastungs-/Erholungsblöcke, statt Claude eine rohe Sekundentakt-Liste
@@ -478,7 +533,7 @@ export async function analyzeActivity(
     const exercises = description ? parseHevyDescription(description) : []
     const chartData = buildChartData(streamsRaw as Record<string, unknown>)
     const stats = computeStats(chartData)
-    const laps = lapsData as StravaLap[]
+    const laps = mergeLapFragments(lapsData as StravaLap[])
     const splits = splitsMetricData as StravaSplitMetric[]
 
     // Intervall-Fallback: greift, wenn der Plantag Z4/Z5 vorgibt ODER die Nutzerin die
@@ -537,6 +592,8 @@ ${laps.map(lap => {
   if (isRun && lap.distance > 0) parts.push(`${formatDuration(Math.round(lap.elapsed_time / (lap.distance / 1000)))} min/km`)
   if (lap.average_watts != null) parts.push(`Ø ${Math.round(lap.average_watts)} W`)
   if (lap.average_heartrate != null) parts.push(`Ø ${Math.round(lap.average_heartrate)} bpm`)
+  const endHr = lapEndHr(lap, chartData)
+  if (endHr != null) parts.push(`Ende-HF ${endHr} bpm (letzte 60 s)`)
   if (lap.average_cadence != null) parts.push(`Ø ${Math.round(lap.average_cadence)} rpm`)
   return parts.join(' | ')
 }).join('\n')}` : (splits.length > 1 ? `

@@ -89,6 +89,10 @@ export type StravaLap = {
   max_heartrate?: number
   average_watts?: number
   average_cadence?: number
+  // Indizes in die Sekunden-Streams (streams_json) — liefert Strava mit, genutzt für
+  // den Ende-Puls je Runde (lapEndHr() in activityAnalysis.ts)
+  start_index?: number
+  end_index?: number
 }
 
 export async function fetchActivityLaps(
