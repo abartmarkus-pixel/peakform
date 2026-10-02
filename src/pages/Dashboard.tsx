@@ -5,7 +5,7 @@ import { fetchRecentActivities, getValidAccessToken, syncActivitiesToSupabase, t
 import { supabase, type Athlete } from '../lib/supabase'
 import { buildCoachSystemPrompt } from '../lib/coachPrompt'
 import { planJsonWithDates } from '../lib/coachContext'
-import { normalizePlanDayKeys } from '../lib/weeklyPlan'
+import { applyWorkoutRotation, normalizePlanDayKeys } from '../lib/weeklyPlan'
 import { getISOMonday, formatDurationHuman } from '../lib/dateUtils'
 import {
   IconLogout, IconRunning, IconCycling, IconStrength, IconOther, IconWarning, IconCommentFilled,
@@ -294,7 +294,7 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt im gleichen Format wie der Origin
 {
   "summary": "Einzeiliger Wochen-Überblick zum Trainingsinhalt dieser Woche (max 120 Zeichen). Nenne KEINE Trainingsphase und KEINE Wochenzahl (z.B. nicht 'Phase 1 Woche 7') — die Phase wird bereits separat und live berechnet angezeigt und würde sonst veralten/widersprechen.",
   "days": {
-    "Mo": { "type": "Ruhetag|Radfahren|Laufen|Kraft", "duration_min": 0, "distance_km": null, "intensity": null, "description": "Kurze Beschreibung (oder 'Workout I/II/III' bei Kraft)" },
+    "Mo": { "type": "Ruhetag|Radfahren|Laufen|Kraft", "duration_min": 0, "distance_km": null, "intensity": null, "description": "Kurze Beschreibung (oder 'Workout I' bei Kraft — die App setzt I/II/III selbst)" },
     "Di": { "type": "...", "duration_min": 0, "distance_km": null, "intensity": null, "description": "..." },
     "Mi": { "type": "...", "duration_min": 0, "distance_km": null, "intensity": null, "description": "..." },
     "Do": { "type": "...", "duration_min": 0, "distance_km": null, "intensity": null, "description": "..." },
@@ -309,7 +309,7 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt im gleichen Format wie der Origin
       })
       if (!res.ok) throw new Error('API Fehler')
       const { text } = await res.json() as { text: string }
-      const adjustedPlan = parsePlanJson(text)
+      const adjustedPlan = await applyWorkoutRotation(parsePlanJson(text), athleteId, planWeekStart)
 
       const { data: existing } = await supabase
         .from('weekly_plans')

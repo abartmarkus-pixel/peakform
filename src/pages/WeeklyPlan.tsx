@@ -15,7 +15,7 @@ import {
 import { AppHeader } from '../components/AppHeader'
 import { useFeatures } from '../lib/features'
 import { getISOMonday, getISOSunday, formatWeekRange, formatDurationHuman, toDateStr, dayLabelForDate } from '../lib/dateUtils'
-import { DAYS, DAY_FULL, REST_KEYWORDS, SPORT_KEYWORDS, checkPlanConflicts, normalizePlanDayKeys, type DayPlan, type PlanJson } from '../lib/weeklyPlan'
+import { DAYS, DAY_FULL, REST_KEYWORDS, SPORT_KEYWORDS, applyWorkoutRotation, checkPlanConflicts, normalizePlanDayKeys, type DayPlan, type PlanJson } from '../lib/weeklyPlan'
 import {
   DndContext,
   closestCenter,
@@ -911,10 +911,8 @@ LAUFEINHEITEN — PFLICHT:
 7. Für alle Einheiten mit type "Laufen" oder "Run": setze distance_km IMMER auf null. Gib NUR duration_min an. Die HF-Zone ist die einzige Vorgabe — die Distanz ergibt sich beim Training automatisch.
 7b. "intensity" beginnt bei Lauf- und Rad-Einheiten IMMER mit "Z1", "Z2", "Z3", "Z4" oder "Z5" (z. B. "Z2 locker", "Z4 Schwelle") — nie ohne dieses Präfix, das Format wird technisch ausgewertet.
 
-KRAFTTRAINING-ROTATION (zwingend):
-8. Krafteinheiten rotieren IMMER in der Reihenfolge Workout I → Workout II → Workout III → Workout I → …
-9. Das 'description'-Feld einer Kraft-Einheit enthält NUR exakt "Workout I", "Workout II" oder "Workout III" — keinen anderen Text.
-10. Schaue im Coach-Kontext nach dem zuletzt geplanten Kraft-Workout und setze die Rotation fort. Nie zweimal hintereinander das gleiche Workout.
+KRAFTTRAINING:
+8. Das 'description'-Feld einer Kraft-Einheit enthält NUR "Workout I" — welches Workout (I/II/III) an welchem Tag steht, setzt die App danach selbst fest. Du legst nur die Kraft-Tage fest.
 
 SELF-CHECK VOR AUSGABE — prüfe intern:
 - Gesamttage: stimmt die Anzahl mit ${trainingDays} überein?
@@ -922,7 +920,7 @@ ${selfCheckLines}
 - Keine zwei intensiven Tage aufeinanderfolgend?
 - Kein Krafttraining vor intensiver Ausdauer?
 - Intensity-Feld bei jeder Lauf-/Rad-Einheit mit "Z1"-"Z5"-Präfix?
-- Kraft-description exakt "Workout I", "Workout II" oder "Workout III" und korrekte Rotation?${
+- Kraft-description exakt "Workout I"?${
   primaryGoalSportKey ? `\n- ${SPORT_LABEL[primaryGoalSportKey]}-Einheiten passend zur Phase "${periodizationPhaseLabel}" (siehe SPORTSPEZIFISCHE PERIODISIERUNG)?` : ''
 }
 Wenn eine Prüfung fehlschlägt, korrigiere den Plan BEVOR du ihn ausgibst.
@@ -948,7 +946,7 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, 
       })
       if (!res.ok) throw new Error('API Fehler')
       const { text } = await res.json() as { text: string }
-      const planJson = parsePlanJson(text)
+      const planJson = await applyWorkoutRotation(parsePlanJson(text), athlete.id, weekStr)
 
       // Validate constraints
       const issues = [

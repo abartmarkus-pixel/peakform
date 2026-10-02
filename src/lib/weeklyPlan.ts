@@ -107,6 +107,57 @@ export function checkPlanConflicts(days: Record<string, DayPlan>): string | null
   return null
 }
 
+// ── Kraft-Rotation (fest per Code, nicht von Claude) ────────────────────────
+// Claude legt nur fest, AN WELCHEN Tagen Kraft stattfindet; welches Workout dort
+// steht, setzt applyWorkoutRotation() deterministisch. Die Rotation I → II → III
+// läuft über Wochengrenzen weiter (Basis: letztes geplantes Workout der jüngsten
+// Vorwoche mit Kraft-Tag) — bei 2 Kraft-Tagen/Woche ergibt das I,II | III,I | II,III,
+// alle drei Workouts kommen gleich oft dran, nie zweimal dasselbe direkt hintereinander.
+// Vorher stand die Rotation nur im Prompt; Claude begann jede Woche wieder bei Workout I.
+
+export const STRENGTH_WORKOUTS = ['Workout I', 'Workout II', 'Workout III']
+
+function lastWorkoutIndex(planJson: PlanJson): number | null {
+  for (const day of [...DAYS].reverse()) {
+    const d = planJson.days?.[day]
+    if (!d || !isKraftDay(d)) continue
+    const idx = STRENGTH_WORKOUTS.indexOf(d.description?.trim())
+    if (idx >= 0) return idx
+  }
+  return null
+}
+
+export async function applyWorkoutRotation(planJson: PlanJson, athleteId: string, weekStart: string): Promise<PlanJson> {
+  const { data: previous } = await supabase
+    .from('weekly_plans')
+    .select('week_start, version, plan_json')
+    .eq('athlete_id', athleteId)
+    .lt('week_start', weekStart)
+    .order('week_start', { ascending: false })
+    .order('version', { ascending: false })
+    .limit(30)
+
+  // Nur die neueste Version je Woche zählt; erste Woche mit Kraft-Tag gewinnt.
+  let lastIdx: number | null = null
+  const seenWeeks = new Set<string>()
+  for (const row of previous ?? []) {
+    if (seenWeeks.has(row.week_start)) continue
+    seenWeeks.add(row.week_start)
+    lastIdx = lastWorkoutIndex(row.plan_json as PlanJson)
+    if (lastIdx != null) break
+  }
+
+  let next = lastIdx == null ? 0 : (lastIdx + 1) % STRENGTH_WORKOUTS.length
+  const days = { ...planJson.days }
+  for (const day of DAYS) {
+    const d = days[day]
+    if (!d || !isKraftDay(d)) continue
+    days[day] = { ...d, description: STRENGTH_WORKOUTS[next] }
+    next = (next + 1) % STRENGTH_WORKOUTS.length
+  }
+  return { ...planJson, days }
+}
+
 // ── INSERT-only Versionierung (siehe CLAUDE.md: weekly_plans nie UPDATEn) ──
 // Gleiche Logik wie WeeklyPlan.tsx' saveManualPlanChange()/savePlanJson(), als
 // eigenständige Funktion nutzbar auch außerhalb der WeeklyPlan-Komponente
