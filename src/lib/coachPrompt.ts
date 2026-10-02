@@ -108,29 +108,26 @@ Analysiere diese Radeinheit aus dem Blickwinkel eines Leistungsdiagnostik-erfahr
 
 export const KRAFT_COACH_PROMPT = `
 ## DEINE ROLLE FÜR DIESE ANALYSE: KRAFT-SPEZIALIST
-Analysiere dieses Krafttraining auf Basis der Hevy-Übungsdaten. Berücksichtige das Equipment, die Ästhetik-Ziele (falls gesetzt) und eventuelle Schulter- oder Verletzungsproblematiken aus dem Athleten-Profil.
+Analysiere dieses Krafttraining ausschließlich auf Basis der Hevy-Übungsdaten, des Equipments und der Muskelgruppen-Prioritäten (Ästhetik-Ziele) aus dem Athleten-Profil. Berücksichtige Schulter- oder Verletzungsproblematiken, falls sie dort vermerkt sind.
 
 ### ANALYSE-FRAMEWORK KRAFT
-1. **Volumen**: Gesamtvolumen (kg × Sets × Reps) pro Muskelgruppe → Progressionscheck.
-2. **Übungsauswahl**: Deckt die Session alle gewünschten Muskelgruppen ab? Fehlt etwas für die Prioritäten?
+1. **Volumen**: Gesamtvolumen (kg × Sets × Reps) pro Muskelgruppe → Progressionscheck gegenüber den letzten Kraft-Sessions.
+2. **Prioritäten-Abgleich**: Passt die Verteilung des Volumens zur Reihenfolge der Muskelgruppen-Prioritäten? Bekommen die höchsten Prioritäten auch das meiste Volumen? Fehlt etwas?
 3. **Schulter-Check**: Enthält die Session Überkopf- oder Rotatorenbelastung? → Immer ansprechen und ggf. Alternativen vorschlagen.
-4. **Laufsynergie**: Welche Übungen stärken direkt die Laufperformance (Hip Thrust, Step-Up, Core, Wadenheben)?
-5. **Ermüdungs-Timing**: Krafttraining nach dem letzten intensiven Lauf oder vor dem nächsten? Wichtig für Recovery-Empfehlung.
+4. **Progression**: Wo ist eine Gewichts- oder Wiederholungssteigerung fällig, wo stagniert eine Übung?
 
 ### ATHLETEN-SPEZIFISCHE KRAFTPRINZIPIEN
 - Schulterpresse, Upright Rows, Pull-Ups unter Last → immer kommentieren (Schulter/Rotatorenmanschette)
-- Laufstützende Priorität: Hüftstabilität, Gesäß, Wadenkraft, Core-Antizyklisch
-- Ästhetische Prioritäten aus dem Profil berücksichtigen (Reihenfolge der Muskelgruppen-Prioritäten)
+- Muskelgruppen-Prioritäten aus dem Profil sind der Maßstab (Reihenfolge = Gewichtung)
 - Equipment-Kontext: Was stand zur Verfügung? Waren es die optimalen Übungen dafür?
 
-### KONTEXTUELLE BLINDHEIT
-Verwende niemals Lauf-Periodisierungsbegriffe ("Readaptation", "Laufeinstieg", "Grundlagenaufbau", "Phase 1/2/3/4" o.ä.) in einer Krafttraining-Analyse — das Krafttraining folgt einem eigenständigen Ästhetik-/Hypertrophie-Ziel, keiner Lauf-Saisonplanung. Referenziere stattdessen ausschließlich die Kraft-eigenen Ziele (Muskelaufbau/Ästhetik-Prioritäten) aus dem Athleten-Profil.
+### KONTEXTUELLE BLINDHEIT (zwingend)
+Diese Analyse betrifft NUR das Krafttraining. Erwähne Laufen, Radfahren, Ausdauer, Laufökonomie, Laufpausen, Saisonziele, Wettkämpfe, Trainingsphasen oder Pace mit keinem Wort — auch nicht als Nutzen einer Übung (z.B. NICHT "stärkt deine Laufökonomie", NICHT "schützt die Hüftbeuger fürs Laufen"). Bewerte jede Übung ausschließlich danach, was sie für die Muskelgruppen-Prioritäten und den Muskelaufbau bringt.
 
 ### ANTWORTSTRUKTUR
 - Gesamturteil in einem Satz (Typ der Session + Hauptfokus)
-- Volumen pro Hauptmuskelgruppe (tabellarisch oder als Liste)
+- Volumen pro Hauptmuskelgruppe, abgeglichen mit den Prioritäten
 - Schulter-Einschätzung wenn relevant
-- Laufsynergie: welche Übungen helfen dem Event-Ziel
 - Eine konkrete Änderungsempfehlung für die nächste Krafteinheit
 - Max 250 Wörter`
 
@@ -233,6 +230,7 @@ export async function buildCoachSystemPrompt(
   // bei Kraft-fokussierten Analysen gehört sie nicht in den Kontext (kontextuelle Blindheit,
   // analog zu showCyclingPower). Kraft verfolgt ein eigenständiges Ästhetik-/Hypertrophie-Ziel.
   const showSeasonPhase = activeSport !== 'strength'
+  const strengthOnly = activeSport === 'strength'
 
   const athleteSection = [
     `## DEIN ATHLET`,
@@ -242,12 +240,14 @@ export async function buildCoachSystemPrompt(
     athlete?.weight_kg ? `Gewicht: ${athlete.weight_kg} kg`                                                                     : null,
     (showCyclingPower && wPerKg)             ? `Leistungsgewicht: ${wPerKg} W/kg`                                                : null,
     (showCyclingPower && athlete?.ftp_watts) ? `FTP: ${athlete.ftp_watts} W`                                                    : null,
-    athlete?.max_hr
+    strengthOnly ? null : athlete?.max_hr
       ? `Max HF: ${athlete.max_hr} bpm (gemessen)`
       : (estimatedMaxHR ? `Max HF: ${estimatedMaxHR} bpm (geschätzt: Tanaka-Formel)` : null),
-    restingHR          ? `Ruhe-HF: ${restingHR} bpm`                                                                            : null,
-    hrReserve          ? `HF-Reserve: ${hrReserve} bpm (Karvonen-Methode verfügbar)`                                            : null,
-    `Aktive Sportarten: ${formatSportTypes(athlete?.sport_types as SportConfig[] | null)}`,
+    (!strengthOnly && restingHR) ? `Ruhe-HF: ${restingHR} bpm`                                                                            : null,
+    (!strengthOnly && hrReserve) ? `HF-Reserve: ${hrReserve} bpm (Karvonen-Methode verfügbar)`                                            : null,
+    `Aktive Sportarten: ${formatSportTypes(strengthOnly
+      ? ((athlete?.sport_types as SportConfig[] | null) ?? []).filter(s => s.type === 'strength')
+      : athlete?.sport_types as SportConfig[] | null)}`,
     `Körperziele: ${(athlete?.body_goals as string[] | null)?.join(', ') ?? '—'}`,
     `Ästhetik-Prioritäten: ${formatAestheticGoals(athlete?.aesthetic_goals as AestheticGoals | null, athlete?.body_goals as string[] | null)}`,
     `Equipment: ${formatEquipment(athlete?.equipment as EquipmentConfig | null)}`,
@@ -292,6 +292,35 @@ export async function buildCoachSystemPrompt(
   ].filter(Boolean).join('\n')
 
   // ── fixed sections (sportwissenschaftliche Regeln) ──────────────────────
+
+  // Kraft-Analyse: eigene Rolle + Kraft-Grundregeln statt der Lauf-/Ausdauer-Abschnitte
+  // (Coaching-Prinzipien, Datennutzungs-Beispiele, Chat/Review-Regeln) — siehe KRAFT_COACH_PROMPT.
+  if (strengthOnly) {
+    return `Du bist PeakForm Coach — ein erfahrener Kraft- und Hypertrophie-Trainer mit sportwissenschaftlichem Hintergrund. Du kommunizierst auf Deutsch, präzise und datengetrieben, aber immer mit praktischem Fokus.
+
+${athleteSection}
+
+${strengthGoalSection}
+
+## COACHING-PRINZIPIEN KRAFT
+1. Verletzungsprävention hat Priorität über Performance
+2. Progressive Überlastung: Gewicht oder Wiederholungen schrittweise steigern, saubere Technik vor Gewicht
+3. Bei Schmerzen (nicht Muskelkater): sofort zurückrudern, nie "durchtrainieren"
+4. Nutze ausschließlich die explizit angegebenen Datums-, Uhrzeit- und Tag-Relations-Angaben (heute/gestern/vor X Tagen) — erfinde nichts dazu.
+
+## EMPFEHLUNGEN MÜSSEN ZUM PLAN PASSEN
+Der [AKTUELLER WOCHENPLAN]-Kontext zeigt nur die noch kommenden Kraft-Tage dieser Woche. Steht dort ein Tag, nenne für die nächste Krafteinheit genau diesen Wochentag und dieses Workout. Ist er leer, sprich nur allgemein von "der nächsten Krafteinheit" — ohne Wochentag, Datum oder Workout-Nummer (I/II/III). Erfinde keinen Termin und kein Workout, das nicht dort steht.
+
+## COACH-STIL
+${stylePrompt}
+
+## ANTWORTFORMAT
+- Antworte immer auf Deutsch
+- Sei präzise und datengetrieben — kein leeres Motivationsgeschwätz
+- Gib konkrete Zahlen: Gewichte, Wiederholungen, Sätze, Volumen
+- Bei Unsicherheit: konservativere Option empfehlen
+- Sprich den Athleten immer direkt an (Du-Form), niemals in der dritten Person.`
+  }
 
   return `Du bist PeakForm Coach — ein erfahrener Lauf- und Ausdauertrainer mit sportwissenschaftlichem Hintergrund. Du kommunizierst auf Deutsch, präzise und datengetrieben, aber immer mit praktischem Fokus.
 

@@ -761,14 +761,24 @@ export async function buildCoachContext(
   // gehört sie nicht in den Kontext (kontextuelle Blindheit, siehe LAUF_COACH_PROMPT).
   const showCyclingPower = activeSport === 'cycling' || activeSport == null
 
+  // Kraft-Analyse ist komplett von Lauf/Rad getrennt: sie sieht nur Kraft-eigene
+  // Daten (Kraft-Tage im Plan, Profil, Ästhetik-Prioritäten im KRAFT-KONTEXT) —
+  // keine Lauf-/Rad-Historie, Coach-Entscheidungen, Chat oder Lauf-Analysen, aus
+  // denen Claude sonst "Laufsynergie"-Kommentare ableitet.
+  const strengthOnly = activeSport === 'strength'
+  const strengthSportStr = (athlete?.sport_types as SportConfig[] | null)
+    ?.filter(s => s.type === 'strength')
+    .map(s => `Kraft (${s.days} Tage/Woche)`)
+    .join(', ') || '—'
+
   sections.push([
     '[ATHLETEN-PROFIL]',
     athlete?.name ? `Name: ${athlete.name}` : null,
     showCyclingPower ? `FTP: ${fmt(athlete?.ftp_watts)} W` : null,
-    `Max HF: ${fmt(athlete?.max_hr)} bpm`,
+    strengthOnly ? null : `Max HF: ${fmt(athlete?.max_hr)} bpm`,
     `Gewicht: ${fmt(athlete?.weight_kg, 1)} kg`,
-    `Trainingstage/Woche: ${athlete?.training_days_per_week ?? '—'}`,
-    `Sportarten: ${sportStr}`,
+    strengthOnly ? null : `Trainingstage/Woche: ${athlete?.training_days_per_week ?? '—'}`,
+    `Sportarten: ${strengthOnly ? strengthSportStr : sportStr}`,
     `Ziele: ${(athlete as { body_goals?: string[] } | null)?.body_goals?.join(', ') ?? '—'}`,
     athlete?.coach_persona
       ? `Coach-Persona: ${JSON.stringify(athlete.coach_persona)}`
@@ -786,7 +796,7 @@ export async function buildCoachContext(
       }).join('\n')
     : '- Keine Sportarten konfiguriert'
 
-  sections.push([
+  if (!strengthOnly) sections.push([
     '[HARTE TRAININGS-CONSTRAINTS — MÜSSEN EINGEHALTEN WERDEN]',
     `Gesamte Trainingstage diese Woche: ${totalTrainingDays} (von 7 Wochentagen)`,
     `Ruhetage: ${calendarRestDays}`,
@@ -829,21 +839,28 @@ export async function buildCoachContext(
 
   // ── 3. AKTUELLER WOCHENPLAN (~400 tokens) ─────────────────────────────
   const currentPlan = currentPlanRows?.[0] ?? null
+  // Kraft-Analyse: nur die noch KOMMENDEN Kraft-Tage dieser Woche zeigen (für die
+  // "nächste Einheit"-Empfehlung) — sonst empfiehlt Claude gern einen schon vergangenen Tag.
+  const todayIdx = (new Date().getDay() + 6) % 7
+  const planForContext = (strengthOnly && currentPlan)
+    ? { days: Object.fromEntries(Object.entries((currentPlan.plan_json as { days?: Record<string, { type?: string }> }).days ?? {})
+        .filter(([label, d]) => WEEKDAY_ORDER.indexOf(label) > todayIdx && /kraft|weighttraining/i.test(d?.type ?? ''))) }
+    : currentPlan?.plan_json
   const planBody = currentPlan
-    ? JSON.stringify(planJsonWithDates(currentPlan.plan_json, mondayDate), null, 2)
+    ? JSON.stringify(planJsonWithDates(planForContext, mondayDate), null, 2)
     : 'Kein Wochenplan vorhanden.'
 
-  const reviewNote = currentPlan?.review_notes
+  const reviewNote = (!strengthOnly && currentPlan?.review_notes)
     ? `\nReview der Vorwoche:\n${currentPlan.review_notes}`
     : ''
 
   sections.push(
-    `[AKTUELLER WOCHENPLAN]\nWoche: ${thisWeek}${currentPlan ? ` | Version ${currentPlan.version}` : ' | Noch kein Plan'}${reviewNote}\n${planBody}`
+    `[AKTUELLER WOCHENPLAN${strengthOnly ? ' — NUR KOMMENDE KRAFT-TAGE DIESER WOCHE (leer = keine mehr)' : ''}]\nWoche: ${thisWeek}${currentPlan ? ` | Version ${currentPlan.version}` : ' | Noch kein Plan'}${reviewNote}\n${planBody}`
   )
 
   // ── 3b. LETZTE AKTIVITÄTS-ANALYSE ─────────────────────────────────────
   const lastAct = lastAnalysisRows?.[0] ?? null
-  if (lastAct?.claude_analysis) {
+  if (lastAct?.claude_analysis && !strengthOnly) {
     sections.push([
       '[LETZTE AKTIVITÄTS-ANALYSE]',
       `${lastAct.name} (${toLocalWeekdayDateTimeStr(lastAct.date)} — ${relativeDayLabel(lastAct.date)}, ${lastAct.type}):`,
@@ -882,7 +899,7 @@ export async function buildCoachContext(
         (maxNp    ? ` | NP max ${maxNp} W` : '')
     })
 
-  sections.push(
+  if (!strengthOnly) sections.push(
     `[TRAININGSHISTORIE — LETZTE 4 WOCHEN]\n${historyLines.length ? historyLines.join('\n') : 'Keine Aktivitäten.'}`
   )
 
@@ -898,7 +915,7 @@ export async function buildCoachContext(
       (p.review_notes ? `\n  → Review: ${String(p.review_notes).slice(0, 250)}` : '')
   })
 
-  sections.push(
+  if (!strengthOnly) sections.push(
     `[PLAN-HISTORY — LETZTE 3 VERSIONEN]\n${planHistLines.length ? planHistLines.join('\n') : 'Keine früheren Pläne.'}`
   )
 
@@ -922,7 +939,7 @@ export async function buildCoachContext(
     return `${header}: ${d.decision_summary}` + (d.reasoning ? `\n  → ${d.reasoning}` : '')
   })
 
-  sections.push(
+  if (!strengthOnly) sections.push(
     `[COACH-ENTSCHEIDUNGEN — LETZTE 5]\n${decisionLines.length ? decisionLines.join('\n') : 'Keine Entscheidungen geloggt.'}`
   )
 
@@ -932,7 +949,7 @@ export async function buildCoachContext(
     .reverse()
     .map(m => `${m.role === 'user' ? (athlete?.name ?? 'Athlet') : 'Coach'}: ${m.content}`)
 
-  sections.push(
+  if (!strengthOnly) sections.push(
     `[AKTUELLE CHAT-SESSION]\n${chatLines.length ? chatLines.join('\n') : 'Neue Session.'}`
   )
 
