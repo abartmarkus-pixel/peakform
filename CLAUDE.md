@@ -125,6 +125,8 @@ peakform/
 │   ├── analyse.ts          # Vercel Serverless Function → Claude API Proxy
 │   │                       # Params: prompt, max_tokens?, system?
 │   │                       # Limits: 80k Zeichen, max_tokens Cap 4096, generische Fehler
+│   │                       # thinking: disabled (Sonnet 5 denkt sonst standardmäßig, leerer thinking-Block
+│   │                       # vor dem Text); Text aus allen text-Blöcken, Antwort ohne Text → 502
 │   ├── strava-token.ts     # Vercel Serverless Function → Strava OAuth Token Exchange/Refresh
 │   │                       # (STRAVA_CLIENT_SECRET serverseitig, nie im Browser-Bundle)
 │   ├── send-daily-reminder.ts # Vercel Cron (0 6 * * * = 08:00 CEST, keine DST-Anpassung) → CRON_SECRET-geschützt
