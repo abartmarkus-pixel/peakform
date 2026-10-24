@@ -4,7 +4,7 @@ import { supabase, type Athlete, type WeeklyPlan, type Activity, type SportConfi
 import { buildCoachContext, calculateHRZoneBounds, calculateSeasonPhase, determineTrainingPhilosophy, resolveHRProfile, type PhaseResult } from '../lib/coachContext'
 import {
   applyCyclingBlock, applyCyclingPower, buildCyclingBlockRules, buildCyclingPlanRules, buildCyclingWeekStructureRules,
-  checkCyclingWeekStructure, checkIndoorCap, cyclingBlockWeek, fitBlockToRideDays, formatDayTarget, formatMainSetItem, loadedWeeksFromRides,
+  checkCyclingWeekStructure, checkIndoorCap, cyclingBlockWeek, INDOOR_MAX_MIN, isCyclingDay, fitBlockToRideDays, formatDayTarget, formatMainSetItem, loadedWeeksFromRides,
   resolveCyclingTargets,
   weeksUntilEventFrom,
   type CyclingBlockWeek,
@@ -222,6 +222,18 @@ function markAsRestDay(originalDayPlan: DayPlan): DayPlan {
     description: 'Manuell freigehalten',
     _restoreFrom: originalDayPlan,
   }
+}
+
+// Wechselt einen Rad-Tag zwischen indoor und outdoor. Inhalt (Zonen, Watt/Puls,
+// Intervalle) bleibt gleich — Leistung ist ortsunabhängig. Einzige Anpassung:
+// nach drinnen wird die Dauer auf INDOOR_MAX_MIN gekürzt.
+function toggleLocation(dayPlan: DayPlan): { day: DayPlan; shortenedFrom: number | null } {
+  const location = dayPlan.location === 'indoor' ? 'outdoor' : 'indoor'
+  const duration = dayPlan.duration_min ?? 0
+  if (location === 'indoor' && duration > INDOOR_MAX_MIN) {
+    return { day: { ...dayPlan, location, duration_min: INDOOR_MAX_MIN }, shortenedFrom: duration }
+  }
+  return { day: { ...dayPlan, location }, shortenedFrom: null }
 }
 
 function TypeIcon({ type, size = 16 }: { type: string; size?: number }) {
@@ -1208,7 +1220,7 @@ Antworte AUSSCHLIESSLICH mit diesem JSON (kein Text davor/danach, kein Markdown)
   // Wendet eine manuelle Planänderung an und prüft sie sofort auf Konflikte.
   // Ohne Konflikt: sofort committen. Mit Konflikt: Änderung bleibt sichtbar,
   // aber "ungesichert" bis der Athlet "Trotzdem speichern" oder "Abbrechen" wählt.
-  function applyManualEdit(updatedPlan: PlanJson, changeReason: string) {
+  function applyManualEdit(updatedPlan: PlanJson, changeReason: string, successMessage?: string) {
     previousManualPlanJson.current = manualPlanJson
     setManualPlanJson(updatedPlan)
     const conflict = checkPlanConflicts(updatedPlan.days)
@@ -1217,7 +1229,7 @@ Antworte AUSSCHLIESSLICH mit diesem JSON (kein Text davor/danach, kein Markdown)
       setPendingManualPlan(updatedPlan)
       setPendingManualChangeReason(changeReason)
     } else {
-      commitManualChange(updatedPlan, changeReason, false)
+      commitManualChange(updatedPlan, changeReason, false, successMessage)
     }
   }
 
@@ -1264,13 +1276,13 @@ Antworte AUSSCHLIESSLICH mit diesem JSON (kein Text davor/danach, kein Markdown)
   // ihn stattdessen selbst auslesen, bekäme der Direkt-Aufruf aus applyManualEdit()
   // (synchron, im selben Tick) noch den alten Wert aus der Closure des laufenden
   // Renders (Stale-Closure-Bug — betraf früher jede konfliktfreie manuelle Änderung).
-  async function commitManualChange(updatedPlan: PlanJson, changeReason: string, hasViolation: boolean) {
+  async function commitManualChange(updatedPlan: PlanJson, changeReason: string, hasViolation: boolean, successMessage?: string) {
     setPendingManualConflict(null)
     setPendingManualPlan(null)
     setPendingManualChangeReason(null)
     try {
       await saveManualPlanChange(updatedPlan, changeReason, hasViolation)
-      setManualToast({ type: 'success', message: 'Plan aktualisiert ✓' })
+      setManualToast({ type: 'success', message: successMessage ?? 'Plan aktualisiert ✓' })
     } catch (e) {
       console.error(e)
       setManualToast({ type: 'error', message: 'Speichern fehlgeschlagen. Bitte erneut versuchen.' })
@@ -1389,6 +1401,24 @@ Antworte AUSSCHLIESSLICH mit diesem JSON (kein Text davor/danach, kein Markdown)
     const updated = { ...displayPlanJson, days: { ...displayPlanJson.days } }
     updated.days[day] = current._restoreFrom
     applyManualEdit(updated, `${day}: Aktivität wiederhergestellt`)
+    closeContextMenu()
+  }
+
+  function handleToggleLocation(day: string) {
+    if (!displayPlanJson) return
+    const current = displayPlanJson.days[day]
+    if (!current) return
+    const { day: toggled, shortenedFrom } = toggleLocation(current)
+    const updated = { ...displayPlanJson, days: { ...displayPlanJson.days, [day]: toggled } }
+    const label = toggled.location === 'indoor' ? 'Indoor' : 'Outdoor'
+    const shortened = shortenedFrom ? ` (von ${shortenedFrom} auf ${INDOOR_MAX_MIN} Min gekürzt)` : ''
+    applyManualEdit(
+      updated,
+      `${day}: auf ${label} gewechselt${shortened}`,
+      shortenedFrom
+        ? `Auf Indoor gewechselt — auf ${INDOOR_MAX_MIN} Min gekürzt (Indoor-Obergrenze)`
+        : `Auf ${label} gewechselt ✓`,
+    )
     closeContextMenu()
   }
 
@@ -1818,6 +1848,14 @@ Antworte AUSSCHLIESSLICH mit diesem JSON (kein Text davor/danach, kein Markdown)
                     className="w-full text-left py-2.5 px-3 rounded-xl text-sm text-slate-200 bg-slate-700 hover:bg-slate-600 transition-colors"
                   >
                     Krank melden
+                  </button>
+                )}
+                {displayPlanJson.days[contextMenuDay] && isCyclingDay(displayPlanJson.days[contextMenuDay]) && (
+                  <button
+                    onClick={() => handleToggleLocation(contextMenuDay)}
+                    className="w-full text-left py-2.5 px-3 rounded-xl text-sm text-slate-200 bg-slate-700 hover:bg-slate-600 transition-colors"
+                  >
+                    {displayPlanJson.days[contextMenuDay].location === 'indoor' ? 'Auf Outdoor wechseln' : 'Auf Indoor wechseln'}
                   </button>
                 )}
                 <button
