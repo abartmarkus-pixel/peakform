@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, type Athlete, type WeeklyPlan, type Activity, type SportConfig } from '../lib/supabase'
 import { buildCoachContext, calculateSeasonPhase, determineTrainingPhilosophy, type PhaseResult } from '../lib/coachContext'
-import { applyCyclingPower, buildCyclingPlanRules, checkIndoorCap, formatMainSetItem, formatWatts } from '../lib/cyclingPower'
+import { applyCyclingPower, buildCyclingPlanRules, buildCyclingWeekStructureRules, checkCyclingWeekStructure, checkIndoorCap, formatMainSetItem, formatWatts } from '../lib/cyclingPower'
 import { buildCoachSystemPrompt } from '../lib/coachPrompt'
 import { getValidAccessToken, fetchRecentActivities, syncActivitiesToSupabase } from '../lib/strava'
 import { analyzeActivity, claimActivityForAnalysis, parseHevyDescription } from '../lib/activityAnalysis'
@@ -868,12 +868,14 @@ export default function WeeklyPlan() {
 
       let periodizationSection = ''
       let periodizationPhaseLabel = ''
+      let periodizationPhase = ''
       if (primaryGoal && primaryGoalSportKey) {
         const weeksUntilPrimaryGoal = Math.round(
           (new Date(primaryGoal.event_date).getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000),
         )
         const sportPhase = calculateSeasonPhase(weeksUntilPrimaryGoal, athlete.season_phase_override ?? null, primaryGoal.sport_type)
         periodizationPhaseLabel = sportPhase.label
+        periodizationPhase = sportPhase.phase
         const hoursPerWeek = sportConfigs.find(s => s.type === primaryGoalSportKey)?.hours_per_week ?? null
         const philosophy = determineTrainingPhilosophy(primaryGoalSportKey, hoursPerWeek)
 
@@ -908,7 +910,14 @@ Diese Regel gilt NUR für ${SPORT_LABEL[primaryGoalSportKey]}-Einheiten in diese
       }
 
       const hasCycling = sportConfigs.some(s => s.type === 'cycling' && s.days > 0)
-      const cyclingSection = hasCycling ? buildCyclingPlanRules(athlete.ftp_watts ?? null, monday) : ''
+      const cyclingConfig = sportConfigs.find(s => s.type === 'cycling')
+      // Fester Rad-Wochenaufbau nur bei Radziel als A-Ziel (wie die Periodisierung oben).
+      // Bei aktiver Erholungs-Einschränkung oder im Taper keine Stundenprüfung.
+      const cyclingStructure = primaryGoalSportKey === 'cycling' && cyclingConfig
+      const cyclingSection = hasCycling
+        ? buildCyclingPlanRules(athlete.ftp_watts ?? null, monday)
+          + (cyclingStructure ? buildCyclingWeekStructureRules(cyclingConfig.days, cyclingConfig.hours_per_week ?? null, monday) : '')
+        : ''
 
       const prompt = `${context}
 
@@ -942,6 +951,8 @@ ${selfCheckLines}
 - Intensity-Feld bei jeder Lauf-/Rad-Einheit mit "Z1"-"Z5"-Präfix?
 - Kraft-description exakt "Workout I"?${
   hasCycling ? `\n- Jede Rad-Einheit mit "location", Indoor höchstens 180 Min, Intervalle als "main_set"?` : ''
+}${
+  cyclingStructure ? `\n- Rad: lange Ausfahrt am Wochenende, harte Einheiten wie vorgegeben, Rad-Minuten-Summe stimmt?` : ''
 }${
   primaryGoalSportKey ? `\n- ${SPORT_LABEL[primaryGoalSportKey]}-Einheiten passend zur Phase "${periodizationPhaseLabel}" (siehe SPORTSPEZIFISCHE PERIODISIERUNG)?` : ''
 }
@@ -978,6 +989,9 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, 
         ...validateConstraints(planJson, sportConfigs, trainingDays),
         ...checkGoalPlacement(planJson, monday, activeGoals ?? []),
         ...checkIndoorCap(planJson),
+        ...(cyclingStructure
+          ? checkCyclingWeekStructure(planJson, cyclingConfig.hours_per_week ?? null, recoveryLines.length > 0 || periodizationPhase === 'taper')
+          : []),
       ]
       if (issues.length > 0) {
         setPendingPlanJson(planJson)

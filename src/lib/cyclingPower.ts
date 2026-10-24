@@ -92,13 +92,17 @@ export function formatMainSetItem(s: MainSetItem): string {
   return `${s.reps} × ${s.minutes} Min ${POWER_ZONES[s.zone].label}${watts}${rest}`
 }
 
+// Sonntag der Woche entscheidet — die Woche, die in den November reicht, zählt schon als Winter
+function isWinterWeek(monday: Date): boolean {
+  const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6)
+  const month = sunday.getMonth() + 1
+  return month >= 11 || month <= 2
+}
+
 /** Prompt-Abschnitt für Plan-Generierung — Watt-Tabelle fest berechnet, damit Claude
  *  nicht selbst rechnet; Indoor/Outdoor-Standard nach Monat der Planwoche. */
 export function buildCyclingPlanRules(ftp: number | null, monday: Date): string {
-  // Sonntag der Woche entscheidet — die Woche, die in den November reicht, zählt schon als Winter
-  const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6)
-  const month = sunday.getMonth() + 1
-  const winter = month >= 11 || month <= 2
+  const winter = isWinterWeek(monday)
   const zoneTable = ftp
     ? (Object.keys(POWER_ZONES) as CyclingZone[])
         .map(z => `  ${z} ${POWER_ZONES[z].label}: ${formatWatts(wattRange(z, ftp))}`)
@@ -116,4 +120,80 @@ ${zoneTable}
 13. Strukturierte Einheiten (Intervalle ab Z3/SS) bekommen "main_set": Liste der Hauptblöcke, z. B. [{"reps": 3, "minutes": 15, "zone": "SS", "rest_min": 5}]. Erlaubte Zonen: Z1, Z2, Z3, SS, Z4, Z5, Z6. Ein- und Ausfahren NICHT in main_set. Lockere Fahrten: "main_set": null.
 14. Nenne in "description" KEINE Wattzahlen — die App zeigt sie aus main_set/Zone selbst an.
 `
+}
+
+// ── Wochenaufbau Rad (Regelliste L3 + F5) ──────────────────────────────────
+// Nur wenn das A-Ziel ein Radziel ist (Aufruf in WeeklyPlan.tsx generatePlan()).
+// Claude wählt die Inhalte, die App prüft das Gerüst: genau eine lange Ausfahrt am
+// Wochenende, 1–2 harte Einheiten, nie hart am Tag nach der langen Ausfahrt,
+// Wochenstunden laut Profil (±10 %).
+
+const HOURS_TOLERANCE = 0.1
+
+function isHardRide(d: DayPlan): boolean {
+  return /^(Z[3-6]|SS)/i.test(d.intensity ?? '')
+}
+
+function rideMinutesTarget(hoursPerWeek: number | null): number | null {
+  return hoursPerWeek ? Math.round(hoursPerWeek * 60) : null
+}
+
+// Minuten-Budget fest vorgerechnet — Claude verteilte die Wochenstunden sonst falsch
+// (zu wenig, oder ein zusätzlicher Radtag statt längerer Einheiten). Lange Ausfahrt
+// ~45 % (in 15-Min-Schritten, indoor gedeckelt), Rest gleichmäßig in 5-Min-Schritten.
+function rideBudget(rideDays: number, target: number, indoor: boolean): { long: number; other: number } {
+  const longRaw = Math.round((target * 0.45) / 15) * 15
+  const long = indoor ? Math.min(longRaw, INDOOR_MAX_MIN) : longRaw
+  const other = Math.round((target - long) / (rideDays - 1) / 5) * 5
+  return { long, other }
+}
+
+export function buildCyclingWeekStructureRules(rideDays: number, hoursPerWeek: number | null, monday: Date): string {
+  if (rideDays < 2) return ''
+  const target = rideMinutesTarget(hoursPerWeek)
+  const maxHard = rideDays >= 3 ? 2 : 1
+  const budget = target ? rideBudget(rideDays, target, isWinterWeek(monday)) : null
+  return `
+RAD-WOCHENAUFBAU (fest, wird technisch geprüft):
+15. Genau ${rideDays} Rad-Tage — mehr Umfang NIE über zusätzliche Tage, nur über die Dauer.
+16. Genau EINE lange Ausfahrt: am Samstag oder Sonntag, Z2, die längste Rad-Einheit der Woche${budget ? ` — ${budget.long} Min` : ''}.
+17. ${maxHard === 2 ? '1–2' : 'Genau 1'} harte Rad-Einheit(en) (SS/Z3 oder höher), nie am Tag direkt nach der langen Ausfahrt. Alle übrigen Rad-Einheiten Z1/Z2.${budget ? `
+18. Die übrigen ${rideDays - 1} Rad-Einheiten dauern je ca. ${budget.other} Min (inkl. Ein-/Ausfahren). Summe ≈ ${target} Min = ${hoursPerWeek} h laut Profil.` : ''}
+`
+}
+
+export function checkCyclingWeekStructure(
+  planJson: PlanJson,
+  hoursPerWeek: number | null,
+  skipVolumeCheck: boolean,
+): string[] {
+  const order = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
+  const rides = order
+    .map(key => ({ key, d: planJson.days[key] }))
+    .filter((r): r is { key: string; d: DayPlan } => !!r.d && isCyclingDay(r.d))
+  if (rides.length < 2) return []
+
+  const issues: string[] = []
+  const longest = rides.reduce((a, b) => ((b.d.duration_min ?? 0) > (a.d.duration_min ?? 0) ? b : a))
+  if (!['Sa', 'So'].includes(longest.key) || isHardRide(longest.d)) {
+    issues.push('Rad: keine lange, lockere Ausfahrt am Wochenende')
+  } else {
+    const next = planJson.days[order[order.indexOf(longest.key) + 1]]
+    if (next && isCyclingDay(next) && isHardRide(next)) issues.push(`Rad: harte Einheit am Tag nach der langen Ausfahrt`)
+  }
+
+  const hard = rides.filter(r => isHardRide(r.d)).length
+  const maxHard = rides.length >= 3 ? 2 : 1
+  if (hard < 1 || hard > maxHard) {
+    issues.push(`Rad: ${hard} harte Einheiten (vorgesehen: ${maxHard === 2 ? '1–2' : '1'})`)
+  }
+
+  const target = rideMinutesTarget(hoursPerWeek)
+  if (target && !skipVolumeCheck) {
+    const total = rides.reduce((sum, r) => sum + (r.d.duration_min ?? 0), 0)
+    if (Math.abs(total - target) > target * HOURS_TOLERANCE) {
+      issues.push(`Rad: ${(total / 60).toLocaleString('de-DE', { maximumFractionDigits: 1 })} h statt ${hoursPerWeek} h geplant`)
+    }
+  }
+  return issues
 }
