@@ -190,6 +190,8 @@ peakform/
 │   │   │                   # (geteilte INSERT-only-Speicherlogik, aus WeeklyPlan.tsx extrahiert) — genutzt von
 │   │   │                   # WeeklyPlan.tsx UND planRecommendation.ts
 │   │   │                   # resolveDayZone(day): Zonenzahl (1-5) aus intensity-Präfix "Z1".."Z5", sonst null
+│   │   ├── cyclingPower.ts # Rad-Plantage: Coggan-Wattzonen (+SS) aus FTP, applyCyclingPower() (Watt beim Erzeugen
+│   │   │                   # in plan_json gespeichert), checkIndoorCap() (INDOOR_MAX_MIN=180), buildCyclingPlanRules()
 │   │   ├── planRecommendation.ts # extractPlanRecommendation()/applyPlanRecommendation(): Coach-Empfehlung aus
 │   │   │                   # claude_analysis gezielt in einen Plantag übernehmen (ActivityDetail.tsx-Button).
 │   │   │                   # extractChatPlanRecommendation(): gleiches Prinzip für eine freie Chat-Nachricht
@@ -313,6 +315,7 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 ### Wochenplan
 - [x] Plan-Generierung mit harten Constraints + sportwissenschaftlichen Regeln
 - [x] Krafttraining-Rotation: Workout I → II → III → I, fest per Code statt per Prompt — `applyWorkoutRotation()` (`weeklyPlan.ts`) überschreibt nach jeder Plan-Generierung (WeeklyPlan.tsx `generatePlan()` UND Dashboard.tsx Echtzeit-Anpassung) die Kraft-Tage der Reihe nach; Claude legt nur fest, AN WELCHEN Tagen Kraft stattfindet. Die Rotation läuft über Wochengrenzen weiter (Basis: letztes geplantes Workout der jüngsten Vorwoche mit Kraft-Tag, neueste Version je Woche) — bei 2 Kraft-Tagen/Woche ergibt das I,II | III,I | II,III, nie zweimal dasselbe Workout direkt hintereinander. Vorher stand die Rotation nur im Prompt, und Claude begann jede Woche wieder bei Workout I (bei 2 Kraft-Tagen kam Workout III nie dran)
+- [x] Rad-Tage mit Watt-Vorgaben + Indoor/Outdoor (`src/lib/cyclingPower.ts`, Regelliste Rad v1 F1/L4/L9): Claude liefert pro Rad-Tag nur `location` ('indoor'|'outdoor'), Zonen-Präfix in `intensity` (Z1–Z6 oder SS = Sweet Spot 88–94 % FTP) und optional `main_set` (`[{reps, minutes, zone, rest_min}]`, nur Hauptblöcke); die Watt-Bereiche (`power` für die Gesamteinheit, `low`/`high` je Block) rechnet `applyCyclingPower()` aus `athletes.ftp_watts` und speichert sie mit in `plan_json` — FTP-Änderung wirkt erst ab dem nächsten erzeugten Plan. Indoor-Standard, wenn der Sonntag der Planwoche in Nov–Feb liegt; Indoor-Obergrenze 180 Min (persönliche Leitplanke, nicht belegt) als harte Prüfung `checkIndoorCap()` neben `validateConstraints()`. SS/Z6 zählen in `checkPlanConflicts()` als intensiv. Auch in Dashboard-Echtzeit-Anpassung angewendet; `applyPlanRecommendation()` verwirft bei Rad `main_set`/`power` (Freitext passt nicht zur alten Struktur); ICS zeigt 🏠 im Titel + Watt in DESCRIPTION; Analyse bekommt bei `VirtualRide` einen Indoor-Hinweis (Puls drinnen höher, Watt maßgeblich)
 - [x] DayCard: Kraft zeigt violettes Badge "Workout I/II/III" (kein Freitext), Laufen zeigt nie distance_km
 - [x] Frontend-Constraint-Validierung + Violation-Banner
 - [x] INSERT-only mit version++

@@ -14,6 +14,10 @@ type DayPlan = {
   distance_km?: number
   intensity?: string
   description?: string
+  // Rad-Felder, siehe src/lib/cyclingPower.ts (Watt dort beim Erzeugen berechnet)
+  location?: 'indoor' | 'outdoor'
+  power?: { low: number; high: number }
+  main_set?: { reps: number; minutes: number; zone: string; rest_min: number; low?: number; high?: number }[]
 }
 
 export type WeeklyPlanRow = {
@@ -96,7 +100,7 @@ function buildSummary(day: DayPlan): string {
   const duration = day.duration_min ? ` · ${formatDuration(day.duration_min)}` : ''
   if (kind === 'kraft') return `💪🍑 ${day.description || 'Workout'}`
   if (kind === 'run') return `🏃 Laufen${duration}`
-  if (kind === 'ride') return `🚴 Radfahren${duration}`
+  if (kind === 'ride') return `${day.location === 'indoor' ? '🏠' : '🚴'} Radfahren${duration}`
   return `🏋️ ${day.type}${duration}`
 }
 
@@ -105,6 +109,14 @@ function buildDescription(day: DayPlan): string {
   const parts: string[] = []
   if (kind === 'run' || kind === 'ride' || kind === 'other') {
     if (day.description) parts.push(day.description)
+  }
+  if (kind === 'ride') {
+    for (const s of day.main_set ?? []) {
+      const watts = s.low != null && s.high != null ? ` @ ${s.low}–${s.high} W` : ''
+      parts.push(`${s.reps} × ${s.minutes} Min ${s.zone}${watts}${s.rest_min ? `, Pause ${s.rest_min} Min` : ''}`)
+    }
+    if (day.power && !day.main_set?.length) parts.push(day.power.low > 0 ? `${day.power.low}–${day.power.high} W` : `bis ${day.power.high} W`)
+    if (day.location) parts.push(day.location === 'indoor' ? 'Indoor' : 'Outdoor')
   }
   if (kind !== 'run' && kind !== 'ride' && day.duration_min) parts.push(formatDuration(day.duration_min))
   if (day.distance_km) parts.push(`${day.distance_km} km`)

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, type Athlete, type WeeklyPlan, type Activity, type SportConfig } from '../lib/supabase'
 import { buildCoachContext, calculateSeasonPhase, determineTrainingPhilosophy, type PhaseResult } from '../lib/coachContext'
+import { applyCyclingPower, buildCyclingPlanRules, checkIndoorCap, formatMainSetItem, formatWatts } from '../lib/cyclingPower'
 import { buildCoachSystemPrompt } from '../lib/coachPrompt'
 import { getValidAccessToken, fetchRecentActivities, syncActivitiesToSupabase } from '../lib/strava'
 import { analyzeActivity, claimActivityForAnalysis, parseHevyDescription } from '../lib/activityAnalysis'
@@ -402,7 +403,23 @@ function DayCard({ day, idx, monday, plan, match, onPress, onOpenMenu, dragAttri
                 {plan.intensity}
               </span>
             )}
+            {plan.location && (
+              <span className="text-xs text-slate-300 bg-slate-700 px-1.5 py-0.5 rounded-full">
+                {plan.location === 'indoor' ? '🏠 Indoor' : '🌳 Outdoor'}
+              </span>
+            )}
           </div>
+          {(plan.power || plan.main_set) && (
+            <div className="text-xs text-slate-200 mb-1.5 space-y-0.5">
+              {plan.main_set?.map((s, i) => <p key={i}>{formatMainSetItem(s)}</p>)}
+              {plan.power && (
+                <p className="text-slate-400">
+                  {plan.main_set ? 'Rest der Einheit locker' : `Ganze Einheit ${formatWatts(plan.power)}`}
+                  {plan.location === 'indoor' ? ' · nach Watt fahren, Ventilator an' : ''}
+                </p>
+              )}
+            </div>
+          )}
           {!isKraft && (
             <p className={`text-xs leading-relaxed ${isRest ? 'text-slate-600' : 'text-slate-400'}`}>
               {plan.description}
@@ -890,6 +907,9 @@ Diese Regel gilt NUR für ${SPORT_LABEL[primaryGoalSportKey]}-Einheiten in diese
 `
       }
 
+      const hasCycling = sportConfigs.some(s => s.type === 'cycling' && s.days > 0)
+      const cyclingSection = hasCycling ? buildCyclingPlanRules(athlete.ftp_watts ?? null, monday) : ''
+
       const prompt = `${context}
 
 ---
@@ -909,8 +929,8 @@ SPORTWISSENSCHAFTLICHE REIHENFOLGE-REGELN:
 
 LAUFEINHEITEN — PFLICHT:
 7. Für alle Einheiten mit type "Laufen" oder "Run": setze distance_km IMMER auf null. Gib NUR duration_min an. Die HF-Zone ist die einzige Vorgabe — die Distanz ergibt sich beim Training automatisch.
-7b. "intensity" beginnt bei Lauf- und Rad-Einheiten IMMER mit "Z1", "Z2", "Z3", "Z4" oder "Z5" (z. B. "Z2 locker", "Z4 Schwelle") — nie ohne dieses Präfix, das Format wird technisch ausgewertet.
-
+7b. "intensity" beginnt bei Lauf- und Rad-Einheiten IMMER mit "Z1", "Z2", "Z3", "Z4" oder "Z5" (z. B. "Z2 locker", "Z4 Schwelle"; bei Rad zusätzlich "SS" und "Z6" erlaubt) — nie ohne dieses Präfix, das Format wird technisch ausgewertet.
+${cyclingSection}
 KRAFTTRAINING:
 8. Das 'description'-Feld einer Kraft-Einheit enthält NUR "Workout I" — welches Workout (I/II/III) an welchem Tag steht, setzt die App danach selbst fest. Du legst nur die Kraft-Tage fest.
 
@@ -921,6 +941,8 @@ ${selfCheckLines}
 - Kein Krafttraining vor intensiver Ausdauer?
 - Intensity-Feld bei jeder Lauf-/Rad-Einheit mit "Z1"-"Z5"-Präfix?
 - Kraft-description exakt "Workout I"?${
+  hasCycling ? `\n- Jede Rad-Einheit mit "location", Indoor höchstens 180 Min, Intervalle als "main_set"?` : ''
+}${
   primaryGoalSportKey ? `\n- ${SPORT_LABEL[primaryGoalSportKey]}-Einheiten passend zur Phase "${periodizationPhaseLabel}" (siehe SPORTSPEZIFISCHE PERIODISIERUNG)?` : ''
 }
 Wenn eine Prüfung fehlschlägt, korrigiere den Plan BEVOR du ihn ausgibst.
@@ -946,12 +968,16 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, 
       })
       if (!res.ok) throw new Error('API Fehler')
       const { text } = await res.json() as { text: string }
-      const planJson = await applyWorkoutRotation(parsePlanJson(text), athlete.id, weekStr)
+      const planJson = applyCyclingPower(
+        await applyWorkoutRotation(parsePlanJson(text), athlete.id, weekStr),
+        athlete.ftp_watts ?? null,
+      )
 
       // Validate constraints
       const issues = [
         ...validateConstraints(planJson, sportConfigs, trainingDays),
         ...checkGoalPlacement(planJson, monday, activeGoals ?? []),
+        ...checkIndoorCap(planJson),
       ]
       if (issues.length > 0) {
         setPendingPlanJson(planJson)

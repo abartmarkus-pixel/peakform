@@ -3,6 +3,7 @@
 // gezielt in einen Plantag übernehmen, siehe ActivityDetail.tsx).
 
 import { supabase, type WeeklyPlan } from './supabase'
+import type { MainSetItem } from './cyclingPower'
 
 export type DayPlan = {
   type: string
@@ -18,6 +19,11 @@ export type DayPlan = {
   // diesen Tag erfüllt (Kontext-Vorschlag "Vorziehen erkannt").
   // Der Tag selbst bleibt inhaltlich unverändert (type/description etc.).
   _fulfilledBy?: { date: string; stravaId: number }
+  // Nur Rad-Tage (siehe cyclingPower.ts): Ort, Watt-Bereich der Gesamteinheit und
+  // Intervall-Hauptblöcke — Watt jeweils von der App aus der FTP berechnet
+  location?: 'indoor' | 'outdoor'
+  power?: { low: number; high: number }
+  main_set?: MainSetItem[]
 }
 
 export type PlanJson = {
@@ -82,13 +88,13 @@ function isKraftDay(d: DayPlan): boolean {
 }
 
 function isIntensiveEndurance(d: DayPlan): boolean {
-  return !isRestDay(d) && !isKraftDay(d) && /^Z[3-5]/i.test(d.intensity ?? '')
+  return !isRestDay(d) && !isKraftDay(d) && /^(Z[3-6]|SS)/i.test(d.intensity ?? '')
 }
 
 function isIntensiveDay(d: DayPlan): boolean {
   if (isRestDay(d)) return false
   if (isKraftDay(d)) return true
-  return /^Z[3-5]/i.test(d.intensity ?? '')
+  return /^(Z[3-6]|SS)/i.test(d.intensity ?? '')
 }
 
 export function checkPlanConflicts(days: Record<string, DayPlan>): string | null {

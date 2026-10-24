@@ -181,6 +181,12 @@ export async function applyPlanRecommendation(params: {
     ...(dayUpdate.intensity && { intensity: dayUpdate.intensity }),
     description: dayUpdate.description,
   }
+  // Freitext-Empfehlung kennt keine Intervall-Struktur: alte main_set/power würden
+  // sonst nicht mehr zur neuen Vorgabe passen (Ort bleibt erhalten)
+  if (sport === 'cycling' && (dayUpdate.intensity || dayUpdate.description !== existingDay.description)) {
+    delete updatedDay.main_set
+    delete updatedDay.power
+  }
 
   const updatedPlanJson: PlanJson = { ...planJson, days: { ...planJson.days, [day]: updatedDay } }
 

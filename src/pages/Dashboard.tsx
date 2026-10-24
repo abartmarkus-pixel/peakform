@@ -6,6 +6,7 @@ import { supabase, type Athlete } from '../lib/supabase'
 import { buildCoachSystemPrompt } from '../lib/coachPrompt'
 import { planJsonWithDates } from '../lib/coachContext'
 import { applyWorkoutRotation, normalizePlanDayKeys } from '../lib/weeklyPlan'
+import { applyCyclingPower } from '../lib/cyclingPower'
 import { getISOMonday, formatDurationHuman } from '../lib/dateUtils'
 import {
   IconLogout, IconRunning, IconCycling, IconStrength, IconOther, IconWarning, IconCommentFilled,
@@ -289,6 +290,7 @@ Aktueller Wochenplan (JSON):
 ${JSON.stringify(currentPlanJson, null, 2)}
 
 Passe die verbleibenden (noch nicht absolvierten) Tage dieser Woche an, um den Konflikt zu lösen. Bereits vergangene Tage unverändert übernehmen.
+Rad-Tage behalten "location" (indoor/outdoor, indoor max. 180 Min) und "main_set" (Intervall-Hauptblöcke mit reps/minutes/zone/rest_min) — Wattzahlen rechnet die App selbst, nenne keine in "description".
 
 Antworte AUSSCHLIESSLICH mit einem JSON-Objekt im gleichen Format wie der Original-Plan — kein Text davor oder danach, kein Markdown:
 {
@@ -309,7 +311,10 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt im gleichen Format wie der Origin
       })
       if (!res.ok) throw new Error('API Fehler')
       const { text } = await res.json() as { text: string }
-      const adjustedPlan = await applyWorkoutRotation(parsePlanJson(text), athleteId, planWeekStart)
+      const adjustedPlan = applyCyclingPower(
+        await applyWorkoutRotation(parsePlanJson(text), athleteId, planWeekStart),
+        athlete?.ftp_watts ?? null,
+      )
 
       const { data: existing } = await supabase
         .from('weekly_plans')

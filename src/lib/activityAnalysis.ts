@@ -561,7 +561,7 @@ export async function analyzeActivity(
     const activityBlock = `Analysiere diese Trainingsaktivität${athlete.name ? ` von ${athlete.name}` : ''}:
 
 Name: ${activity.name}
-Typ: ${activity.type}
+Typ: ${activity.type}${activity.type === 'VirtualRide' ? ' (Indoor auf der Rolle/Zwift — Puls drinnen wegen Wärme oft höher als draußen bei gleicher Leistung; Watt sind maßgeblich)' : ''}
 Datum: ${toLocalWeekdayDateTimeStr(activity.date)} (${relativeDayLabel(activity.date)})
 Distanz: ${activity.distance_m ? (activity.distance_m / 1000).toFixed(2) + ' km' : 'k.A.'}
 Dauer: ${activity.duration_s ? formatDurationHuman(activity.duration_s) : 'k.A.'}
