@@ -289,8 +289,18 @@ export async function restoreSessionFromSupabase(): Promise<boolean> {
  *  dieselben wie live). */
 export type DevAthleteOption = { strava_athlete_id: number; name: string | null }
 
+// Nur Test-Konten (Fake-Strava-IDs ab 999000000, festes Test-Konto "TEST" = 999000001) —
+// echte Konten bewusst nicht: kein versehentliches Testen im echten Konto und kein
+// passwortloser Zugriff auf Daten anderer Nutzer über den lokalen Dev-Server.
+export const DEV_TEST_ID_MIN = 999000000
+
 export async function listDevAthletes(): Promise<DevAthleteOption[]> {
-  const { data } = await supabase.from('athletes').select('strava_athlete_id, name').order('created_at')
+  const { data } = await supabase
+    .from('athletes')
+    .select('strava_athlete_id, name')
+    .gte('strava_athlete_id', DEV_TEST_ID_MIN)
+    .lt('strava_athlete_id', DEV_TEST_ID_MIN + 1000000)
+    .order('created_at')
   return (data ?? []) as DevAthleteOption[]
 }
 
