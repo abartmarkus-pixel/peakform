@@ -19,6 +19,51 @@ export const POWER_ZONES: Record<CyclingZone, { low: number; high: number; label
   Z6: { low: 1.21, high: 1.50, label: 'anaerob' },
 }
 
+// Ohne Wattmessung (athletes.has_power_meter = false): Pulszonen aus Max-HF und Ruhe-HF —
+// dieselben Zonengrenzen wie beim Laufen (calculateHRZoneBounds() in coachContext.ts,
+// Karvonen bzw. ohne Ruhe-HF % der Max-HF), dazu das Gefühl (RPE 1–10). Kurze harte
+// Intervalle (Z5/Z6) nur nach Gefühl — der Puls steigt dafür zu träge.
+
+// Gleiche 1–10-Skala wie die RPE-Abfrage nach dem Training (ActivityDetail.tsx)
+export const RPE_TEXT: Record<CyclingZone, string> = {
+  Z1: 'Gefühl 1–2/10',
+  Z2: 'Gefühl 3–4/10',
+  Z3: 'Gefühl 5–6/10',
+  SS: 'Gefühl 6–7/10',
+  Z4: 'Gefühl 7–8/10',
+  Z5: 'Gefühl 8–9/10',
+  Z6: 'Gefühl 9–10/10',
+}
+
+/** Untergrenzen der HF-Zonen 1–5 (wie calculateHRZoneBounds() liefert). */
+export type HRZoneBounds = Record<1 | 2 | 3 | 4 | 5, number>
+
+export type CyclingTargets =
+  | { mode: 'power'; ftp: number }
+  | { mode: 'hr'; bounds: HRZoneBounds }
+
+/** Wattmessung: explizit im Profil, sonst vorhanden genau dann, wenn eine FTP eingetragen ist. */
+export function resolveCyclingTargets(
+  athlete: { has_power_meter: boolean | null; ftp_watts: number | null },
+  hrBounds: HRZoneBounds,
+): CyclingTargets | null {
+  const hasPower = athlete.has_power_meter ?? athlete.ftp_watts != null
+  if (hasPower) return athlete.ftp_watts ? { mode: 'power', ftp: athlete.ftp_watts } : null
+  return { mode: 'hr', bounds: hrBounds }
+}
+
+// Sweet Spot = obere Hälfte Z3 bis untere Hälfte Z4 (wie 88–94 % FTP bei Watt)
+function hrFor(zone: CyclingZone, b: HRZoneBounds): { low: number; high: number } | undefined {
+  switch (zone) {
+    case 'Z1': return { low: 0, high: b[2] - 1 }
+    case 'Z2': return { low: b[2], high: b[3] }
+    case 'Z3': return { low: b[3], high: b[4] }
+    case 'SS': return { low: Math.round((b[3] + b[4]) / 2), high: Math.round((b[4] + b[5]) / 2) }
+    case 'Z4': return { low: b[4], high: b[5] }
+    default:   return undefined
+  }
+}
+
 // Persönliche Leitplanke (Regelliste L9 nennt 2–2,5 h als Faustregel ohne Studie;
 // bewusst auf 3 h gesetzt)
 export const INDOOR_MAX_MIN = 180
@@ -28,9 +73,12 @@ export type MainSetItem = {
   minutes: number
   zone: CyclingZone
   rest_min: number
-  // von der App berechnet (applyCyclingPower), nie von Claude
+  // von der App berechnet (applyCyclingPower), nie von Claude — Watt bzw. ohne
+  // Wattmessung Puls (Z5/Z6 ohne Puls: nur Gefühl)
   low?: number
   high?: number
+  hr_low?: number
+  hr_high?: number
 }
 
 export function wattRange(zone: CyclingZone, ftp: number): { low: number; high: number } {
@@ -48,27 +96,34 @@ function dayZone(d: DayPlan): CyclingZone | null {
   return m ? (m[1].toUpperCase() as CyclingZone) : null
 }
 
-/** Ergänzt alle Rad-Tage um Watt-Bereiche (Gesamteinheit + Intervalle) aus der FTP.
- *  Ungültige Intervall-Einträge von Claude werden verworfen statt geraten. Ohne FTP
- *  bleiben nur Zonen stehen (keine Wattzahlen). */
-export function applyCyclingPower(planJson: PlanJson, ftp: number | null): PlanJson {
+/** Ergänzt alle Rad-Tage um Vorgaben (Gesamteinheit + Intervalle): Watt aus der FTP
+ *  bzw. ohne Wattmessung Puls aus der Schwellen-HF (+ Gefühl in der Anzeige).
+ *  Ungültige Intervall-Einträge von Claude werden verworfen statt geraten. Ohne
+ *  Vorgaben (null) bleiben nur Zonen stehen. */
+export function applyCyclingPower(planJson: PlanJson, targets: CyclingTargets | null): PlanJson {
   const days: Record<string, DayPlan> = {}
   for (const [key, d] of Object.entries(planJson.days)) {
     if (!isCyclingDay(d)) { days[key] = d; continue }
     const zone = dayZone(d)
     const mainSet = (Array.isArray(d.main_set) ? d.main_set : [])
       .filter(s => s && s.zone in POWER_ZONES && s.reps > 0 && s.minutes > 0)
-      .map(s => ({
-        reps: Math.round(s.reps),
-        minutes: s.minutes,
-        zone: s.zone,
-        rest_min: s.rest_min > 0 ? s.rest_min : 0,
-        ...(ftp ? wattRange(s.zone, ftp) : {}),
-      }))
+      .map(s => {
+        const hr = targets?.mode === 'hr' ? hrFor(s.zone, targets.bounds) : undefined
+        return {
+          reps: Math.round(s.reps),
+          minutes: s.minutes,
+          zone: s.zone,
+          rest_min: s.rest_min > 0 ? s.rest_min : 0,
+          ...(targets?.mode === 'power' ? wattRange(s.zone, targets.ftp) : {}),
+          ...(hr ? { hr_low: hr.low, hr_high: hr.high } : {}),
+        }
+      })
     days[key] = {
       ...d,
       location: d.location === 'outdoor' ? 'outdoor' : d.location === 'indoor' ? 'indoor' : undefined,
-      power: ftp && zone ? wattRange(zone, ftp) : undefined,
+      targets: targets?.mode,
+      power: targets?.mode === 'power' && zone ? wattRange(zone, targets.ftp) : undefined,
+      hr: targets?.mode === 'hr' && zone ? hrFor(zone, targets.bounds) : undefined,
       main_set: mainSet.length ? mainSet : undefined,
     }
   }
@@ -86,10 +141,33 @@ export function formatWatts(r: { low: number; high: number }): string {
   return r.low > 0 ? `${r.low}–${r.high} W` : `bis ${r.high} W`
 }
 
-export function formatMainSetItem(s: MainSetItem): string {
+export function formatBpm(r: { low: number; high: number }): string {
+  return r.low > 0 ? `${r.low}–${r.high} bpm` : `bis ${r.high} bpm`
+}
+
+/** hrMode: Plan ohne Wattmessung — Gefühl immer, Puls wo sinnvoll (Z4: gegen Ende). */
+export function formatMainSetItem(s: MainSetItem, hrMode = false): string {
+  const rest = s.rest_min ? `, Pause ${s.rest_min} Min` : ''
+  const head = `${s.reps} × ${s.minutes} Min ${POWER_ZONES[s.zone].label}`
+  if (hrMode) {
+    const hr = s.hr_low != null && s.hr_high != null
+      ? ` · ${s.zone === 'Z4' ? 'Puls am Ende ' : ''}${formatBpm({ low: s.hr_low, high: s.hr_high })}`
+      : ''
+    return `${head} · ${RPE_TEXT[s.zone]}${hr}${rest}`
+  }
   const watts = s.low != null && s.high != null ? ` @ ${formatWatts({ low: s.low, high: s.high })}` : ''
-  const rest = s.rest_min ? `, Pause ${s.rest_min} Min locker` : ''
-  return `${s.reps} × ${s.minutes} Min ${POWER_ZONES[s.zone].label}${watts}${rest}`
+  return `${head}${watts}${rest}`
+}
+
+/** Vorgabe der Gesamteinheit für die Tageskarte — nur bei Fahrten ohne Intervalle
+ *  (bei Intervallen stehen die Vorgaben in den Intervall-Zeilen). */
+export function formatDayTarget(d: DayPlan): string | null {
+  if (d.main_set?.length) return null
+  if (d.targets === 'hr') {
+    const zone = dayZone(d)
+    return [zone ? RPE_TEXT[zone] : null, d.hr ? formatBpm(d.hr) : null].filter(Boolean).join(' · ') || null
+  }
+  return d.power ? formatWatts(d.power) : null
 }
 
 // Sonntag der Woche entscheidet — die Woche, die in den November reicht, zählt schon als Winter
@@ -101,24 +179,28 @@ function isWinterWeek(monday: Date): boolean {
 
 /** Prompt-Abschnitt für Plan-Generierung — Watt-Tabelle fest berechnet, damit Claude
  *  nicht selbst rechnet; Indoor/Outdoor-Standard nach Monat der Planwoche. */
-export function buildCyclingPlanRules(ftp: number | null, monday: Date): string {
+export function buildCyclingPlanRules(targets: CyclingTargets | null, monday: Date): string {
   const winter = isWinterWeek(monday)
-  const zoneTable = ftp
-    ? (Object.keys(POWER_ZONES) as CyclingZone[])
-        .map(z => `  ${z} ${POWER_ZONES[z].label}: ${formatWatts(wattRange(z, ftp))}`)
-        .join('\n')
-    : '  (keine FTP im Profil — nur Zonen angeben)'
+  const zones = Object.keys(POWER_ZONES) as CyclingZone[]
+  const zoneTable = targets?.mode === 'power'
+    ? zones.map(z => `  ${z} ${POWER_ZONES[z].label}: ${formatWatts(wattRange(z, targets.ftp))}`).join('\n')
+    : targets?.mode === 'hr'
+      ? zones.map(z => `  ${z} ${POWER_ZONES[z].label}: ${hrFor(z, targets.bounds) ? formatBpm(hrFor(z, targets.bounds)!) + ', ' : ''}${RPE_TEXT[z]}`).join('\n')
+      : '  (keine FTP im Profil — nur Zonen angeben)'
+  const basis = targets?.mode === 'hr'
+    ? 'KEINE Wattmessung vorhanden — Steuerung über Puls (Zonen aus Max-/Ruhe-HF) und Gefühl'
+    : `FTP ${targets?.mode === 'power' ? targets.ftp : '–'} W`
   return `
 RAD-EINHEITEN — PFLICHT:
 9. Jede Rad-Einheit hat "location": "indoor" (Rolle/Zwift) oder "outdoor". ${winter
     ? 'Diese Woche liegt im Winter (Nov–Feb): plane Rad-Einheiten standardmäßig indoor.'
     : 'Außerhalb des Winters: lange Ausfahrten outdoor, Intervalle dürfen indoor sein.'}
 10. Indoor-Einheiten dauern maximal ${INDOOR_MAX_MIN} Minuten.
-11. Leistungszonen bei FTP ${ftp ?? '–'} W (von der App berechnet, NICHT selbst umrechnen):
+11. Zonen (${basis}; von der App berechnet, NICHT selbst umrechnen):
 ${zoneTable}
 12. "intensity" einer Rad-Einheit beginnt mit der Zone der Gesamteinheit ("Z2 Grundlage", "SS Sweet Spot", "Z4 Schwelle" …).
 13. Strukturierte Einheiten (Intervalle ab Z3/SS) bekommen "main_set": Liste der Hauptblöcke, z. B. [{"reps": 3, "minutes": 15, "zone": "SS", "rest_min": 5}]. Erlaubte Zonen: Z1, Z2, Z3, SS, Z4, Z5, Z6. Ein- und Ausfahren NICHT in main_set. Lockere Fahrten: "main_set": null.
-14. Nenne in "description" KEINE Wattzahlen — die App zeigt sie aus main_set/Zone selbst an.
+14. "description" beschreibt NUR den Ablauf der Einheit (z. B. Einfahren, Intervalle, Ausfahren, Schwerpunkt), kurz. KEINE Watt-, Puls- oder Gefühlsangaben und KEINE Sprechtest-Hinweise ("ganze Sätze", "Unterhaltung möglich" o. ä.) — die App zeigt die Intensitätsvorgaben selbst an.
 `
 }
 
@@ -224,7 +306,9 @@ const TAPER_FACTOR = [0.45, 0.6] // Index = Wochen bis Event (Bosquet 2007: −4
  *  maßgebliche Zählung für Phase, Entlastung und Stufe. */
 export function weeksUntilEventFrom(eventDate: string, monday: Date): number {
   const [y, m, d] = eventDate.split('-').map(Number)
-  return Math.max(0, Math.floor((new Date(y, m - 1, d).getTime() - monday.getTime()) / (7 * 86400000)))
+  // erst auf ganze Tage runden (Zeitumstellung = ±1 h), dann in Wochen
+  const days = Math.round((new Date(y, m - 1, d).getTime() - monday.getTime()) / 86400000)
+  return Math.max(0, Math.floor(days / 7))
 }
 
 export function cyclingPhaseFor(weeksUntilEvent: number): CyclingPhase {

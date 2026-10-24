@@ -37,6 +37,9 @@ export type Athlete = {
   // Phase 2 profile fields
   name: string | null
   ftp_watts: number | null
+  // Wattmessung beim Radfahren (Powermeter/Smart-Trainer); NULL = vorhanden, wenn FTP
+  // eingetragen ist. Ohne: Rad-Vorgaben über Puls (Zonen aus Max-/Ruhe-HF) + Gefühl, siehe cyclingPower.ts
+  has_power_meter: boolean | null
   max_hr: number | null
   weight_kg: number | null
   training_days_per_week: number | null
@@ -139,6 +142,9 @@ export type Activity = {
   max_hr: number | null
   np_watts: number | null
   avg_watts: number | null
+  // Strava device_watts: false = Watt nur von Strava geschätzt (kein Powermeter);
+  // NULL bei vor dem Feld synchronisierten Aktivitäten
+  device_watts: boolean | null
   elevation_m: number | null
   tss: number | null
   streams_json: Record<string, unknown> | null

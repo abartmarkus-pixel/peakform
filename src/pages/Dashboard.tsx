@@ -4,9 +4,9 @@ import { useNavigate, Link } from 'react-router-dom'
 import { fetchRecentActivities, getValidAccessToken, syncActivitiesToSupabase, type StravaActivity } from '../lib/strava'
 import { supabase, type Athlete } from '../lib/supabase'
 import { buildCoachSystemPrompt } from '../lib/coachPrompt'
-import { planJsonWithDates } from '../lib/coachContext'
+import { calculateHRZoneBounds, planJsonWithDates, resolveHRProfile } from '../lib/coachContext'
 import { applyWorkoutRotation, normalizePlanDayKeys } from '../lib/weeklyPlan'
-import { applyCyclingPower } from '../lib/cyclingPower'
+import { applyCyclingPower, resolveCyclingTargets } from '../lib/cyclingPower'
 import { getISOMonday, formatDurationHuman } from '../lib/dateUtils'
 import {
   IconLogout, IconRunning, IconCycling, IconStrength, IconOther, IconWarning, IconCommentFilled,
@@ -313,7 +313,9 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt im gleichen Format wie der Origin
       const { text } = await res.json() as { text: string }
       const adjustedPlan = applyCyclingPower(
         await applyWorkoutRotation(parsePlanJson(text), athleteId, planWeekStart),
-        athlete?.ftp_watts ?? null,
+        athlete
+          ? resolveCyclingTargets(athlete, calculateHRZoneBounds(resolveHRProfile(athlete).effectiveMaxHR, resolveHRProfile(athlete).restingHR))
+          : null,
       )
 
       const { data: existing } = await supabase

@@ -11,6 +11,8 @@ export { FaPersonBiking as IconCycling } from 'react-icons/fa6'
 export { FaDumbbell as IconStrength } from 'react-icons/fa6'
 export { FaSpa as IconRest } from 'react-icons/fa6'
 export { FaStopwatch as IconOther } from 'react-icons/fa6'
+export { FaHouseChimney as IconIndoor } from 'react-icons/fa6'
+export { FaTree as IconOutdoor } from 'react-icons/fa6'
 
 // UI Elemente
 export { FaChartLine as IconAnalytics } from 'react-icons/fa6'

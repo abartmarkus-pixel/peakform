@@ -222,7 +222,7 @@ function buildRoastStatsText(activity: Activity, sport: SportFocus, stats: Compu
   } else if (sport === 'cycling') {
     if (activity.distance_m) lines.push(`Distanz: ${(activity.distance_m / 1000).toFixed(2)} km`)
     if (activity.np_watts) lines.push(`NP: ${activity.np_watts} W`)
-    if (activity.avg_watts != null) lines.push(`Ø Watt: ${activity.avg_watts} W`)
+    if (activity.avg_watts != null) lines.push(`Ø Watt${activity.device_watts === false ? ' (geschätzt)' : ''}: ${activity.avg_watts} W`)
     if (stats.avgCadence != null) lines.push(`Ø Trittfrequenz: ${stats.avgCadence} rpm`)
     if (activity.avg_hr != null) lines.push(`Ø HF: ${Math.round(activity.avg_hr)} bpm`)
     if (activity.max_hr != null) lines.push(`Max HF: ${Math.round(activity.max_hr)} bpm`)
@@ -817,7 +817,7 @@ export default function ActivityDetail() {
             <StatCard label="Norm. Power" value={`${Math.round(activity.np_watts)} W`} />
           )}
           {isRide && activity?.avg_watts != null && (
-            <StatCard label="Ø Watt" value={`${Math.round(activity.avg_watts)} W`} />
+            <StatCard label={activity.device_watts === false ? 'Ø Watt (geschätzt)' : 'Ø Watt'} value={`${Math.round(activity.avg_watts)} W`} />
           )}
           {isRide && stats.maxWatts != null && (
             <StatCard label="Max Watt" value={`${stats.maxWatts} W`} />

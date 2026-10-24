@@ -36,6 +36,7 @@ export type StravaActivity = {
   max_heartrate?: number
   weighted_average_watts?: number
   average_watts?: number
+  device_watts?: boolean
   total_elevation_gain?: number
 }
 
@@ -318,6 +319,8 @@ export async function syncActivitiesToSupabase(
       max_hr:     a.max_heartrate ?? null,
       np_watts:   a.weighted_average_watts ?? null,
       avg_watts:   a.average_watts ?? null,
+      // false = Strava hat die Watt nur geschätzt (kein Powermeter) — Analyse/Anzeige kennzeichnen das
+      device_watts: a.device_watts ?? null,
       elevation_m: a.total_elevation_gain ?? null,
     })),
     { onConflict: 'strava_id' },

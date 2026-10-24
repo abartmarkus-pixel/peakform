@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, type Athlete, type WeeklyPlan, type Activity, type SportConfig } from '../lib/supabase'
-import { buildCoachContext, calculateSeasonPhase, determineTrainingPhilosophy, type PhaseResult } from '../lib/coachContext'
+import { buildCoachContext, calculateHRZoneBounds, calculateSeasonPhase, determineTrainingPhilosophy, resolveHRProfile, type PhaseResult } from '../lib/coachContext'
 import {
   applyCyclingBlock, applyCyclingPower, buildCyclingBlockRules, buildCyclingPlanRules, buildCyclingWeekStructureRules,
-  checkCyclingWeekStructure, checkIndoorCap, cyclingBlockWeek, fitBlockToRideDays, formatMainSetItem, formatWatts, loadedWeeksFromRides,
+  checkCyclingWeekStructure, checkIndoorCap, cyclingBlockWeek, fitBlockToRideDays, formatDayTarget, formatMainSetItem, loadedWeeksFromRides,
+  resolveCyclingTargets,
   weeksUntilEventFrom,
   type CyclingBlockWeek,
 } from '../lib/cyclingPower'
@@ -12,7 +13,7 @@ import { buildCoachSystemPrompt } from '../lib/coachPrompt'
 import { getValidAccessToken, fetchRecentActivities, syncActivitiesToSupabase } from '../lib/strava'
 import { analyzeActivity, claimActivityForAnalysis, parseHevyDescription } from '../lib/activityAnalysis'
 import {
-  IconRunning, IconCycling, IconStrength, IconRest, IconOther,
+  IconRunning, IconCycling, IconStrength, IconRest, IconOther, IconIndoor, IconOutdoor,
   IconChevronLeft, IconChevronRight, IconChevronUp, IconChevronDown,
   IconCheck, IconMissed, IconWarning, IconPlan,
   IconGrip,
@@ -172,6 +173,17 @@ function dayDate(monday: Date, idx: number): string {
 
 // Parst ein "YYYY-MM-DD"-Datum explizit in Lokalzeit-Komponenten (nicht via
 // `new Date(dateStr)`, das UTC-Mitternacht annimmt — siehe toDateStr-Konvention).
+// Kalender-Arithmetik statt +7×24 h: an Zeitumstellungs-Wochenenden landete
+// "Montag + 168 h" sonst auf Sonntag 23 Uhr derselben Woche (Pfeil blieb hängen)
+function addWeeks(monday: Date, weeks: number): Date {
+  return new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + weeks * 7)
+}
+
+function cyclingTargets(a: Athlete) {
+  const { effectiveMaxHR, restingHR } = resolveHRProfile(a)
+  return resolveCyclingTargets(a, calculateHRZoneBounds(effectiveMaxHR, restingHR))
+}
+
 function dayDateStr(monday: Date, day: string): string {
   return toDateStr(new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + DAYS.indexOf(day)))
 }
@@ -418,20 +430,16 @@ function DayCard({ day, idx, monday, plan, match, onPress, onOpenMenu, dragAttri
               </span>
             )}
             {plan.location && (
-              <span className="text-xs text-slate-300 bg-slate-700 px-1.5 py-0.5 rounded-full">
-                {plan.location === 'indoor' ? '🏠 Indoor' : '🌳 Outdoor'}
+              <span className="text-xs text-slate-300 bg-slate-700 px-1.5 py-0.5 rounded-full flex items-center gap-1">
+                {plan.location === 'indoor' ? <IconIndoor size={10} /> : <IconOutdoor size={10} />}
+                {plan.location === 'indoor' ? 'Indoor' : 'Outdoor'}
               </span>
             )}
           </div>
-          {(plan.power || plan.main_set) && (
+          {(formatDayTarget(plan) || plan.main_set) && (
             <div className="text-xs text-slate-200 mb-1.5 space-y-0.5">
-              {plan.main_set?.map((s, i) => <p key={i}>{formatMainSetItem(s)}</p>)}
-              {plan.power && (
-                <p className="text-slate-400">
-                  {plan.main_set ? 'Rest der Einheit locker' : `Ganze Einheit ${formatWatts(plan.power)}`}
-                  {plan.location === 'indoor' ? ' · nach Watt fahren, Ventilator an' : ''}
-                </p>
-              )}
+              {plan.main_set?.map((s, i) => <p key={i}>{formatMainSetItem(s, plan.targets === 'hr')}</p>)}
+              {formatDayTarget(plan) && <p className="text-slate-400">{formatDayTarget(plan)}</p>}
             </div>
           )}
           {!isKraft && (
@@ -968,7 +976,7 @@ Diese Regel gilt NUR für ${SPORT_LABEL[primaryGoalSportKey]}-Einheiten in diese
       const cyclingStructure = primaryGoalSportKey === 'cycling' && cyclingConfig && cyclingBlock?.weeksUntilEvent !== 0
       const volumeFactor = cyclingBlock?.volumeFactor ?? 1
       const cyclingSection = hasCycling
-        ? buildCyclingPlanRules(athlete.ftp_watts ?? null, monday)
+        ? buildCyclingPlanRules(cyclingTargets(athlete), monday)
           + (cyclingStructure ? buildCyclingWeekStructureRules(cyclingConfig.days, cyclingHours, monday, volumeFactor) : '')
           + (cyclingBlock && cyclingConfig ? buildCyclingBlockRules(cyclingBlock, cyclingConfig.days) : '')
         : ''
@@ -1036,7 +1044,7 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, 
       const rotated = await applyWorkoutRotation(parsePlanJson(text), athlete.id, weekStr)
       const planJson = applyCyclingPower(
         cyclingBlock ? applyCyclingBlock(rotated, cyclingBlock) : rotated,
-        athlete.ftp_watts ?? null,
+        cyclingTargets(athlete),
       )
 
       // Validate constraints
@@ -1342,7 +1350,7 @@ Antworte AUSSCHLIESSLICH mit diesem JSON (kein Text davor/danach, kein Markdown)
         if (!existing) continue
         const updated = applyCyclingPower(
           applyReturnToPlan(existing.plan_json as unknown as PlanJson, m, today, until),
-          athlete.ftp_watts ?? null,
+          cyclingTargets(athlete),
         )
         const inserted = await insertPlanVersion({
           athleteId: athlete.id,
@@ -1502,7 +1510,7 @@ Antworte AUSSCHLIESSLICH mit diesem JSON (kein Text davor/danach, kein Markdown)
       {/* Week navigation */}
       <div className="flex items-center justify-between mb-6">
         <button
-          onClick={() => setMonday(m => getISOMonday(new Date(m.getTime() - 7 * 86400000)))}
+          onClick={() => setMonday(m => addWeeks(m, -1))}
           className="w-9 h-9 flex items-center justify-center bg-slate-800 hover:bg-slate-700 rounded-xl text-slate-300 transition-colors shrink-0"
         >
           <IconChevronLeft size={16} />
@@ -1513,7 +1521,7 @@ Antworte AUSSCHLIESSLICH mit diesem JSON (kein Text davor/danach, kein Markdown)
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <button
-            onClick={() => setMonday(m => getISOMonday(new Date(m.getTime() + 7 * 86400000)))}
+            onClick={() => setMonday(m => addWeeks(m, 1))}
             className="w-9 h-9 flex items-center justify-center bg-slate-800 hover:bg-slate-700 rounded-xl text-slate-300 transition-colors"
           >
             <IconChevronRight size={16} />

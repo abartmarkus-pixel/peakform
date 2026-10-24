@@ -22,7 +22,9 @@ export type DayPlan = {
   // Nur Rad-Tage (siehe cyclingPower.ts): Ort, Watt-Bereich der Gesamteinheit und
   // Intervall-Hauptblöcke — Watt jeweils von der App aus der FTP berechnet
   location?: 'indoor' | 'outdoor'
+  targets?: 'power' | 'hr' // ohne Wattmessung: Puls + Gefühl statt Watt
   power?: { low: number; high: number }
+  hr?: { low: number; high: number }
   main_set?: MainSetItem[]
 }
 

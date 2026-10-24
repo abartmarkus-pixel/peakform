@@ -153,7 +153,7 @@ export async function buildCoachSystemPrompt(
   const [{ data: athlete }, { data: goalRows }, { data: recentRuns }] = await Promise.all([
     supabase
       .from('athletes')
-      .select('name, ftp_watts, max_hr, weight_kg, sport_types, coach_persona, body_goals, aesthetic_goals, equipment, season_phase_override, best_5k_seconds, strava_prs, gender, birth_year, resting_hr')
+      .select('name, ftp_watts, has_power_meter, max_hr, weight_kg, sport_types, coach_persona, body_goals, aesthetic_goals, equipment, season_phase_override, best_5k_seconds, strava_prs, gender, birth_year, resting_hr')
       .eq('id', athleteId)
       .single(),
     supabase
@@ -247,7 +247,11 @@ export async function buildCoachSystemPrompt(
     age                ? `Alter: ${age} Jahre`                                                                                   : `Alter: nicht angegeben`,
     athlete?.weight_kg ? `Gewicht: ${athlete.weight_kg} kg`                                                                     : null,
     (showCyclingPower && wPerKg)             ? `Leistungsgewicht: ${wPerKg} W/kg`                                                : null,
-    (showCyclingPower && athlete?.ftp_watts) ? `FTP: ${athlete.ftp_watts} W`                                                    : null,
+    (showCyclingPower && athlete?.ftp_watts && athlete?.has_power_meter !== false) ? `FTP: ${athlete.ftp_watts} W`               : null,
+    // Ohne Wattmessung keine Watt-Empfehlungen — Plan arbeitet dann mit Puls + Gefühl (cyclingPower.ts)
+    (showCyclingPower && athlete?.has_power_meter === false)
+      ? `Wattmessung Rad: KEINE (kein Powermeter/Smart-Trainer) — gib Rad-Intensität nur über Puls (HF-Zonen) und Gefühl (RPE 1–10) an, NIE in Watt; Watt-Werte in Aktivitäten sind von Strava geschätzt`
+      : null,
     strengthOnly ? null : athlete?.max_hr
       ? `Max HF: ${athlete.max_hr} bpm (gemessen)`
       : (estimatedMaxHR ? `Max HF: ${estimatedMaxHR} bpm (geschätzt: Tanaka-Formel)` : null),

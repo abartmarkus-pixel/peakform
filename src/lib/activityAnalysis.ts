@@ -569,7 +569,9 @@ Dauer: ${activity.duration_s ? formatDurationHuman(activity.duration_s) : 'k.A.'
 Max. Herzfrequenz: ${activity.max_hr ?? 'k.A.'} bpm
 ${activity.rpe ? `Wahrgenommene Anstrengung (RPE): ${activity.rpe}/10` : ''}
 ${activity.np_watts ? `Normalized Power: ${activity.np_watts} W` : ''}
-${activity.avg_watts ? `Ø Watt: ${activity.avg_watts} W` : ''}
+${activity.avg_watts ? (activity.device_watts === false
+  ? `Ø Watt: ${activity.avg_watts} W — von Strava aus Tempo/Gewicht GESCHÄTZT, nicht gemessen (kein Powermeter). Nicht zur Leistungsbewertung nutzen; Puls und Gefühl haben Vorrang.`
+  : `Ø Watt: ${activity.avg_watts} W`) : ''}
 ${stats.maxWatts ? `Max Watt: ${stats.maxWatts} W` : ''}
 ${activity.elevation_m ? `Höhenmeter: ${activity.elevation_m} m` : ''}
 ${exercises.length > 0 ? `

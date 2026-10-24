@@ -17,7 +17,8 @@ type DayPlan = {
   // Rad-Felder, siehe src/lib/cyclingPower.ts (Watt dort beim Erzeugen berechnet)
   location?: 'indoor' | 'outdoor'
   power?: { low: number; high: number }
-  main_set?: { reps: number; minutes: number; zone: string; rest_min: number; low?: number; high?: number }[]
+  hr?: { low: number; high: number }
+  main_set?: { reps: number; minutes: number; zone: string; rest_min: number; low?: number; high?: number; hr_low?: number; hr_high?: number }[]
 }
 
 export type WeeklyPlanRow = {
@@ -111,11 +112,17 @@ function buildDescription(day: DayPlan): string {
     if (day.description) parts.push(day.description)
   }
   if (kind === 'ride') {
+    const range = (low: number, high: number, unit: string) => (low > 0 ? `${low}–${high} ${unit}` : `bis ${high} ${unit}`)
     for (const s of day.main_set ?? []) {
-      const watts = s.low != null && s.high != null ? ` @ ${s.low}–${s.high} W` : ''
-      parts.push(`${s.reps} × ${s.minutes} Min ${s.zone}${watts}${s.rest_min ? `, Pause ${s.rest_min} Min` : ''}`)
+      const target = s.low != null && s.high != null ? ` @ ${range(s.low, s.high, 'W')}`
+        : s.hr_low != null && s.hr_high != null ? ` @ ${range(s.hr_low, s.hr_high, 'bpm')}`
+        : ''
+      parts.push(`${s.reps} × ${s.minutes} Min ${s.zone}${target}${s.rest_min ? `, Pause ${s.rest_min} Min` : ''}`)
     }
-    if (day.power && !day.main_set?.length) parts.push(day.power.low > 0 ? `${day.power.low}–${day.power.high} W` : `bis ${day.power.high} W`)
+    if (!day.main_set?.length) {
+      if (day.power) parts.push(range(day.power.low, day.power.high, 'W'))
+      else if (day.hr) parts.push(range(day.hr.low, day.hr.high, 'bpm'))
+    }
     if (day.location) parts.push(day.location === 'indoor' ? 'Indoor' : 'Outdoor')
   }
   if (kind !== 'run' && kind !== 'ride' && day.duration_min) parts.push(formatDuration(day.duration_min))

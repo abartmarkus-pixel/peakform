@@ -257,6 +257,8 @@ export default function Profile() {
   const [ftpWatts,           setFtpWatts]          = useState('')
   const [maxHr,              setMaxHr]             = useState('')
   const [restingHr,          setRestingHr]         = useState('')
+  // Wattmessung Rad: null = automatisch (vorhanden, wenn FTP eingetragen)
+  const [hasPowerMeter,      setHasPowerMeter]     = useState<boolean | null>(null)
   const [weightKg,           setWeightKg]          = useState('')
   const [best5kInput,        setBest5kInput]        = useState('')
   const [best5kError,        setBest5kError]        = useState<string | null>(null)
@@ -329,6 +331,7 @@ export default function Profile() {
       setGender(a.gender ?? null)
       setBirthYear(a.birth_year?.toString() ?? '')
       setFtpWatts(a.ftp_watts?.toString() ?? '')
+      setHasPowerMeter(a.has_power_meter ?? null)
       setMaxHr(a.max_hr?.toString() ?? '')
       setRestingHr(a.resting_hr?.toString() ?? '')
       setWeightKg(a.weight_kg?.toString() ?? '')
@@ -443,6 +446,7 @@ export default function Profile() {
         gender:                 gender,
         birth_year:             birthYear ? parseInt(birthYear) : null,
         ftp_watts:              newFtp,
+        has_power_meter:        hasPowerMeter,
         max_hr:                 newMaxHr,
         resting_hr:             restingHr ? parseInt(restingHr) : null,
         weight_kg:              newWeight,
@@ -479,7 +483,7 @@ export default function Profile() {
       setTimeout(() => setSaveState('idle'), 2000)
     }, 800)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name, gender, birthYear, ftpWatts, maxHr, restingHr, weightKg, best5kInput, trainingDays, sportConfigs, hasSportViolation, bodyGoals, personaStyle, personaFocus, equipment, aestheticGoals, seasonPhaseOverride])
+  }, [name, gender, birthYear, ftpWatts, hasPowerMeter, maxHr, restingHr, weightKg, best5kInput, trainingDays, sportConfigs, hasSportViolation, bodyGoals, personaStyle, personaFocus, equipment, aestheticGoals, seasonPhaseOverride])
 
   // ── Tanaka direct save ──────────────────────────────────────────────────
 
@@ -927,12 +931,34 @@ export default function Profile() {
               <NumberField label="Gewicht" value={weightKg} onChange={setWeightKg} unit="kg" placeholder="70" />
               <UpdatedAt updatedAt={weightUpdatedAt} staleDays={30} />
             </div>
-            {sportConfigs.some(s => s.type === 'cycling') && (
-              <div>
-                <NumberField label="FTP" value={ftpWatts} onChange={setFtpWatts} unit="W" placeholder="250" />
-                <UpdatedAt updatedAt={ftpUpdatedAt} staleDays={60} />
-              </div>
-            )}
+            {sportConfigs.some(s => s.type === 'cycling') && (() => {
+              const powerOn = hasPowerMeter ?? !!ftpWatts
+              return (
+                <>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm text-slate-200">Wattmessung beim Radfahren</p>
+                      <p className="text-xs text-slate-500">Powermeter oder Smart-Trainer</p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={powerOn}
+                      onClick={() => setHasPowerMeter(!powerOn)}
+                      className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${powerOn ? 'bg-brand-500' : 'bg-slate-600'}`}
+                    >
+                      <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${powerOn ? 'translate-x-5' : ''}`} />
+                    </button>
+                  </div>
+                  {powerOn && (
+                    <div>
+                      <NumberField label="FTP" value={ftpWatts} onChange={setFtpWatts} unit="W" placeholder="250" />
+                      <UpdatedAt updatedAt={ftpUpdatedAt} staleDays={60} />
+                    </div>
+                  )}
+                </>
+              )
+            })()}
             {sportConfigs.some(s => s.type === 'running') && (
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">5k Bestzeit</label>
