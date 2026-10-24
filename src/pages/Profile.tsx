@@ -934,10 +934,14 @@ export default function Profile() {
             {sportConfigs.some(s => s.type === 'cycling') && (() => {
               const powerOn = hasPowerMeter ?? !!ftpWatts
               return (
-                <>
+                <div className="flex flex-col gap-4 pt-4 border-t border-slate-700/50">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+                    <IconCycling size={14} color={SPORT_DISPLAY.cycling.color} />
+                    Radfahren
+                  </p>
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm text-slate-200">Wattmessung beim Radfahren</p>
+                      <p className="text-sm text-slate-200">Wattmessung</p>
                       <p className="text-xs text-slate-500">Powermeter oder Smart-Trainer</p>
                     </div>
                     <button
@@ -956,11 +960,15 @@ export default function Profile() {
                       <UpdatedAt updatedAt={ftpUpdatedAt} staleDays={60} />
                     </div>
                   )}
-                </>
+                </div>
               )
             })()}
             {sportConfigs.some(s => s.type === 'running') && (
-              <div>
+              <div className="pt-4 border-t border-slate-700/50">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-2 mb-4">
+                  <IconRunning size={14} color={SPORT_DISPLAY.running.color} />
+                  Laufen
+                </p>
                 <label className="text-xs text-slate-400 mb-1 block">5k Bestzeit</label>
                 <input
                   type="text"
