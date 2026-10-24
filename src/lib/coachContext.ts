@@ -1,6 +1,7 @@
 import { supabase, type Activity, type Athlete, type SportConfig, type EquipmentConfig, type AestheticGoals } from './supabase'
 import { getISOMonday, toLocalDateStr, toLocalWeekdayDateStr, toLocalWeekdayDateTimeStr, relativeDayLabel } from './dateUtils'
 import { cyclingPhaseFor } from './cyclingPower'
+import { fetchRelevantIllness, illnessPromptLine } from './illness'
 
 const WEEKDAY_ORDER = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
 
@@ -812,6 +813,10 @@ export async function buildCoachContext(
         return `- ${label}: ${s.days} ${s.days === 1 ? 'Tag' : 'Tage'}/Woche`
       }).join('\n')
     : '- Keine Sportarten konfiguriert'
+
+  // Krankheit / Wiedereinstieg (src/lib/illness.ts) — gilt für alle Sportarten
+  const illness = await fetchRelevantIllness(athleteId)
+  if (illness) sections.push(`[GESUNDHEIT — HÖCHSTE PRIORITÄT]\n${illnessPromptLine(illness)}`)
 
   if (!strengthOnly) sections.push([
     '[HARTE TRAININGS-CONSTRAINTS — MÜSSEN EINGEHALTEN WERDEN]',

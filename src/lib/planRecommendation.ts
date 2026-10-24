@@ -35,7 +35,7 @@ export function resolveTargetWeek(day: string, today: Date = new Date()): { mond
   return { monday, weekStart: toDateStr(monday), which }
 }
 
-async function fetchLatestPlan(athleteId: string, weekStart: string): Promise<WeeklyPlan | null> {
+export async function fetchLatestPlan(athleteId: string, weekStart: string): Promise<WeeklyPlan | null> {
   // Fallback: alte Einträge können mit UTC-Datum gespeichert sein (1 Tag früher) —
   // gleiche Behandlung wie in WeeklyPlan.tsx's Lade-Effekt.
   const [y, m, d] = weekStart.split('-').map(Number)

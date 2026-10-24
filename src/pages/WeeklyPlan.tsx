@@ -21,7 +21,12 @@ import {
 import { AppHeader } from '../components/AppHeader'
 import { useFeatures } from '../lib/features'
 import { getISOMonday, getISOSunday, formatWeekRange, formatDurationHuman, toDateStr, dayLabelForDate } from '../lib/dateUtils'
-import { DAYS, DAY_FULL, REST_KEYWORDS, SPORT_KEYWORDS, applyWorkoutRotation, checkPlanConflicts, normalizePlanDayKeys, type DayPlan, type PlanJson } from '../lib/weeklyPlan'
+import { DAYS, DAY_FULL, REST_KEYWORDS, SPORT_KEYWORDS, applyWorkoutRotation, checkPlanConflicts, insertPlanVersion, normalizePlanDayKeys, type DayPlan, type PlanJson } from '../lib/weeklyPlan'
+import {
+  applyReturnToPlan, endIllness, fetchRelevantIllness, illnessAffectsWeek, illnessPromptLine, markSickDays,
+  returnWindowEnd, startIllness, type IllnessPeriod,
+} from '../lib/illness'
+import { fetchLatestPlan } from '../lib/planRecommendation'
 import {
   DndContext,
   closestCenter,
@@ -167,6 +172,10 @@ function dayDate(monday: Date, idx: number): string {
 
 // Parst ein "YYYY-MM-DD"-Datum explizit in Lokalzeit-Komponenten (nicht via
 // `new Date(dateStr)`, das UTC-Mitternacht annimmt — siehe toDateStr-Konvention).
+function dayDateStr(monday: Date, day: string): string {
+  return toDateStr(new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + DAYS.indexOf(day)))
+}
+
 function formatFulfilledDate(dateStr: string): string {
   const [y, m, d] = dateStr.split('-').map(Number)
   return new Date(y, m - 1, d).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'numeric' })
@@ -551,6 +560,9 @@ export default function WeeklyPlan() {
   const [pendingManualPlan, setPendingManualPlan] = useState<PlanJson | null>(null)
   const [pendingManualChangeReason, setPendingManualChangeReason] = useState<string | null>(null)
   const [manualToast, setManualToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  // Aktive Krankheit oder laufender Wiedereinstieg (siehe src/lib/illness.ts)
+  const [illness, setIllness] = useState<IllnessPeriod | null>(null)
+  const [illnessBusy, setIllnessBusy] = useState(false)
   const previousManualPlanJson = useRef<PlanJson | null>(null)
   // Schlüssel (stravaId-toDay) des zuletzt per "Nein danke" abgewiesenen
   // Vorziehen-Vorschlags — verhindert erneutes Anzeigen desselben Vorschlags.
@@ -599,6 +611,7 @@ export default function WeeklyPlan() {
         const a = data as Athlete
         if (!useFeatures(a).weekly_plan) { navigate('/dashboard', { replace: true }); return }
         setAthlete(a)
+        fetchRelevantIllness(a.id).then(setIllness)
       })
   }, [navigate])
 
@@ -749,6 +762,10 @@ export default function WeeklyPlan() {
 
   async function generatePlan() {
     if (!athlete) return
+    if (illness && !illness.end_date) {
+      setError('Du bist krank gemeldet — tippe zuerst auf „Wieder gesund“.')
+      return
+    }
     setGenerating(true)
     setError(null)
     setPendingPlanJson(null)
@@ -834,6 +851,8 @@ export default function WeeklyPlan() {
         `- ${SPORT_LABEL[s.type] ?? s.type}: exakt ${s.days} ${s.days === 1 ? 'Tag' : 'Tage'} geplant?`
       ).join('\n')
 
+      const illnessInWeek = illness && illnessAffectsWeek(illness, monday) ? illness : null
+
       // Verletzungssignale aus Aktivitäts-Analyse UND aus dem Wochenreview
       // (review_constraint) laufen in derselben Höchste-Priorität-Regel zusammen —
       // ein im Review genanntes Problem (z.B. Achillessehne) darf beim nächsten
@@ -845,6 +864,7 @@ export default function WeeklyPlan() {
         ...(reviewConstraintRows ?? []).map(d =>
           `- ${new Date(d.created_at).toLocaleDateString('de-DE')} (Wochenreview): ${d.reasoning ?? d.decision_summary}`
         ),
+        ...(illnessInWeek ? [`- ${illnessPromptLine(illnessInWeek)}`] : []),
       ]
       const recoverySection = recoveryLines.length
         ? `\nAKTUELLE ERHOLUNGS-EINSCHRÄNKUNGEN (höchste Priorität — überschreiben alle anderen Regeln):\n${recoveryLines.join('\n')}\n`
@@ -940,6 +960,8 @@ Diese Regel gilt NUR für ${SPORT_LABEL[primaryGoalSportKey]}-Einheiten in diese
           cyclingBlockWeek(weeksUntilEventFrom(primaryGoal.event_date, monday), loadedWeeks),
           cyclingConfig.days,
         )
+        // Wiedereinstieg nach Krankheit in dieser Woche: keine harten Einheiten
+        if (illnessInWeek) cyclingBlock = { ...cyclingBlock, sessions: [] }
       }
       // In der Eventwoche selbst kein Wochenaufbau (der Wettkampf ersetzt die lange Ausfahrt).
       // Bei aktiver Erholungs-Einschränkung oder im Taper keine Stundenprüfung.
@@ -1272,6 +1294,76 @@ Antworte AUSSCHLIESSLICH mit diesem JSON (kein Text davor/danach, kein Markdown)
     setMoveSubmenuOpen(false)
   }
 
+  // Krank ab fromDate: Krankheit speichern, Trainingstage der angezeigten Woche ab
+  // diesem Tag werden Ruhetage (wiederherstellbar über "Wieder gesund").
+  async function handleSick(fromDate: string) {
+    if (!athlete || illnessBusy) return
+    closeContextMenu()
+    setIllnessBusy(true)
+    try {
+      setIllness(await startIllness(athlete.id, fromDate))
+      if (displayPlanJson) {
+        const inserted = await insertPlanVersion({
+          athleteId: athlete.id,
+          weekStart: weekStr,
+          planJson: markSickDays(displayPlanJson, monday, fromDate),
+          changeReason: `Krank gemeldet ab ${fromDate}`,
+          decisionType: 'illness_reported',
+          decisionSummary: `Krank gemeldet ab ${fromDate} — Trainingstage ab diesem Tag als Ruhetage`,
+        })
+        setPlan(inserted)
+      }
+      setManualToast({ type: 'success', message: 'Gute Besserung! Training pausiert.' })
+    } catch (e) {
+      console.error(e)
+      setManualToast({ type: 'error', message: 'Speichern fehlgeschlagen. Bitte erneut versuchen.' })
+    } finally {
+      setIllnessBusy(false)
+    }
+  }
+
+  // Wieder gesund ab healthyDate (Banner: heute, Lange-Drücken-Menü: gewählter Tag):
+  // Krank-Tage ab diesem Tag zurückholen, im Wiedereinstieg-Zeitraum locker/kürzer —
+  // in jeder Woche, die der Zeitraum berührt (max. 7 Tage → höchstens 2 Wochen).
+  async function handleHealthy(healthyDate: string) {
+    if (!athlete || !illness || illnessBusy) return
+    closeContextMenu()
+    setIllnessBusy(true)
+    try {
+      const ended = await endIllness(illness, healthyDate)
+      const today = ended.end_date!
+      const until = returnWindowEnd(ended)!
+      const [y, m, d] = today.split('-').map(Number)
+      const firstMonday = getISOMonday(new Date(y, m - 1, d))
+      const weeks = [firstMonday, new Date(firstMonday.getFullYear(), firstMonday.getMonth(), firstMonday.getDate() + 7)]
+        .filter(m => toDateStr(m) <= until)
+      for (const m of weeks) {
+        const existing = await fetchLatestPlan(athlete.id, toDateStr(m))
+        if (!existing) continue
+        const updated = applyCyclingPower(
+          applyReturnToPlan(existing.plan_json as unknown as PlanJson, m, today, until),
+          athlete.ftp_watts ?? null,
+        )
+        const inserted = await insertPlanVersion({
+          athleteId: athlete.id,
+          weekStart: existing.week_start,
+          planJson: updated,
+          changeReason: `Wieder gesund — lockerer Wiedereinstieg bis ${until}`,
+          decisionType: 'illness_ended',
+          decisionSummary: `Wieder gesund ab ${today}, Wiedereinstieg bis ${until}`,
+        })
+        if (existing.week_start === weekStr) setPlan(inserted)
+      }
+      setIllness(ended)
+      setManualToast({ type: 'success', message: 'Willkommen zurück! Die ersten Tage locker.' })
+    } catch (e) {
+      console.error(e)
+      setManualToast({ type: 'error', message: 'Speichern fehlgeschlagen. Bitte erneut versuchen.' })
+    } finally {
+      setIllnessBusy(false)
+    }
+  }
+
   function handleMarkAsRest(day: string) {
     if (!displayPlanJson) return
     const current = displayPlanJson.days[day]
@@ -1487,6 +1579,28 @@ Antworte AUSSCHLIESSLICH mit diesem JSON (kein Text davor/danach, kein Markdown)
         </div>
       )}
 
+      {/* Krankheit: Banner (krank / Wiedereinstieg); melden nur über das Lange-Drücken-Menü */}
+      {illness && !illness.end_date ? (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 mb-4 flex items-center justify-between gap-3">
+          <p className="text-amber-300 text-sm">
+            Krank gemeldet seit {new Date(`${illness.start_date}T12:00:00`).toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'numeric' })}
+          </p>
+          <button
+            onClick={() => handleHealthy(toDateStr(new Date()))}
+            disabled={illnessBusy}
+            className="shrink-0 py-2 px-3 text-sm font-semibold text-white bg-brand-500 hover:bg-brand-600 rounded-xl transition-colors disabled:opacity-50"
+          >
+            Wieder gesund
+          </button>
+        </div>
+      ) : illness ? (
+        <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 mb-4">
+          <p className="text-blue-300 text-sm">
+            Wiedereinstieg nach Krankheit bis {new Date(`${returnWindowEnd(illness)}T12:00:00`).toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'numeric' })}: nur locker, kein Krafttraining. Bei erneuten Beschwerden lieber pausieren.
+          </p>
+        </div>
+      ) : null}
+
       {/* Day cards */}
       {loadingPlan ? (
         <div className="flex justify-center py-12">
@@ -1679,6 +1793,23 @@ Antworte AUSSCHLIESSLICH mit diesem JSON (kein Text davor/danach, kein Markdown)
                     className="w-full text-left py-2.5 px-3 rounded-xl text-sm text-slate-200 bg-slate-700 hover:bg-slate-600 transition-colors"
                   >
                     Als Ruhetag markieren
+                  </button>
+                )}
+                {/* Krank melden auch während des Wiedereinstiegs (Rückfall); bei aktiver
+                    Krankheit stattdessen gesund melden ab diesem Tag */}
+                {illness && !illness.end_date ? (
+                  <button
+                    onClick={() => handleHealthy(dayDateStr(monday, contextMenuDay))}
+                    className="w-full text-left py-2.5 px-3 rounded-xl text-sm text-slate-200 bg-slate-700 hover:bg-slate-600 transition-colors"
+                  >
+                    Wieder gesund ab hier
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleSick(dayDateStr(monday, contextMenuDay))}
+                    className="w-full text-left py-2.5 px-3 rounded-xl text-sm text-slate-200 bg-slate-700 hover:bg-slate-600 transition-colors"
+                  >
+                    Krank melden
                   </button>
                 )}
                 <button
