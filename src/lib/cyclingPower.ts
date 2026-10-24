@@ -134,8 +134,8 @@ function isHardRide(d: DayPlan): boolean {
   return /^(Z[3-6]|SS)/i.test(d.intensity ?? '')
 }
 
-function rideMinutesTarget(hoursPerWeek: number | null): number | null {
-  return hoursPerWeek ? Math.round(hoursPerWeek * 60) : null
+function rideMinutesTarget(hoursPerWeek: number | null, volumeFactor = 1): number | null {
+  return hoursPerWeek ? Math.round((hoursPerWeek * 60 * volumeFactor) / 5) * 5 : null
 }
 
 // Minuten-Budget fest vorgerechnet — Claude verteilte die Wochenstunden sonst falsch
@@ -148,9 +148,14 @@ function rideBudget(rideDays: number, target: number, indoor: boolean): { long: 
   return { long, other }
 }
 
-export function buildCyclingWeekStructureRules(rideDays: number, hoursPerWeek: number | null, monday: Date): string {
+export function buildCyclingWeekStructureRules(
+  rideDays: number,
+  hoursPerWeek: number | null,
+  monday: Date,
+  volumeFactor = 1,
+): string {
   if (rideDays < 2) return ''
-  const target = rideMinutesTarget(hoursPerWeek)
+  const target = rideMinutesTarget(hoursPerWeek, volumeFactor)
   const maxHard = rideDays >= 3 ? 2 : 1
   const budget = target ? rideBudget(rideDays, target, isWinterWeek(monday)) : null
   return `
@@ -158,7 +163,7 @@ RAD-WOCHENAUFBAU (fest, wird technisch geprüft):
 15. Genau ${rideDays} Rad-Tage — mehr Umfang NIE über zusätzliche Tage, nur über die Dauer.
 16. Genau EINE lange Ausfahrt: am Samstag oder Sonntag, Z2, die längste Rad-Einheit der Woche${budget ? ` — ${budget.long} Min` : ''}.
 17. ${maxHard === 2 ? '1–2' : 'Genau 1'} harte Rad-Einheit(en) (SS/Z3 oder höher), nie am Tag direkt nach der langen Ausfahrt. Alle übrigen Rad-Einheiten Z1/Z2.${budget ? `
-18. Die übrigen ${rideDays - 1} Rad-Einheiten dauern je ca. ${budget.other} Min (inkl. Ein-/Ausfahren). Summe ≈ ${target} Min = ${hoursPerWeek} h laut Profil.` : ''}
+18. Die übrigen ${rideDays - 1} Rad-Einheiten dauern je ca. ${budget.other} Min (inkl. Ein-/Ausfahren). Summe ≈ ${target} Min${volumeFactor === 1 ? ` = ${hoursPerWeek} h laut Profil` : ` (${Math.round(volumeFactor * 100)} % von ${hoursPerWeek} h laut Profil)`}.` : ''}
 `
 }
 
@@ -166,6 +171,8 @@ export function checkCyclingWeekStructure(
   planJson: PlanJson,
   hoursPerWeek: number | null,
   skipVolumeCheck: boolean,
+  volumeFactor = 1,
+  expectedHard: number | null = null,
 ): string[] {
   const order = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
   const rides = order
@@ -184,16 +191,157 @@ export function checkCyclingWeekStructure(
 
   const hard = rides.filter(r => isHardRide(r.d)).length
   const maxHard = rides.length >= 3 ? 2 : 1
-  if (hard < 1 || hard > maxHard) {
-    issues.push(`Rad: ${hard} harte Einheiten (vorgesehen: ${maxHard === 2 ? '1–2' : '1'})`)
+  if (expectedHard != null ? hard !== Math.min(expectedHard, maxHard) : (hard < 1 || hard > maxHard)) {
+    const expected = expectedHard != null ? String(Math.min(expectedHard, maxHard)) : maxHard === 2 ? '1–2' : '1'
+    issues.push(`Rad: ${hard} harte Einheiten (vorgesehen: ${expected})`)
   }
 
-  const target = rideMinutesTarget(hoursPerWeek)
+  const target = rideMinutesTarget(hoursPerWeek, volumeFactor)
   if (target && !skipVolumeCheck) {
     const total = rides.reduce((sum, r) => sum + (r.d.duration_min ?? 0), 0)
     if (Math.abs(total - target) > target * HOURS_TOLERANCE) {
-      issues.push(`Rad: ${(total / 60).toLocaleString('de-DE', { maximumFractionDigits: 1 })} h statt ${hoursPerWeek} h geplant`)
+      const fmt = (min: number) => (min / 60).toLocaleString('de-DE', { maximumFractionDigits: 1 })
+      issues.push(`Rad: ${fmt(total)} h statt ${fmt(target)} h geplant`)
     }
   }
   return issues
+}
+
+// ── Blockplanung Rad (Regelliste L1, L2, L4–L6, F2/F3) ─────────────────────
+// Blöcke rückwärts vom A-Event: Taper 2 Wo., Spezifisch 7, Aufbau 10, davor Grundlage
+// (nominal 12 Wo.). Durchgehender 3:1-Rhythmus vor dem Taper (3 Belastungs-, 1 Ent-
+// lastungswoche), so gezählt, dass die letzten 3 Wochen vor dem Taper Belastung sind.
+// Die Intervall-Inhalte stehen fest pro Block + Stufe; die App setzt sie nach der
+// Generierung selbst in die harten Rad-Einheiten ein (wie applyWorkoutRotation()).
+
+export type CyclingPhase = 'readaptation' | 'base' | 'race' | 'taper'
+
+const BLOCK_START: Record<CyclingPhase, number> = { readaptation: 30, base: 18, race: 8, taper: 1 }
+const DELOAD_FACTOR = 0.7
+const TAPER_FACTOR = [0.45, 0.6] // Index = Wochen bis Event (Bosquet 2007: −41–60 %)
+
+/** Wochen bis zum Event ab dem Montag der Planwoche (Eventwoche = 0) — fürs Rad die
+ *  maßgebliche Zählung für Phase, Entlastung und Stufe. */
+export function weeksUntilEventFrom(eventDate: string, monday: Date): number {
+  const [y, m, d] = eventDate.split('-').map(Number)
+  return Math.max(0, Math.floor((new Date(y, m - 1, d).getTime() - monday.getTime()) / (7 * 86400000)))
+}
+
+export function cyclingPhaseFor(weeksUntilEvent: number): CyclingPhase {
+  return weeksUntilEvent >= 19 ? 'readaptation' : weeksUntilEvent >= 9 ? 'base' : weeksUntilEvent >= 2 ? 'race' : 'taper'
+}
+
+function isDeloadSlot(weeksUntilEvent: number): boolean {
+  const k = weeksUntilEvent - 2
+  return k >= 0 && k % 4 === 3
+}
+
+type Prescription = { label: string; zone: CyclingZone; steps: Omit<MainSetItem, 'zone' | 'low' | 'high'>[] }
+
+const S = (reps: number, minutes: number, rest_min: number) => ({ reps, minutes, rest_min })
+
+// Pro Block die harten Einheiten der Woche (in dieser Reihenfolge auf die harten
+// Rad-Tage verteilt) mit ihren Steigerungsstufen
+const BLOCK_SESSIONS: Record<CyclingPhase, Prescription[]> = {
+  readaptation: [
+    { label: 'Sweet Spot', zone: 'SS', steps: [S(2, 15, 5), S(3, 12, 5), S(3, 15, 5), S(2, 20, 5), S(3, 20, 5)] },
+  ],
+  base: [
+    { label: 'Schwelle', zone: 'Z4', steps: [S(3, 10, 5), S(3, 12, 5), S(2, 20, 10), S(3, 15, 5), S(2, 25, 10)] },
+    { label: 'VO2max', zone: 'Z5', steps: [S(4, 4, 4), S(5, 4, 4), S(4, 5, 5), S(5, 5, 5), S(4, 6, 6), S(4, 8, 8)] },
+  ],
+  race: [
+    { label: 'Kletterintervalle', zone: 'Z4', steps: [S(3, 8, 5), S(4, 10, 5), S(3, 15, 5), S(3, 20, 5)] },
+    { label: 'VO2max (Erhalt)', zone: 'Z5', steps: [S(4, 5, 5)] },
+  ],
+  taper: [
+    { label: 'kurze VO2max-Reize', zone: 'Z5', steps: [S(3, 3, 3)] },
+  ],
+}
+
+export type CyclingBlockWeek = {
+  phase: CyclingPhase
+  weeksUntilEvent: number
+  deload: boolean
+  sessions: { label: string; item: MainSetItem }[]
+  volumeFactor: number
+}
+
+/** loadedWeeks: Wochen (als "Wochen bis Event"), in denen wirklich trainiert wurde
+ *  (siehe loadedWeeksFromRides). Die Stufe steigt nur mit absolvierten Belastungswochen,
+ *  und eine Entlastungswoche gibt es nur nach 3 absolvierten Wochen — sonst gibt es
+ *  nichts zu entlasten. null (keine Wochenstunden im Profil): rein kalendarisch. */
+export function cyclingBlockWeek(weeksUntilEvent: number, loadedWeeks: Set<number> | null): CyclingBlockWeek {
+  const phase = cyclingPhaseFor(weeksUntilEvent)
+  const loaded = (w: number) => loadedWeeks == null || loadedWeeks.has(w)
+  const recentlyLoaded = [1, 2, 3].every(i => loaded(weeksUntilEvent + i))
+  const deload = phase !== 'taper' && isDeloadSlot(weeksUntilEvent) && recentlyLoaded
+
+  // Stufe = absolvierte Belastungswochen seit Blockbeginn; Entlastungs-Slots zählen nicht
+  let step = 0
+  for (let w = BLOCK_START[phase]; w > weeksUntilEvent; w--) if (!isDeloadSlot(w) && loaded(w)) step++
+
+  const prescriptions = deload ? BLOCK_SESSIONS[phase].slice(0, 1) : BLOCK_SESSIONS[phase]
+  const sessions = prescriptions.map(p => {
+    const s = p.steps[deload ? 0 : Math.min(step, p.steps.length - 1)]
+    return { label: p.label, item: { ...s, zone: p.zone } }
+  })
+  const volumeFactor = phase === 'taper' ? TAPER_FACTOR[weeksUntilEvent] ?? 0.6 : deload ? DELOAD_FACTOR : 1
+  return { phase, weeksUntilEvent, deload, sessions, volumeFactor }
+}
+
+/** Gruppiert Radfahrten nach Woche ("Wochen bis Event") und liefert die Wochen mit
+ *  ≥ 70 % der Profil-Stunden. */
+export function loadedWeeksFromRides(
+  rides: { date: string; duration_s: number | null }[],
+  eventDate: string,
+  hoursPerWeek: number,
+): Set<number> {
+  const minutes = new Map<number, number>()
+  for (const r of rides) {
+    const d = new Date(r.date)
+    const day = (d.getDay() + 6) % 7
+    const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate() - day)
+    const w = weeksUntilEventFrom(eventDate, monday)
+    minutes.set(w, (minutes.get(w) ?? 0) + (r.duration_s ?? 0) / 60)
+  }
+  return new Set([...minutes].filter(([, min]) => min >= 0.7 * hoursPerWeek * 60).map(([w]) => w))
+}
+
+/** Harte Einheiten auf die verfügbaren Radtage begrenzen — ein Tag bleibt immer für
+ *  die lange Ausfahrt (bei 2 Radtagen also nur die erste harte Einheit). */
+export function fitBlockToRideDays(week: CyclingBlockWeek, rideDays: number): CyclingBlockWeek {
+  return { ...week, sessions: week.sessions.slice(0, Math.max(1, rideDays - 1)) }
+}
+
+export function buildCyclingBlockRules(week: CyclingBlockWeek, rideDays: number): string {
+  const easy = rideDays - 1 - week.sessions.length
+  const lines = week.sessions.map((s, i) =>
+    `- Harte Einheit ${i + 1}: ${s.label} — ${s.item.reps} × ${s.item.minutes} Min ${s.item.zone}, Pause ${s.item.rest_min} Min (intensity "${s.item.zone} ${s.label}")`)
+  const note = week.phase === 'taper'
+    ? 'TAPER-WOCHE: Umfang deutlich reduziert, die kurzen harten Reize bleiben (nicht streichen).'
+    : week.deload
+      ? 'ENTLASTUNGSWOCHE: ca. 30 % weniger Umfang, nur EINE harte Einheit auf der niedrigsten Stufe.'
+      : 'Belastungswoche.'
+  return `
+RAD-BLOCKPLAN (fest, von der App berechnet — ${week.weeksUntilEvent} Wochen bis zum Event):
+${note}
+Die ${rideDays} Rad-Tage dieser Woche sind GENAU: 1× lange Ausfahrt (Z2, Sa/So) + ${week.sessions.length}× harte Einheit${easy > 0 ? ` + ${easy}× lockere Fahrt (Z1/Z2)` : ' (keine weitere lockere Fahrt)'} — keine weiteren Rad-Tage.
+Harte Einheiten, in dieser Reihenfolge über die Woche verteilt:
+${lines.join('\n')}
+Übernimm Zone und Intervallstruktur exakt als "main_set" — die App setzt sie nach der Generierung ohnehin fest ein.
+`
+}
+
+/** Setzt die fest vorgegebenen Intervalle der Reihe nach in die harten Rad-Tage ein
+ *  (Claude legt nur fest, AN WELCHEN Tagen). Watt berechnet danach applyCyclingPower(). */
+export function applyCyclingBlock(planJson: PlanJson, week: CyclingBlockWeek): PlanJson {
+  const order = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
+  const days = { ...planJson.days }
+  const hardKeys = order.filter(k => days[k] && isCyclingDay(days[k]) && isHardRide(days[k]))
+  hardKeys.slice(0, week.sessions.length).forEach((k, i) => {
+    const { label, item } = week.sessions[i]
+    days[k] = { ...days[k], intensity: `${item.zone} ${label}`, main_set: [item] }
+  })
+  return { ...planJson, days }
 }

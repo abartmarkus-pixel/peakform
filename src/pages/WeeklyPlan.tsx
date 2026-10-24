@@ -2,7 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, type Athlete, type WeeklyPlan, type Activity, type SportConfig } from '../lib/supabase'
 import { buildCoachContext, calculateSeasonPhase, determineTrainingPhilosophy, type PhaseResult } from '../lib/coachContext'
-import { applyCyclingPower, buildCyclingPlanRules, buildCyclingWeekStructureRules, checkCyclingWeekStructure, checkIndoorCap, formatMainSetItem, formatWatts } from '../lib/cyclingPower'
+import {
+  applyCyclingBlock, applyCyclingPower, buildCyclingBlockRules, buildCyclingPlanRules, buildCyclingWeekStructureRules,
+  checkCyclingWeekStructure, checkIndoorCap, cyclingBlockWeek, fitBlockToRideDays, formatMainSetItem, formatWatts, loadedWeeksFromRides,
+  weeksUntilEventFrom,
+  type CyclingBlockWeek,
+} from '../lib/cyclingPower'
 import { buildCoachSystemPrompt } from '../lib/coachPrompt'
 import { getValidAccessToken, fetchRecentActivities, syncActivitiesToSupabase } from '../lib/strava'
 import { analyzeActivity, claimActivityForAnalysis, parseHevyDescription } from '../lib/activityAnalysis'
@@ -870,9 +875,10 @@ export default function WeeklyPlan() {
       let periodizationPhaseLabel = ''
       let periodizationPhase = ''
       if (primaryGoal && primaryGoalSportKey) {
-        const weeksUntilPrimaryGoal = Math.round(
-          (new Date(primaryGoal.event_date).getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000),
-        )
+        // Rad: ab dem Montag der Planwoche gezählt (gleiche Zählung wie der Blockplan unten)
+        const weeksUntilPrimaryGoal = primaryGoalSportKey === 'cycling'
+          ? weeksUntilEventFrom(primaryGoal.event_date, monday)
+          : Math.round((new Date(primaryGoal.event_date).getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000))
         const sportPhase = calculateSeasonPhase(weeksUntilPrimaryGoal, athlete.season_phase_override ?? null, primaryGoal.sport_type)
         periodizationPhaseLabel = sportPhase.label
         periodizationPhase = sportPhase.phase
@@ -911,12 +917,38 @@ Diese Regel gilt NUR für ${SPORT_LABEL[primaryGoalSportKey]}-Einheiten in diese
 
       const hasCycling = sportConfigs.some(s => s.type === 'cycling' && s.days > 0)
       const cyclingConfig = sportConfigs.find(s => s.type === 'cycling')
-      // Fester Rad-Wochenaufbau nur bei Radziel als A-Ziel (wie die Periodisierung oben).
+      const cyclingHours = cyclingConfig?.hours_per_week ?? null
+
+      // Rad-Blockplan + fester Wochenaufbau nur bei Radziel als A-Ziel (wie die
+      // Periodisierung oben) und ohne manuellen Phasen-Override (der hat keine Zeitbasis).
+      // Stufen und Entlastungswochen richten sich nach den tatsächlich absolvierten
+      // Rad-Wochen (≥ 70 % der Profil-Stunden) der letzten 12 Wochen (= längster Block).
+      let cyclingBlock: CyclingBlockWeek | null = null
+      if (primaryGoalSportKey === 'cycling' && primaryGoal && cyclingConfig && !athlete.season_phase_override) {
+        let loadedWeeks: Set<number> | null = null
+        if (cyclingHours) {
+          const { data: recentRides } = await supabase
+            .from('activities')
+            .select('date, duration_s')
+            .eq('athlete_id', athlete.id)
+            .in('type', ['Ride', 'VirtualRide', 'MountainBikeRide', 'GravelRide'])
+            .gte('date', new Date(monday.getTime() - 84 * 86400000).toISOString())
+            .lt('date', monday.toISOString())
+          loadedWeeks = loadedWeeksFromRides(recentRides ?? [], primaryGoal.event_date, cyclingHours)
+        }
+        cyclingBlock = fitBlockToRideDays(
+          cyclingBlockWeek(weeksUntilEventFrom(primaryGoal.event_date, monday), loadedWeeks),
+          cyclingConfig.days,
+        )
+      }
+      // In der Eventwoche selbst kein Wochenaufbau (der Wettkampf ersetzt die lange Ausfahrt).
       // Bei aktiver Erholungs-Einschränkung oder im Taper keine Stundenprüfung.
-      const cyclingStructure = primaryGoalSportKey === 'cycling' && cyclingConfig
+      const cyclingStructure = primaryGoalSportKey === 'cycling' && cyclingConfig && cyclingBlock?.weeksUntilEvent !== 0
+      const volumeFactor = cyclingBlock?.volumeFactor ?? 1
       const cyclingSection = hasCycling
         ? buildCyclingPlanRules(athlete.ftp_watts ?? null, monday)
-          + (cyclingStructure ? buildCyclingWeekStructureRules(cyclingConfig.days, cyclingConfig.hours_per_week ?? null, monday) : '')
+          + (cyclingStructure ? buildCyclingWeekStructureRules(cyclingConfig.days, cyclingHours, monday, volumeFactor) : '')
+          + (cyclingBlock && cyclingConfig ? buildCyclingBlockRules(cyclingBlock, cyclingConfig.days) : '')
         : ''
 
       const prompt = `${context}
@@ -979,8 +1011,9 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, 
       })
       if (!res.ok) throw new Error('API Fehler')
       const { text } = await res.json() as { text: string }
+      const rotated = await applyWorkoutRotation(parsePlanJson(text), athlete.id, weekStr)
       const planJson = applyCyclingPower(
-        await applyWorkoutRotation(parsePlanJson(text), athlete.id, weekStr),
+        cyclingBlock ? applyCyclingBlock(rotated, cyclingBlock) : rotated,
         athlete.ftp_watts ?? null,
       )
 
@@ -990,7 +1023,11 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, 
         ...checkGoalPlacement(planJson, monday, activeGoals ?? []),
         ...checkIndoorCap(planJson),
         ...(cyclingStructure
-          ? checkCyclingWeekStructure(planJson, cyclingConfig.hours_per_week ?? null, recoveryLines.length > 0 || periodizationPhase === 'taper')
+          ? checkCyclingWeekStructure(
+              planJson, cyclingHours,
+              recoveryLines.length > 0 || periodizationPhase === 'taper',
+              volumeFactor, cyclingBlock?.sessions.length ?? null,
+            )
           : []),
       ]
       if (issues.length > 0) {

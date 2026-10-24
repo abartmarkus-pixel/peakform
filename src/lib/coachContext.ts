@@ -1,5 +1,6 @@
 import { supabase, type Activity, type Athlete, type SportConfig, type EquipmentConfig, type AestheticGoals } from './supabase'
 import { getISOMonday, toLocalDateStr, toLocalWeekdayDateStr, toLocalWeekdayDateTimeStr, relativeDayLabel } from './dateUtils'
+import { cyclingPhaseFor } from './cyclingPower'
 
 const WEEKDAY_ORDER = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
 
@@ -89,6 +90,14 @@ const PHASE_WEEK_BOUNDS: Record<string, [start: number, end: number]> = {
   taper: [2, 0],
 }
 
+// Rad: Grundlage nominal 12 Wo. / Aufbau 10 / Spezifisch 7 / Taper 2 (Regelliste L1)
+const PHASE_WEEK_BOUNDS_CYCLING: Record<string, [start: number, end: number]> = {
+  readaptation: [31, 19],
+  base: [19, 9],
+  race: [9, 2],
+  taper: [2, 0],
+}
+
 /** Rad-Variante von PHASE_LABELS — dieselben 4 Phasen-Keys (identische Zeitgrenzen,
  *  identisch mit season_phase_override-Werten), aber ohne die lauf-spezifische
  *  Wortwahl ("Sehnen/Laufmuskulatur readaptieren" o.ä.), die bei einem reinen Rad-Ziel
@@ -131,6 +140,14 @@ export function calculateSeasonPhase(
 ): PhaseResult {
   const labels = sportType === 'Radfahren' ? PHASE_LABELS_CYCLING : PHASE_LABELS
   if (override && labels[override]) return { ...labels[override], progressPct: null }
+
+  // Rad: längere Blöcke aus der Regelliste (siehe cyclingPhaseFor() in cyclingPower.ts)
+  if (sportType === 'Radfahren') {
+    const key = cyclingPhaseFor(weeksUntilEvent)
+    const [start, end] = PHASE_WEEK_BOUNDS_CYCLING[key]
+    const progressPct = Math.min(100, Math.max(0, ((start - weeksUntilEvent) / (start - end)) * 100))
+    return { ...labels[key], progressPct }
+  }
 
   const key =
     weeksUntilEvent >= 10 ? 'readaptation' :
