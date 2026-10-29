@@ -43,7 +43,6 @@ import { toDateStr } from '../lib/dateUtils'
 
 type RunSplit = {
   km: number | string
-  duration: string
   pace: string
   avgHr: number | null
 }
@@ -194,8 +193,8 @@ function splitsFromMetric(splitsMetric: StravaSplitMetric[]): RunSplit[] {
     const isPartial = s.distance < 900
     return {
       km: isPartial ? `${(s.distance / 1000).toFixed(2)} km` : `km ${i + 1}`,
-      duration: formatDuration(s.moving_time),
-      pace: isPartial ? '—' : formatPace(s.moving_time / (s.distance / 1000)),
+      // Rest-Stück: Pace wäre bei so kurzer Distanz unsinnig → Zeit statt Pace
+      pace: isPartial ? `${formatDuration(s.moving_time)} (Rest)` : formatPace(s.moving_time / (s.distance / 1000)),
       avgHr: s.average_heartrate != null ? Math.round(s.average_heartrate) : null,
     }
   })
@@ -1014,7 +1013,6 @@ export default function ActivityDetail() {
               <thead>
                 <tr className="text-xs text-slate-500 uppercase border-b border-slate-700">
                   <th className="px-4 py-2.5 text-left">KM</th>
-                  <th className="px-4 py-2.5 text-left">ZEIT</th>
                   <th className="px-4 py-2.5 text-left">PACE</th>
                   <th className="px-4 py-2.5 text-left">Ø HF</th>
                 </tr>
@@ -1025,7 +1023,6 @@ export default function ActivityDetail() {
                     <td className="px-4 py-2.5 text-slate-300">
                       {typeof split.km === 'number' ? `km ${split.km}` : split.km}
                     </td>
-                    <td className="px-4 py-2.5 text-slate-300">{split.duration}</td>
                     <td className="px-4 py-2.5 text-slate-300">{split.pace}</td>
                     <td className="px-4 py-2.5 text-slate-300">
                       {split.avgHr != null ? `${split.avgHr} bpm` : '—'}
