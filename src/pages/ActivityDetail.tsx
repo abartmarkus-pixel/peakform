@@ -1075,11 +1075,13 @@ export default function ActivityDetail() {
       )}
 
       {/* ── Analyse-Button + Feedback ─────────────────────────── */}
-      <div className="mb-6 flex gap-2">
+      {/* 3 Buttons nebeneinander passen nicht auf die iPhone-Breite ("übernehmen" lässt sich nicht umbrechen)
+          → "Neu analysieren" dann über die volle Breite, die beiden anderen darunter nebeneinander */}
+      <div className="mb-6 grid grid-cols-2 gap-2">
         <button
           onClick={() => runAnalysis()}
           disabled={analysing}
-          className="flex-1 min-w-0 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white text-sm leading-tight text-center font-semibold px-2 py-3 rounded-xl transition-colors flex items-center justify-center gap-2"
+          className={`${!analysis || recoSport ? 'col-span-2' : ''} min-w-0 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white text-sm leading-tight text-center font-semibold px-2 py-3 rounded-xl transition-colors flex items-center justify-center gap-2`}
         >
           {analysing && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
           {analysing ? 'Analysiere…' : 'Neu analysieren'}
@@ -1088,7 +1090,7 @@ export default function ActivityDetail() {
         {analysis && (
           <button
             onClick={openFeedbackModal}
-            className="flex-1 min-w-0 flex items-center justify-center gap-1.5 px-2 py-3 rounded-xl text-sm leading-tight text-center font-semibold text-slate-200 bg-slate-800 hover:bg-slate-700 transition-colors"
+            className="min-w-0 flex items-center justify-center gap-1.5 px-2 py-3 rounded-xl text-sm leading-tight text-center font-semibold text-slate-200 bg-slate-800 hover:bg-slate-700 transition-colors"
           >
             {feedback
               ? <IconCommentFilled size={16} className="text-brand-400" />
@@ -1100,7 +1102,7 @@ export default function ActivityDetail() {
         {analysis && recoSport && (
           <button
             onClick={() => openRecoModal(recoSport)}
-            className="flex-1 min-w-0 flex items-center justify-center gap-1.5 px-2 py-3 rounded-xl text-sm leading-tight text-center font-semibold text-slate-200 bg-slate-800 hover:bg-slate-700 transition-colors"
+            className="min-w-0 flex items-center justify-center gap-1.5 px-2 py-3 rounded-xl text-sm leading-tight text-center font-semibold text-slate-200 bg-slate-800 hover:bg-slate-700 transition-colors"
           >
             Empfehlung übernehmen
           </button>
