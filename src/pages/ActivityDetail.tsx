@@ -1075,11 +1075,11 @@ export default function ActivityDetail() {
       )}
 
       {/* ── Analyse-Button + Feedback ─────────────────────────── */}
-      <div className="mb-6 flex justify-between gap-3">
+      <div className="mb-6 flex gap-2">
         <button
           onClick={() => runAnalysis()}
           disabled={analysing}
-          className="bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white font-semibold px-5 py-2.5 rounded-xl transition-colors flex items-center gap-2"
+          className="flex-1 min-w-0 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white text-sm leading-tight text-center font-semibold px-2 py-3 rounded-xl transition-colors flex items-center justify-center gap-2"
         >
           {analysing && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
           {analysing ? 'Analysiere…' : 'Neu analysieren'}
@@ -1088,7 +1088,7 @@ export default function ActivityDetail() {
         {analysis && (
           <button
             onClick={openFeedbackModal}
-            className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-base font-semibold text-slate-200 bg-slate-800 hover:bg-slate-700 transition-colors"
+            className="flex-1 min-w-0 flex items-center justify-center gap-1.5 px-2 py-3 rounded-xl text-sm leading-tight text-center font-semibold text-slate-200 bg-slate-800 hover:bg-slate-700 transition-colors"
           >
             {feedback
               ? <IconCommentFilled size={16} className="text-brand-400" />
@@ -1100,7 +1100,7 @@ export default function ActivityDetail() {
         {analysis && recoSport && (
           <button
             onClick={() => openRecoModal(recoSport)}
-            className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-base font-semibold text-slate-200 bg-slate-800 hover:bg-slate-700 transition-colors"
+            className="flex-1 min-w-0 flex items-center justify-center gap-1.5 px-2 py-3 rounded-xl text-sm leading-tight text-center font-semibold text-slate-200 bg-slate-800 hover:bg-slate-700 transition-colors"
           >
             Empfehlung übernehmen
           </button>
@@ -1119,7 +1119,7 @@ export default function ActivityDetail() {
       {analysis && (
         <div className="bg-slate-800 rounded-xl p-4">
           <h2 className="text-sm font-semibold text-brand-400 uppercase tracking-wider mb-3">KI-Analyse</h2>
-          <div className="space-y-1">{renderMarkdown(analysis)}</div>
+          <div className="space-y-1 break-words">{renderMarkdown(analysis)}</div>
         </div>
       )}
 
@@ -1151,7 +1151,7 @@ export default function ActivityDetail() {
               <h3 className="text-sm font-semibold text-orange-300 uppercase tracking-wider mb-3">
                 🔥 Geröstet 🔥
               </h3>
-              <div className="space-y-1">{renderMarkdown(roastResult)}</div>
+              <div className="space-y-1 break-words">{renderMarkdown(roastResult)}</div>
             </div>
           )}
         </div>

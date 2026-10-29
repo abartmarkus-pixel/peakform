@@ -3,6 +3,11 @@
 @tailwind utilities;
 
 @layer base {
+  /* Kein seitliches Verschieben auf dem iPhone, falls ein Element zu breit ist */
+  html,
+  body {
+    overflow-x: clip;
+  }
   body {
     @apply bg-slate-900 text-slate-100 antialiased;
   }

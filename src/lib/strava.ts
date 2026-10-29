@@ -9,7 +9,11 @@ const REDIRECT_URI = import.meta.env.VITE_STRAVA_REDIRECT_URI as string
 // Generates a fresh CSRF state token for the OAuth flow, persists it in
 // sessionStorage so AuthCallback can verify it, and returns it for the auth URL.
 export function generateOAuthState(): string {
-  const state = crypto.randomUUID()
+  // randomUUID gibt es nur in sicheren Kontexten (https/localhost) — beim
+  // Testen übers WLAN (http://192.168.x.x) fehlt es, getRandomValues nicht
+  const state = typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('')
   sessionStorage.setItem('oauth_state', state)
   return state
 }
