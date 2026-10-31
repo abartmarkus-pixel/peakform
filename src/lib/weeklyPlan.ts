@@ -81,7 +81,7 @@ export function resolveDayZone(d: DayPlan): number | null {
   return match ? Number(match[1]) : null
 }
 
-function isRestDay(d: DayPlan): boolean {
+export function isRestDay(d: DayPlan): boolean {
   return REST_KEYWORDS.some(k => d.type.toLowerCase().includes(k))
 }
 

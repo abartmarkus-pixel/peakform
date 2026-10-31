@@ -1,5 +1,5 @@
 import { supabase, type Activity, type Athlete, type SportConfig, type EquipmentConfig, type AestheticGoals } from './supabase'
-import { getISOMonday, toLocalDateStr, toLocalWeekdayDateStr, toLocalWeekdayDateTimeStr, relativeDayLabel } from './dateUtils'
+import { getISOMonday, toDateStr, toLocalDateStr, toLocalWeekdayDateStr, toLocalWeekdayDateTimeStr, relativeDayLabel } from './dateUtils'
 import { cyclingPhaseFor } from './cyclingPower'
 import { fetchRelevantIllness, illnessPromptLine } from './illness'
 
@@ -838,7 +838,7 @@ export async function buildCoachContext(
   // intensiver Lauf/Rad-Tag nach einem intensiven Bein-Workout).
   const showEnduranceGoals = activeSport !== 'strength'
 
-  const nextA = goals?.find(g => g.priority === 'A')
+  const nextA = goals?.find(g => g.priority === 'A' && g.event_date >= toDateStr(new Date()))
   const aCountdown = nextA
     ? `\nNächstes A-Event in ${countdown(nextA.event_date)}: ${nextA.event_name} (${nextA.event_date})`
     : ''

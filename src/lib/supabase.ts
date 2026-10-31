@@ -91,6 +91,10 @@ export type SeasonGoal = {
   sport_type: string | null
   notes: string | null
   active: boolean
+  race_activity_id: string | null   // Rennaktivität für den Rückblick (manuell gewählt, sonst automatisch gesucht)
+  recap_user_notes: string | null   // eigener Rückblick-Text des Athleten ("Wie lief's?")
+  recap_summary: string | null      // Coach-Fazit, einmal erstellt und gespeichert
+  recap_summary_at: string | null
   created_at: string
 }
 

@@ -1,5 +1,6 @@
 import { supabase, type Activity, type SportConfig, type EquipmentConfig, type AestheticGoals } from './supabase'
 import { calculateSeasonPhase, calculateHRZones, calculateZ2HRRange, calculatePaceReference, calculateDynamicZ2Pace, estimateBest5kFromActivities, resolveHRProfile } from './coachContext'
+import { toDateStr } from './dateUtils'
 // determineTrainingPhilosophy: siehe coachContext.ts — hier nicht importiert, da die
 // Philosophie-Regel sportspezifisch nur im Wochenplan-Prompt (WeeklyPlan.tsx) injiziert
 // wird, nicht im allgemeinen System-Prompt (der für Chat/Analyse jeder Sportart gilt).
@@ -41,9 +42,9 @@ export const STYLE_LABELS: Record<string, string> = {
   motivierend: 'Motivierend', analytisch: 'Analytisch', drill_sergeant: 'Drill Sergeant',
 }
 
-const DEFAULT_STYLE = 'analytisch'
+export const DEFAULT_STYLE = 'analytisch'
 
-const COACH_STYLE_PROMPTS: Record<string, string> = {
+export const COACH_STYLE_PROMPTS: Record<string, string> = {
   motivierend: `Dein Ton ist positiv und ermutigend. Feiere Fortschritte explizit, auch kleine. Formuliere Kritik immer eingebettet in Zuspruch ("X war stark, Y können wir noch verbessern" statt nur "Y war schlecht"). Trotzdem bleibst du präzise und datengetrieben — Motivation ersetzt niemals konkrete Zahlen oder ehrliche Einschätzung.`,
 
   analytisch: `Dein Ton ist sachlich und zahlengetrieben. Erkläre die Physiologie hinter deinen Empfehlungen (warum diese HF-Zone, warum diese Pace). Wenig Emotionalität, viel Substanz. Das ist der Standard-Ton der App.`,
@@ -162,6 +163,7 @@ export async function buildCoachSystemPrompt(
       .eq('athlete_id', athleteId)
       .eq('active', true)
       .eq('priority', 'A')
+      .gte('event_date', toDateStr(new Date()))
       .order('event_date', { ascending: true })
       .limit(1),
     supabase

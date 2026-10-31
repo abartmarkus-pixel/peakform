@@ -15,6 +15,7 @@ import { restoreSessionFromSupabase, backfillStravaPrs } from './lib/strava'
 import { supabase } from './lib/supabase'
 import { useTabSwipeNavigation } from './lib/useTabSwipeNavigation'
 import { syncPushSubscription } from './lib/push'
+import { deactivatePastGoals } from './lib/goals'
 
 const NO_NAV_PATHS = ['/', '/auth/callback', '/onboarding']
 const PUBLIC_PATHS = ['/', '/auth/callback']
@@ -73,6 +74,9 @@ function Layout() {
       // Einmaliger Nachhol-Check der Strava-eigenen Bestzeiten für bereits vor
       // diesem Feature analysierte Läufe — no-op sobald strava_prs_backfill_done.
       if (data?.id) void backfillStravaPrs(data.id)
+      // Vergangene Saisonziele automatisch deaktivieren (sonst bleibt z.B. ein
+      // gelaufenes Rennen als "aktives A-Ziel" in Liste und Coach-Kontext stehen).
+      if (data?.id) void deactivatePastGoals(data.id)
     })()
 
     if (!isLoggedIn) return

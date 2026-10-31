@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, type SeasonGoal, type Athlete } from '../lib/supabase'
-import { IconAdd, IconEdit, IconMissed, IconGoals } from '../lib/icons'
+import { IconAdd, IconEdit, IconMissed, IconGoals, IconChevronDown, IconChevronUp } from '../lib/icons'
 import { AppHeader } from '../components/AppHeader'
+import { deactivatePastGoals } from '../lib/goals'
+import { toDateStr } from '../lib/dateUtils'
 import { useFeatures } from '../lib/features'
 
 // ── types & constants ──────────────────────────────────────────────────────
@@ -67,6 +69,8 @@ export default function Goals() {
   const navigate = useNavigate()
   const [athleteId, setAthleteId]   = useState<string | null>(null)
   const [goals, setGoals]           = useState<SeasonGoal[]>([])
+  const [pastGoals, setPastGoals]   = useState<SeasonGoal[]>([])
+  const [showPast, setShowPast]     = useState(false)
   const [loading, setLoading]       = useState(true)
   const [showModal, setShowModal]   = useState(false)
   const [editingId, setEditingId]   = useState<string | null>(null)
@@ -88,6 +92,9 @@ export default function Goals() {
       if (!useFeatures(athleteData as unknown as Athlete).goals) { navigate('/dashboard', { replace: true }); return }
 
       setAthleteId(athleteData.id)
+      // Hier zusätzlich abgewartet (läuft auch beim App-Start), damit die Liste
+      // nicht kurz noch ein vergangenes Ziel zeigt.
+      await deactivatePastGoals(athleteData.id)
       const { data: goalsData } = await supabase
         .from('season_goals')
         .select('*')
@@ -95,6 +102,16 @@ export default function Goals() {
         .eq('active', true)
         .order('event_date', { ascending: true })
       setGoals((goalsData ?? []) as SeasonGoal[])
+      // Vergangene Ziele: nur bereits stattgefundene (von Hand deaktivierte Zukunftsziele
+      // bleiben ausgeblendet — die wurden bewusst verworfen, nicht absolviert).
+      const { data: pastData } = await supabase
+        .from('season_goals')
+        .select('*')
+        .eq('athlete_id', athleteData.id)
+        .eq('active', false)
+        .lt('event_date', toDateStr(new Date()))
+        .order('event_date', { ascending: false })
+      setPastGoals((pastData ?? []) as SeasonGoal[])
       setLoading(false)
     })()
   }, [navigate])
@@ -259,6 +276,42 @@ export default function Goals() {
             )
           })}
         </ul>
+      )}
+
+      {/* Vergangene Ziele */}
+      {pastGoals.length > 0 && (
+        <div className="mt-8">
+          <button
+            onClick={() => setShowPast(v => !v)}
+            className="w-full flex items-center justify-between text-xs text-slate-400 uppercase tracking-wider py-2"
+          >
+            <span>Vergangene Ziele ({pastGoals.length})</span>
+            {showPast ? <IconChevronUp size={12} /> : <IconChevronDown size={12} />}
+          </button>
+          {showPast && (
+            <ul className="flex flex-col gap-2 mt-2">
+              {pastGoals.map(g => (
+                <li
+                  key={g.id}
+                  onClick={() => navigate(`/goals/${g.id}`)}
+                  className="bg-slate-800/50 hover:bg-slate-800 rounded-2xl px-4 py-3 cursor-pointer transition-colors"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-xs font-bold px-2 py-0.5 rounded-full shrink-0 bg-slate-700 text-slate-400">
+                      {g.priority}
+                    </span>
+                    <span className="font-medium text-slate-300 truncate">{g.event_name}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-500 mt-1">
+                    <span>{new Date(g.event_date).toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+                    {g.sport_type  && <span>{g.sport_type}</span>}
+                    {g.distance_km && <span>{g.distance_km} km</span>}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
 
       {/* Modal */}

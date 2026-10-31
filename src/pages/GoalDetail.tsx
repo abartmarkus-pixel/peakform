@@ -15,7 +15,8 @@ import {
   type PhaseProgressNarrative,
   type FinishTimeProgressionPoint,
 } from '../lib/coachContext'
-import { formatRaceTime } from '../lib/dateUtils'
+import { formatRaceTime, toDateStr } from '../lib/dateUtils'
+import { GoalRecap } from '../components/GoalRecap'
 
 // Progressions-Grafik: 8 Punkte im 14-Tage-Abstand, die letzten 98 Tage abdeckend.
 const PROGRESSION_POINTS = 8
@@ -152,6 +153,30 @@ export default function GoalDetail() {
           <button onClick={() => navigate('/goals')} className="text-brand-500 hover:text-brand-400 text-sm mt-2">
             Zurück zu den Zielen
           </button>
+        </div>
+      </>
+    )
+  }
+
+  // Vergangenes Ziel: Rückblick statt Phasen-Grafik/Zielzeit-Schätzung
+  if (goal.event_date < toDateStr(new Date()) && athlete) {
+    return (
+      <>
+        <AppHeader />
+        <div className="min-h-screen p-4 max-w-2xl mx-auto page-content">
+          <button
+            onClick={() => navigate('/goals')}
+            className="inline-flex items-center gap-1 text-brand-500 hover:text-brand-400 text-sm mb-4"
+          >
+            <IconChevronLeft size={14} /> Zurück
+          </button>
+          <h1 className="text-xl font-bold text-slate-100 mb-1">{goal.event_name}</h1>
+          <p className="text-slate-400 text-sm mb-6">
+            {new Date(goal.event_date).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+            {goal.distance_km ? ` · ${goal.distance_km} km` : ''}
+            {' · Abgeschlossen'}
+          </p>
+          <GoalRecap athlete={athlete} goal={goal} />
         </div>
       </>
     )

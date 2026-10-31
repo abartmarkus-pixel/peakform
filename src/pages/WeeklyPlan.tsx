@@ -646,6 +646,7 @@ export default function WeeklyPlan() {
       .eq('athlete_id', athlete.id)
       .eq('active', true)
       .eq('priority', 'A')
+      .gte('event_date', toDateStr(new Date()))
       .order('event_date', { ascending: true })
       .limit(1)
       .then(({ data }) => {
@@ -904,7 +905,7 @@ export default function WeeklyPlan() {
       // rein generischen Regelwerk (kein "Radziel"-spezifisches Vorschreiben, wenn Rad z.B.
       // nur unterstützende Nebensportart zu einem Laufziel ist).
       const primaryGoal = (activeGoals ?? [])
-        .filter(g => g.priority === 'A')
+        .filter(g => g.priority === 'A' && g.event_date >= toDateStr(new Date()))
         .sort((a, b) => a.event_date.localeCompare(b.event_date))[0] ?? null
       const primaryGoalSportKey: 'cycling' | 'running' | null =
         primaryGoal?.sport_type === 'Radfahren' ? 'cycling' :

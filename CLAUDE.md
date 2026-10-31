@@ -96,7 +96,13 @@ activities (id uuid PK, athlete_id uuid FK→athletes, strava_id bigint UNIQUE,
 season_goals (id uuid PK, athlete_id uuid FK→athletes, event_name text,
               event_date date, distance_km numeric, elevation_m int,
               priority goal_priority ENUM('A','B','C'), sport_type text,
-              notes text, active bool, created_at timestamptz)
+              notes text, active bool,     ← vergangene Ziele (event_date < heute) setzt deactivatePastGoals()
+                                      -- (goals.ts) automatisch auf false — beim App-Start + Laden von Goals.tsx
+              race_activity_id uuid FK→activities ON DELETE SET NULL, ← manuell gewählte Rennaktivität für den
+                                      -- Rückblick (GoalRecap.tsx); NULL = automatisch längste passende vom Renntag
+              recap_user_notes text,       ← eigener Rückblick-Text "Wie lief's für dich?" (Auto-Save 800ms)
+              recap_summary text, recap_summary_at timestamptz, ← Coach-Fazit, einmal erstellt + gespeichert
+              created_at timestamptz)
 
 weekly_plans (id uuid PK, athlete_id uuid FK→athletes, week_start date,
               version int, plan_json jsonb, review_notes text,
@@ -157,6 +163,7 @@ peakform/
 │   │                       # Loading-Splash "PeakForm wird geladen…" während Supabase-Check
 │   │                       # Layout: useTabSwipeNavigation() — Swipe-Geste zwischen BottomNav-Tabs
 │   ├── components/
+│   │   ├── GoalRecap.tsx   # Rückblick vergangener Ziele: Ergebnis, Prognose vs. Realität, Vorbereitung, Coach-Fazit
 │   │   └── BottomNav.tsx   # 5-Tab-Navigation (Home|Plan|Coach|Ziele|Profil); Tabs aus useVisibleTabs()
 │   ├── pages/
 │   │   ├── Home.tsx        # Strava-Connect-Button; Auto-Redirect zu /dashboard (prüft localStorage + sessionStorage)
@@ -166,7 +173,8 @@ peakform/
 │   │   ├── Profile.tsx     # Name, FTP/HF/Gewicht, Sportarten, Equipment, Ästhetik, Trainingsphase; Auto-Save 800ms
 │   │   │                   # Sportarten-Stepper: Invariante Σdays ≤ trainingDays technisch erzwungen
 │   │   ├── Goals.tsx       # Saisonziele A/B/C, Countdown in Tagen, Add/Edit-Modal; Karten verlinken zu /goals/:id
-│   │   ├── GoalDetail.tsx  # Phasen-Grafik + geschätzte Zielzeit (nur Laufziele) — komplett Claude-frei
+│   │   ├── GoalDetail.tsx  # Phasen-Grafik + geschätzte Zielzeit (nur Laufziele) — komplett Claude-frei;
+│   │   │                   # bei vergangenem Ziel stattdessen <GoalRecap> (components/GoalRecap.tsx)
 │   │   ├── WeeklyPlan.tsx  # Wochenplan + Constraint-Prompt + Validation-Banner + Wochenreview
 │   │   └── Chat.tsx        # Globaler Coach-Chat mit Supabase-Persistenz; Button "In Plan übernehmen" unter
 │   │                       # der letzten Coach-Nachricht (extractChatPlanRecommendation/applyPlanRecommendation)
@@ -209,6 +217,7 @@ peakform/
 │   │   │                   # (Chat.tsx-Button) — extrahiert zusätzlich die Sportart selbst (vorher unbekannt).
 │   │   │                   # applyPlanRecommendation() nimmt ein generisches source-Label statt activityName/-Id
 │   │   │                   # (activityId optional) — von beiden Buttons gemeinsam genutzt
+│   │   ├── goals.ts        # deactivatePastGoals(): vergangene Saisonziele automatisch auf active=false
 │   │   └── push.ts         # getPushSupport() (Feature-Detection inkl. iOS-Standalone-Check), enablePushNotifications()/
 │   │                       # disablePushNotifications(), syncPushSubscription() — stiller Re-Subscribe bei jedem
 │   │                       # App-Start (App.tsx Layout), fängt bekanntes iOS-Subscription-Expiry-Problem ab
@@ -323,6 +332,10 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 ### Saison-Ziele
 - [x] A/B/C-Priorität, Countdown in Tagen, Add/Edit-Modal
 - [x] Deaktivieren (active = false, kein DELETE)
+- [x] "Nächstes A-Ziel" überall nur mit `event_date >= heute` (WeeklyPlan-Phasen-Badge + `generatePlan()`, `buildCoachSystemPrompt()`, `buildCoachContext()`-Countdown, Profile.tsx) — vorher gewann ein vergangenes, noch aktives A-Ziel (frühestes Datum) und die Phase stand dauerhaft auf Taper (realer Fall: Amsterdam 8K vorbei, Mallorca 312 als neues Ziel ignoriert)
+- [x] Vergangene Ziele automatisch deaktivieren: `deactivatePastGoals()` (`goals.ts`) setzt `active = false` für Ziele mit `event_date < heute` (Renntag selbst bleibt aktiv), fire-and-forget im App.tsx-Layout neben `backfillStravaPrs()`, in Goals.tsx zusätzlich vor dem Laden abgewartet
+- [x] Goals.tsx: zugeklappter Bereich "Vergangene Ziele" (nur `active = false` UND `event_date < heute` — von Hand verworfene Zukunftsziele bleiben ausgeblendet), Karten verlinken auf `/goals/:id`
+- [x] Rückblick (`GoalRecap.tsx`, von GoalDetail.tsx statt Phasen-Grafik gezeigt, sobald `event_date < heute`): **Ergebnis** — Rennaktivität = `race_activity_id` oder automatisch längste Aktivität der Zielsportart am Renntag, "Andere Aktivität wählen" bei mehreren; Stats (Watt nur bei Rad); **Prognose vs. Realität** (nur Laufen) über `calculateFinishTimeProgression()` mit Renntag als letztem Auswertungspunkt, gerechnet für die tatsächlich gelaufene Distanz (Strecken weichen vom Zielwert ab, z.B. "8K" = 7,47 km); **Vorbereitung** (12 Wochen): Einheiten/km/h/längste Einheit der Zielsportart, Einheiten gesamt, Plantreue (`calculatePrepStats()`: geplante Nicht-Ruhetage der neuesten Planversion je Woche vs. Tage mit Aktivität passender Sportart bzw. `_fulfilledBy`), Krankheitstage aus `illness_periods`; **Zielzeit-Kurve** bis zum Renntag mit gestrichelter Linie der echten Rennzeit; **"Wie lief's für dich?"** (`recap_user_notes`); **Coach-Fazit** per `/api/analyse`, einmal erstellt und in `recap_summary` gespeichert, "Neu erstellen" möglich. Fazit nutzt bewusst NICHT `buildCoachSystemPrompt()` (enthält aktuelles A-Ziel + Saisonphase), sondern einen eigenen System-Prompt mit Coach-Stil aus `COACH_STYLE_PROMPTS` — Nutzerwunsch: kein Ausblick auf kommende Ziele, v.a. nicht bei anderer Sportart; eigene Einschätzung des Athleten hat Vorrang vor der Zahlen-Interpretation
 
 ### Wochenplan
 - [x] Plan-Generierung mit harten Constraints + sportwissenschaftlichen Regeln

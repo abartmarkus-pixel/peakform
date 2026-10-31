@@ -32,6 +32,7 @@ import {
 } from '../lib/supabase'
 import { calculateSeasonPhase, estimateBest5kFromActivities } from '../lib/coachContext'
 import { deauthorizeStrava } from '../lib/strava'
+import { toDateStr } from '../lib/dateUtils'
 import { AppHeader } from '../components/AppHeader'
 import { useFeatures } from '../lib/features'
 import { getPushSupport, enablePushNotifications, disablePushNotifications } from '../lib/push'
@@ -394,6 +395,7 @@ export default function Profile() {
         .eq('athlete_id', a.id)
         .eq('priority', 'A')
         .eq('active', true)
+        .gte('event_date', toDateStr(new Date()))
         .order('event_date', { ascending: true })
         .limit(1)
       setPrimaryEventDate(goalData?.[0]?.event_date ?? null)
