@@ -245,7 +245,7 @@ export function GoalRecap({ athlete, goal }: { athlete: Athlete; goal: SeasonGoa
         {raceActivity ? (
           <>
             <button
-              onClick={() => navigate(`/activity/${raceActivity.id}`, { state: { from: `/goals/${goal.id}` } })}
+              onClick={() => navigate(`/activity/${raceActivity.strava_id}`, { state: { from: `/goals/${goal.id}` } })}
               className="w-full text-left"
             >
               <div className="flex items-center justify-between gap-2">
