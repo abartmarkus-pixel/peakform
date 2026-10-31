@@ -284,6 +284,8 @@ export function GoalRecap({ athlete, goal }: { athlete: Athlete; goal: SeasonGoa
                 label: new Date(p.date).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }),
                 fullDate: p.date,
                 seconds: p.estimatedSeconds,
+                // Tatsächliche Rennzeit nur am Renntag (letzter Punkt), als gelber Punkt
+                race: raceSeconds != null && p === prediction ? raceSeconds : undefined,
               }))}
               margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
             >
@@ -303,13 +305,14 @@ export function GoalRecap({ athlete, goal }: { athlete: Athlete; goal: SeasonGoa
                   const fullDate = payload?.[0]?.payload?.fullDate
                   return fullDate ? new Date(fullDate).toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' }) : ''
                 }}
-                formatter={(v: unknown) => [formatRaceTime(Number(v)), 'Prognose']}
+                formatter={(v: unknown, name: unknown) => [formatRaceTime(Number(v)), String(name)]}
               />
-              <Line type="monotone" dataKey="seconds" stroke="#1D9E75" strokeWidth={2} dot={{ r: 3, fill: '#1D9E75' }} />
+              <Line type="monotone" dataKey="seconds" name="Prognose" stroke="#1D9E75" strokeWidth={2} dot={{ r: 3, fill: '#1D9E75' }} />
+              <Line dataKey="race" name="Rennzeit" stroke="none" dot={{ r: 5, fill: '#facc15', stroke: '#facc15' }} activeDot={{ r: 6, fill: '#facc15' }} isAnimationActive={false} />
             </LineChart>
           </ResponsiveContainer>
           <p className="text-xs text-slate-500 mt-2">
-            Vorhergesagte Zielzeit im Verlauf der Vorbereitung. Oben = schneller.
+            Grün = vorhergesagte Zielzeit im Verlauf der Vorbereitung{prediction && raceSeconds != null ? ', gelb = deine tatsächliche Rennzeit am Renntag' : ''}. Oben = schneller.
           </p>
         </div>
       )}
