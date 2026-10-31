@@ -6,7 +6,7 @@ import { addDays, toDateStr } from './dateUtils'
 // Profil (Karvonen-Basis der HF-Zonen). OAuth wie bei Strava; alle Oura-Aufrufe laufen
 // über /api/oura (Client-Secret nur serverseitig).
 
-const SCOPES = 'daily personal'
+const SCOPES = 'daily'
 const INITIAL_SYNC_DAYS = 60
 const RESTING_HR_NIGHTS = 14
 const RESTING_HR_MIN_NIGHTS = 5
