@@ -13,6 +13,7 @@ import {
 } from '../lib/icons'
 import { SPORT_DISPLAY } from '../lib/icons'
 import { AppHeader } from '../components/AppHeader'
+import { RecoveryHints } from '../components/RecoveryHints'
 import { useFeatures } from '../lib/features'
 
 // ── types ──────────────────────────────────────────────────────────────────
@@ -429,6 +430,9 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt im gleichen Format wie der Origin
         }
       />
       <div className="min-h-screen p-4 max-w-2xl mx-auto page-content">
+
+      {/* ── Oura-Morgen-Hinweise (Erholung niedrig / Temperatur erhöht) ── */}
+      {athlete && <RecoveryHints athlete={athlete} />}
 
       {/* ── Echtzeit-Alert Banner ──────────────────────────────── */}
       {alert && !alertDismissed && (

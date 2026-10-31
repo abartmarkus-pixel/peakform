@@ -89,7 +89,7 @@ function isKraftDay(d: DayPlan): boolean {
   return SPORT_KEYWORDS.strength.some(k => d.type.toLowerCase().includes(k))
 }
 
-function isIntensiveEndurance(d: DayPlan): boolean {
+export function isIntensiveEndurance(d: DayPlan): boolean {
   return !isRestDay(d) && !isKraftDay(d) && /^(Z[3-6]|SS)/i.test(d.intensity ?? '')
 }
 

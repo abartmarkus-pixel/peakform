@@ -22,6 +22,7 @@ import {
 import { AppHeader } from '../components/AppHeader'
 import { useFeatures } from '../lib/features'
 import { getISOMonday, getISOSunday, formatWeekRange, formatDurationHuman, toDateStr, dayLabelForDate } from '../lib/dateUtils'
+import { RecoveryHints } from '../components/RecoveryHints'
 import { DAYS, DAY_FULL, REST_KEYWORDS, SPORT_KEYWORDS, applyWorkoutRotation, checkPlanConflicts, insertPlanVersion, normalizePlanDayKeys, type DayPlan, type PlanJson } from '../lib/weeklyPlan'
 import {
   applyReturnToPlan, endIllness, fetchRelevantIllness, illnessAffectsWeek, illnessPromptLine, markSickDays,
@@ -1616,6 +1617,17 @@ Antworte AUSSCHLIESSLICH mit diesem JSON (kein Text davor/danach, kein Markdown)
             </button>
           </div>
         </div>
+      )}
+
+      {/* Oura-Morgen-Hinweise — Änderungen sofort in Plan- und Krank-Anzeige übernehmen */}
+      {athlete && (
+        <RecoveryHints
+          athlete={athlete}
+          onChange={(updated, ill) => {
+            if (updated && updated.week_start === weekStr) { setManualPlanJson(null); setPlan(updated) }
+            setIllness(ill)
+          }}
+        />
       )}
 
       {/* Krankheit: Banner (krank / Wiedereinstieg); melden nur über das Lange-Drücken-Menü */}
