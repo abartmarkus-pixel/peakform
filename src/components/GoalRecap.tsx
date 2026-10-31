@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine } from 'recharts'
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts'
 import { supabase, type Athlete, type SeasonGoal, type Activity } from '../lib/supabase'
 import { calculateFinishTimeProgression, resolveHRProfile, type FinishTimeProgressionPoint } from '../lib/coachContext'
 import { addDays, formatRaceTime, getISOMonday, toDateStr } from '../lib/dateUtils'
@@ -222,12 +222,6 @@ export function GoalRecap({ athlete, goal }: { athlete: Athlete; goal: SeasonGoa
   const lastPoint = progression[progression.length - 1]
   const prediction = lastPoint && new Date(lastPoint.date).getTime() === raceStart.getTime() ? lastPoint : null
   const raceSeconds = raceActivity?.duration_s ?? null
-  // Y-Achse so wählen, dass auch die tatsächliche Rennzeit (gelbe Linie) sichtbar ist
-  const chartSeconds = [...progression.map(p => p.estimatedSeconds), ...(raceSeconds != null ? [raceSeconds] : [])]
-  const chartPad = chartSeconds.length ? Math.max(30, (Math.max(...chartSeconds) - Math.min(...chartSeconds)) * 0.1) : 0
-  const chartDomain: [number, number] = chartSeconds.length
-    ? [Math.floor(Math.min(...chartSeconds) - chartPad), Math.ceil(Math.max(...chartSeconds) + chartPad)]
-    : [0, 0]
 
   return (
     <>
@@ -296,7 +290,7 @@ export function GoalRecap({ athlete, goal }: { athlete: Athlete; goal: SeasonGoa
               <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
               <XAxis dataKey="label" stroke="#64748b" tick={{ fontSize: 11 }} />
               <YAxis
-                domain={chartDomain}
+                domain={['auto', 'auto']}
                 reversed
                 stroke="#64748b"
                 tick={{ fontSize: 11 }}
@@ -311,14 +305,11 @@ export function GoalRecap({ athlete, goal }: { athlete: Athlete; goal: SeasonGoa
                 }}
                 formatter={(v: unknown) => [formatRaceTime(Number(v)), 'Prognose']}
               />
-              {raceSeconds != null && (
-                <ReferenceLine y={raceSeconds} stroke="#facc15" strokeDasharray="4 4" />
-              )}
               <Line type="monotone" dataKey="seconds" stroke="#1D9E75" strokeWidth={2} dot={{ r: 3, fill: '#1D9E75' }} />
             </LineChart>
           </ResponsiveContainer>
           <p className="text-xs text-slate-500 mt-2">
-            Grün = vorhergesagte Zielzeit im Verlauf der Vorbereitung{raceSeconds != null ? ', gelb = deine tatsächliche Rennzeit' : ''}. Oben = schneller.
+            Vorhergesagte Zielzeit im Verlauf der Vorbereitung. Oben = schneller.
           </p>
         </div>
       )}
