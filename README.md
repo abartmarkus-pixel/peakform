@@ -9,7 +9,8 @@ KI-Trainingscoach als Progressive Web App — verbindet Strava und Hevy mit Clau
 - Wochenplan-Generierung mit harten Constraints + sportwissenschaftlichen Regeln + Review
 - Radtraining nach Regelwerk: Watt-/Puls-Vorgaben, Indoor/Outdoor (manuell umschaltbar), Wochenaufbau, Blockplan
 - Krankheit melden mit automatischem Wiedereinstieg
-- Saisonziele (A/B/C-Priorität) mit Countdown
+- Saisonziele (A/B/C-Priorität) mit Countdown; vergangene Ziele werden automatisch archiviert und bekommen einen Rückblick (Ergebnis, Prognose vs. Realität, Vorbereitung, Coach-Fazit)
+- Oura-Ring (optional): Schlaf/HRV/Readiness als Erholungssignal für den Coach, Ruhepuls automatisch, Morgen-Hinweise bei niedriger Erholung oder erhöhter Temperatur
 - Globaler Coach-Chat mit Gesprächshistorie
 - Athleten-Profil: Sportarten, Equipment, Ästhetik-Ranking (Drag & Drop), Trainingsphase
 - PWA (installierbar, Offline-fähig)
@@ -56,6 +57,8 @@ Siehe `.env.example` für alle benötigten Variablen:
 | `STRAVA_CLIENT_SECRET` | Strava API Client Secret (kein `VITE_`-Prefix — nur serverseitig) |
 | `VITE_STRAVA_REDIRECT_URI` | OAuth Callback URL (lokal: `http://localhost:5173/auth/callback`) |
 | `ANTHROPIC_API_KEY` | Anthropic API Key (kein `VITE_`-Prefix — nur serverseitig) |
+| `VITE_OURA_CLIENT_ID` | Oura-OAuth Client ID (optional; ohne Wert ist die Oura-Sektion im Profil ausgeblendet) |
+| `OURA_CLIENT_SECRET` | Oura-OAuth Client Secret (kein `VITE_`-Prefix — nur in `api/oura.ts`) |
 
 > `ANTHROPIC_API_KEY` wird **nie** an den Browser übertragen. Er wird ausschließlich in der Vercel Serverless Function (`api/analyse.ts`) verwendet.
 
@@ -65,3 +68,4 @@ Siehe `.env.example` für alle benötigten Variablen:
 2. Alle Variablen aus `.env.example` in Vercel Environment Variables eintragen
 3. `VITE_STRAVA_REDIRECT_URI` auf `https://deine-domain.vercel.app/auth/callback` setzen
 4. In Strava API Settings: Authorization Callback Domain eintragen
+5. Optional Oura: auf developer.ouraring.com eine Anwendung anlegen (Redirect URI `https://deine-domain.vercel.app/oura/callback`, Scope nur „Daily", Datenschutz/AGB-Links: `/datenschutz.html`, `/nutzungsbedingungen.html`), Client ID/Secret als `VITE_OURA_CLIENT_ID`/`OURA_CLIENT_SECRET` eintragen und neu deployen

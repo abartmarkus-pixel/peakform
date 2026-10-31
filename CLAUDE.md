@@ -242,6 +242,9 @@ peakform/
 │   │                       # push/notificationclick-Handler; von tsconfig.json bewusst ausgeschlossen
 │   │                       # (WebWorker- vs DOM-Lib-Konflikt mit dem Rest von src/)
 │   └── vite-env.d.ts       # Env-Variable-Types
+├── public/
+│   ├── datenschutz.html, nutzungsbedingungen.html  # statisch, öffentlich; von der Oura-App-Registrierung verlangt
+│                           # (bewusst ohne Kontaktdaten). Vercel liefert statische Dateien vor dem SPA-Rewrite aus
 ├── docs/
 │   └── regelliste_rad_v1.md  # Entwurf validiertes Regelwerk Rad (FEST/LEITPLANKEN/KEINE REGEL, Evidenz-Noten);
 │                       # Grundlage für geplante Code-Regeln, noch nichts davon implementiert
@@ -421,10 +424,12 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 - [x] Git-Author-Email: `abart.markus@gmail.com` (global konfiguriert)
 
 ## Was fehlt noch (optional)
-- Validiertes Regelwerk Radtraining (Plan-Gerüst per Code, Indoor/Outdoor-Funktion) — in Planung, siehe `docs/regelliste_rad_v1.md` und PEAKFORM_ROADMAP.md; 8-h/Woche-Grenze in `determineTrainingPhilosophy()` ist nicht belegt
-- Mehr als 10 Aktivitäten (Pagination)
+- Radtraining-Regelwerk: großteils umgesetzt (Watt/Puls, Indoor/Outdoor, Wochenaufbau, Blockplan); offen: 8-h/Woche-Grenze in `determineTrainingPhilosophy()` ist nicht belegt, FTP-Test einplanen — siehe `docs/regelliste_rad_v1.md` und PEAKFORM_ROADMAP.md
+- Oura: Morgen-Push mit Erholungs-Hinweis + Sync per Cron (zurückgestellt, Push beim Nutzer deaktiviert)
 - CTL / ATL / TSB Fitness-Kurve
-- P3/P4 Code-Qualität: `select('*')` einschränken, OAuth State-Parameter
+- Push nach neuem Strava-Import
+- Ideen: Wetter in der Analyse, Strava-Segmente, Ernährungsempfehlungen (siehe PEAKFORM_ROADMAP.md)
+- P3/P4 Code-Qualität: `select('*')` einschränken
 
 ## Wichtige Implementierungsdetails
 - Auth-State: `athlete_strava_id` in `localStorage` + `sessionStorage` (kein Supabase Auth)
