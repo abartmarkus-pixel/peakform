@@ -63,6 +63,11 @@ athletes (id uuid PK, strava_athlete_id bigint UNIQUE, strava_access_token text,
                                       -- übersteht Logout (localStorage.clear()) und iOS "Icon entfernen +
                                       -- neu hinzufügen" (leert ebenfalls localStorage), wo Notification.permission
                                       -- trotzdem 'granted' bleibt
+          resting_hr_source text,      ← 'oura' = resting_hr automatisch aus Oura (syncOuraData(), Ø niedrigster
+                                      -- Nachtpuls der letzten 14 Nächte, min. 5 Nächte), Profilfeld dann read-only
+                                      -- und aus dem Auto-Save-Payload ausgenommen; NULL = manuell
+          oura_access_token text, oura_refresh_token text, oura_expires_at timestamptz,
+                                      ← Oura-OAuth; Refresh-Tokens sind Einmal-Tokens (nach jedem Refresh neu speichern)
           created_at timestamptz)
 
 activities (id uuid PK, athlete_id uuid FK→athletes, strava_id bigint UNIQUE,
@@ -126,6 +131,11 @@ illness_periods (id uuid PK, athlete_id uuid FK→athletes ON DELETE CASCADE,
                  start_date date, end_date date,  ← end_date NULL = aktuell krank; end_date = erster gesunder Tag
                  created_at timestamptz)
 
+oura_daily (id uuid PK, athlete_id uuid FK→athletes ON DELETE CASCADE, day date,  ← UNIQUE(athlete_id, day);
+            readiness_score int, sleep_score int, sleep_duration_s int,   -- day = Morgen nach der Nacht (Oura-"day")
+            average_hrv numeric, lowest_heart_rate int,  ← aus der Hauptschlafphase (längste 'long_sleep')
+            temperature_deviation numeric, created_at timestamptz)
+
 push_subscriptions (id uuid PK, athlete_id uuid FK→athletes ON DELETE CASCADE,
                     endpoint text UNIQUE,  ← ein Athlet kann mehrere Geräte/Subscriptions haben
                     p256dh text, auth text,  ← Push-Verschlüsselungskeys aus PushSubscription.toJSON()
@@ -151,6 +161,9 @@ peakform/
 │   │                       # in der URL, analog zur offenen RLS-Policy. Liest weekly_plans (neueste Version je
 │   │                       # week_start), rendert via buildIcsFeed() zu text/calendar. Für Apple Kalender als
 │   │                       # webcal://…/api/calendar/<athleteId>-Abo gedacht (Profile.tsx "Kalender"-Sektion)
+│   ├── oura.ts             # Oura-Proxy: action 'token' (Code-Tausch/Refresh mit OURA_CLIENT_SECRET) + 'data'
+│   │                       # (GET /v2/usercollection/{daily_readiness|daily_sleep|sleep}, User-Agent Pflicht);
+│   │                       # Dev-Middleware leitet immer an die Live-Funktion weiter
 │   └── _lib/ics.ts         # buildIcsFeed(): reine ICS-Generierung (RFC 5545), von api/calendar/ UND der
 │                           # vite.config.ts-Dev-Middleware genutzt. Titel: Kraft "💪🍑 Workout I/II/III",
 │                           # Lauf "🏃 Laufen · Xmin", Rad "🚴 Radfahren · Xmin" (Freitext-description wandert
@@ -176,6 +189,7 @@ peakform/
 │   │   ├── GoalDetail.tsx  # Phasen-Grafik + geschätzte Zielzeit (nur Laufziele) — komplett Claude-frei;
 │   │   │                   # bei vergangenem Ziel stattdessen <GoalRecap> (components/GoalRecap.tsx)
 │   │   ├── WeeklyPlan.tsx  # Wochenplan + Constraint-Prompt + Validation-Banner + Wochenreview
+│   │   ├── OuraCallback.tsx # /oura/callback: Oura-Code → connectOura() + erster Sync → /profile
 │   │   └── Chat.tsx        # Globaler Coach-Chat mit Supabase-Persistenz; Button "In Plan übernehmen" unter
 │   │                       # der letzten Coach-Nachricht (extractChatPlanRecommendation/applyPlanRecommendation)
 │   ├── lib/
@@ -217,6 +231,9 @@ peakform/
 │   │   │                   # (Chat.tsx-Button) — extrahiert zusätzlich die Sportart selbst (vorher unbekannt).
 │   │   │                   # applyPlanRecommendation() nimmt ein generisches source-Label statt activityName/-Id
 │   │   │                   # (activityId optional) — von beiden Buttons gemeinsam genutzt
+│   │   ├── oura.ts         # Oura-Ring: OAuth (getOuraAuthUrl/connectOura/disconnectOura), syncOuraData()
+│   │   │                   # (App-Start, erst 60 Tage, dann ab letztem Tag −2), Ruhepuls-Übernahme,
+│   │   │                   # buildOuraContextSection() für buildCoachContext(), fetchOuraNightBefore() für die Analyse
 │   │   ├── goals.ts        # deactivatePastGoals(): vergangene Saisonziele automatisch auf active=false
 │   │   └── push.ts         # getPushSupport() (Feature-Detection inkl. iOS-Standalone-Check), enablePushNotifications()/
 │   │                       # disablePushNotifications(), syncPushSubscription() — stiller Re-Subscribe bei jedem
@@ -246,6 +263,8 @@ SUPABASE_SERVICE_ROLE_KEY=... ← kein VITE_ Prefix; nur in api/send-daily-remin
 VITE_VAPID_PUBLIC_KEY=...   ← Web Push, öffentlich (Frontend pushManager.subscribe())
 VAPID_PRIVATE_KEY=...       ← kein VITE_ Prefix — nur in api/send-daily-reminder.ts
 VAPID_SUBJECT=mailto:...    ← optional, Default 'mailto:noreply@peakform.app' (bewusst kein persönlicher Kontakt im öffentlichen Repo)
+VITE_OURA_CLIENT_ID=...     ← Oura-OAuth-App (developer.ouraring.com); ohne Wert ist die Oura-Sektion im Profil ausgeblendet
+OURA_CLIENT_SECRET=...      ← kein VITE_ Prefix — nur in api/oura.ts
 CRON_SECRET=...             ← schützt /api/send-daily-reminder; Vercel setzt automatisch den Authorization-Header, wenn diese Var gesetzt ist
 ```
 
@@ -374,6 +393,13 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 - [x] `push_subscriptions` (Supabase): ein Athlet kann mehrere Geräte/Endpoints haben; `api/send-daily-reminder.ts` löscht Einträge automatisch bei HTTP 404/410 (abgelaufene Subscription)
 - [x] `api/send-daily-reminder.ts` berechnet "heute"/Wochenstart explizit über `Intl.DateTimeFormat(..., { timeZone: 'Europe/Vienna' })` statt `new Date().getDay()` — die Vercel-Cron-Runtime läuft in UTC, ein naiver Ansatz hätte denselben UTC-Slice-Bug-Typ reproduziert, der in diesem Projekt bereits mehrfach aufgetreten ist (siehe PEAKFORM_ROADMAP.md)
 - [ ] Sync-Bestätigungs-Push (wenn neue Aktivität von Strava importiert wurde) — bewusst nicht in dieser ersten Runde, siehe Roadmap
+
+### Oura-Ring
+- [x] Verbindung per OAuth im Profil (Sektion "Oura-Ring", nur sichtbar wenn `VITE_OURA_CLIENT_ID` gesetzt), Redirect `<origin>/oura/callback` (`OuraCallback.tsx`, State-Check wie bei Strava); alle Oura-Aufrufe über `/api/oura`. Scopes `daily personal`
+- [x] `syncOuraData()` fire-and-forget beim App-Start (App.tsx Layout): Readiness + Temperatur-Abweichung (`daily_readiness`), Schlaf-Score (`daily_sleep`), Schlafdauer/HRV/niedrigster Puls der Hauptschlafphase (`sleep`, längste `long_sleep` je Tag) → `oura_daily`-Upsert. Refresh geteilt über In-flight-Promise (Einmal-Refresh-Tokens + StrictMode-Doppel-Mount)
+- [x] Ruhepuls automatisch (Nutzerentscheidung statt Vorschlag): Ø `lowest_heart_rate` der letzten 14 Nächte → `athletes.resting_hr`, `resting_hr_source = 'oura'`. Liegt meist 1–3 bpm unter dem klassischen Morgen-Ruhepuls — HF-Zonen fallen dadurch minimal niedriger aus (bewusst akzeptiert). "Trennen" setzt die Quelle zurück, Wert bleibt und ist wieder editierbar
+- [x] Coach: `buildCoachContext()` bekommt `[ERHOLUNG (OURA-RING)]` (letzte 7 Nächte + 28-Tage-Normalwert, Hinweis: einzelne Nächte nicht überbewerten, keine Diagnosen) — wirkt in Chat, Analyse, Wochenplan und Review; die Einzelanalyse (`analyzeActivity()`) zeigt zusätzlich die Nacht vor der Aktivität
+- [ ] Morgen-Hinweis bei niedriger Readiness + harter Einheit, Krankheits-Frühwarnung über Temperatur — bewusst später (Punkte 2 + 4 der ursprünglichen Idee)
 
 ### Kalender-Export (ICS)
 - [x] `api/calendar/[athleteId].ts`: öffentlicher, abonnierbarer ICS-Feed (`text/calendar`) ohne Session-Auth — `athleteId` (UUID) in der URL dient als Capability-Token, konsistent mit der bereits offenen RLS-Policy im Rest des Projekts

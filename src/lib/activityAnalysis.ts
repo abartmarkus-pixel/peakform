@@ -16,6 +16,7 @@ import {
   KRAFT_COACH_PROMPT,
 } from './coachPrompt'
 import { buildCoachContext, buildSpecialistContext, resolveHRProfile, calculateHRZoneBounds } from './coachContext'
+import { fetchOuraNightBefore, formatOuraNight } from './oura'
 import { resolveDayZone, dayMatchesSport, type PlanJson } from './weeklyPlan'
 
 // ── types (shared with ActivityDetail.tsx display logic) ──────────────────────
@@ -549,10 +550,11 @@ export async function analyzeActivity(
 
     const { specialist, sport } = getSpecialistPrompt(activity.type)
 
-    const [basePrompt, generalContext, specialistContext] = await Promise.all([
+    const [basePrompt, generalContext, specialistContext, ouraNight] = await Promise.all([
       buildCoachSystemPrompt(athleteId, sport),
       buildCoachContext(athleteId, undefined, sport),
       sport ? buildSpecialistContext(athleteId, sport) : Promise.resolve(null),
+      fetchOuraNightBefore(athleteId, activity.date),
     ])
 
     const system = specialist ? basePrompt + '\n\n' + specialist : basePrompt
@@ -568,6 +570,7 @@ Dauer: ${activity.duration_s ? formatDurationHuman(activity.duration_s) : 'k.A.'
 Ø Herzfrequenz: ${activity.avg_hr ?? 'k.A.'} bpm
 Max. Herzfrequenz: ${activity.max_hr ?? 'k.A.'} bpm
 ${activity.rpe ? `Wahrgenommene Anstrengung (RPE): ${activity.rpe}/10` : ''}
+${ouraNight ? `Nacht davor (Oura-Ring): ${formatOuraNight(ouraNight)}` : ''}
 ${activity.np_watts ? `Normalized Power: ${activity.np_watts} W` : ''}
 ${activity.avg_watts ? (activity.device_watts === false
   ? `Ø Watt: ${activity.avg_watts} W — von Strava aus Tempo/Gewicht GESCHÄTZT, nicht gemessen (kein Powermeter). Nicht zur Leistungsbewertung nutzen; Puls und Gefühl haben Vorrang.`

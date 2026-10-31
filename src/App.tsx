@@ -10,14 +10,16 @@ import GoalDetail from './pages/GoalDetail'
 import WeeklyPlan from './pages/WeeklyPlan'
 import Chat from './pages/Chat'
 import Onboarding from './pages/Onboarding'
+import OuraCallback from './pages/OuraCallback'
 import BottomNav from './components/BottomNav'
 import { restoreSessionFromSupabase, backfillStravaPrs } from './lib/strava'
 import { supabase } from './lib/supabase'
 import { useTabSwipeNavigation } from './lib/useTabSwipeNavigation'
 import { syncPushSubscription } from './lib/push'
 import { deactivatePastGoals } from './lib/goals'
+import { syncOuraData } from './lib/oura'
 
-const NO_NAV_PATHS = ['/', '/auth/callback', '/onboarding']
+const NO_NAV_PATHS = ['/', '/auth/callback', '/onboarding', '/oura/callback']
 const PUBLIC_PATHS = ['/', '/auth/callback']
 
 function Layout() {
@@ -77,6 +79,8 @@ function Layout() {
       // Vergangene Saisonziele automatisch deaktivieren (sonst bleibt z.B. ein
       // gelaufenes Rennen als "aktives A-Ziel" in Liste und Coach-Kontext stehen).
       if (data?.id) void deactivatePastGoals(data.id)
+      // Neue Oura-Nächte abholen + Ruhepuls aktualisieren — no-op ohne Oura-Verbindung.
+      if (data?.id) void syncOuraData(data.id)
     })()
 
     if (!isLoggedIn) return
@@ -101,6 +105,7 @@ function Layout() {
         <Route path="/plan" element={<WeeklyPlan />} />
         <Route path="/chat" element={<Chat />} />
         <Route path="/onboarding" element={<Onboarding />} />
+        <Route path="/oura/callback" element={<OuraCallback />} />
       </Routes>
       {showNav && <BottomNav />}
 

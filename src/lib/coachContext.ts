@@ -2,6 +2,7 @@ import { supabase, type Activity, type Athlete, type SportConfig, type Equipment
 import { getISOMonday, toDateStr, toLocalDateStr, toLocalWeekdayDateStr, toLocalWeekdayDateTimeStr, relativeDayLabel } from './dateUtils'
 import { cyclingPhaseFor } from './cyclingPower'
 import { fetchRelevantIllness, illnessPromptLine } from './illness'
+import { buildOuraContextSection } from './oura'
 
 const WEEKDAY_ORDER = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
 
@@ -817,6 +818,10 @@ export async function buildCoachContext(
   // Krankheit / Wiedereinstieg (src/lib/illness.ts) — gilt für alle Sportarten
   const illness = await fetchRelevantIllness(athleteId)
   if (illness) sections.push(`[GESUNDHEIT — HÖCHSTE PRIORITÄT]\n${illnessPromptLine(illness)}`)
+
+  // Oura-Ring (src/lib/oura.ts) — Erholungssignal, für alle Sportarten
+  const ouraSection = await buildOuraContextSection(athleteId)
+  if (ouraSection) sections.push(ouraSection)
 
   if (!strengthOnly) sections.push([
     '[HARTE TRAININGS-CONSTRAINTS — MÜSSEN EINGEHALTEN WERDEN]',

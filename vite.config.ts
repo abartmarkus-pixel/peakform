@@ -75,6 +75,29 @@ export default defineConfig(({ mode }) => {
       {
         name: 'api-middleware',
         configureServer(server) {
+          // ── /api/oura ───────────────────────────────────────────
+          // Immer an die Live-Funktion weitergeleitet (Oura-Schlüssel liegen nur bei
+          // Vercel; die Oura-Anmeldung leitet ohnehin auf die Live-Adresse zurück).
+          server.middlewares.use(
+            '/api/oura',
+            async (req: IncomingMessage, res: ServerResponse) => {
+              if (req.method !== 'POST') {
+                res.statusCode = 405; res.end(JSON.stringify({ error: 'Method not allowed' })); return
+              }
+              let body = ''
+              req.on('data', (chunk: Buffer) => { body += chunk.toString() })
+              req.on('end', async () => {
+                try {
+                  await forwardToLive('/api/oura', body, res)
+                } catch (e) {
+                  res.statusCode = 500
+                  res.setHeader('Content-Type', 'application/json')
+                  res.end(JSON.stringify({ error: String(e) }))
+                }
+              })
+            },
+          )
+
           // ── /api/strava-token ───────────────────────────────────
           server.middlewares.use(
             '/api/strava-token',

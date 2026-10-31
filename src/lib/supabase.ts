@@ -72,6 +72,10 @@ export type Athlete = {
   gender: 'male' | 'female' | 'diverse' | null
   birth_year: number | null
   resting_hr: number | null
+  resting_hr_source: 'oura' | null   // 'oura' = automatisch aus Oura (Ø niedrigster Nachtpuls), sonst manuell
+  oura_access_token: string | null
+  oura_refresh_token: string | null  // Oura-Refresh-Tokens sind Einmal-Tokens — nach jedem Refresh neu speichern
+  oura_expires_at: string | null
   // Feature flags
   features: Record<string, boolean> | null
   // Onboarding
@@ -161,5 +165,18 @@ export type Activity = {
   rpe: number | null
   is_interval: boolean | null
   analysis_claimed_at: string | null
+  created_at: string
+}
+
+export type OuraDaily = {
+  id: string
+  athlete_id: string
+  day: string                        // YYYY-MM-DD (Oura-"day" = Tag des Aufwachens)
+  readiness_score: number | null
+  sleep_score: number | null
+  sleep_duration_s: number | null
+  average_hrv: number | null         // ms, Ø der Hauptschlafphase
+  lowest_heart_rate: number | null   // bpm, niedrigster Puls der Hauptschlafphase
+  temperature_deviation: number | null // °C Abweichung vom persönlichen Normalwert
   created_at: string
 }

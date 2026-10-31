@@ -36,7 +36,9 @@ import { toDateStr } from '../lib/dateUtils'
 import { AppHeader } from '../components/AppHeader'
 import { useFeatures } from '../lib/features'
 import { getPushSupport, enablePushNotifications, disablePushNotifications } from '../lib/push'
-import { IconBell, IconPlan, IconCheck } from '../lib/icons'
+import { IconBell, IconPlan, IconCheck, IconMoon } from '../lib/icons'
+import { isOuraConfigured, getOuraAuthUrl, disconnectOura, formatOuraNight } from '../lib/oura'
+import type { OuraDaily } from '../lib/supabase'
 
 // ── constants ──────────────────────────────────────────────────────────────
 
@@ -284,6 +286,8 @@ export default function Profile() {
   const [pushState, setPushState] = useState<'checking' | 'unsupported' | 'ios-needs-install' | 'off' | 'on' | 'denied'>('checking')
   const [pushBusy, setPushBusy] = useState(false)
   const [calendarCopied, setCalendarCopied] = useState(false)
+  const [ouraLastNight, setOuraLastNight] = useState<OuraDaily | null>(null)
+  const restingHrFromOura = athlete?.resting_hr_source === 'oura' && !!athlete?.oura_access_token
 
   // _updated_at state
   const [ftpUpdatedAt,    setFtpUpdatedAt]    = useState<string | null>(null)
@@ -335,6 +339,11 @@ export default function Profile() {
       setHasPowerMeter(a.has_power_meter ?? null)
       setMaxHr(a.max_hr?.toString() ?? '')
       setRestingHr(a.resting_hr?.toString() ?? '')
+      if (a.oura_access_token) {
+        supabase.from('oura_daily').select('*').eq('athlete_id', a.id)
+          .order('day', { ascending: false }).limit(1)
+          .then(({ data: rows }) => setOuraLastNight((rows?.[0] as OuraDaily | undefined) ?? null))
+      }
       setWeightKg(a.weight_kg?.toString() ?? '')
       if (a.best_5k_seconds) {
         const m = Math.floor(a.best_5k_seconds / 60)
@@ -450,7 +459,8 @@ export default function Profile() {
         ftp_watts:              newFtp,
         has_power_meter:        hasPowerMeter,
         max_hr:                 newMaxHr,
-        resting_hr:             restingHr ? parseInt(restingHr) : null,
+        // Ruhepuls von Oura wird von syncOuraData() gepflegt — nicht mit dem Formularwert überschreiben
+        ...(restingHrFromOura ? {} : { resting_hr: restingHr ? parseInt(restingHr) : null }),
         weight_kg:              newWeight,
         best_5k_seconds:        newBest5k,
         training_days_per_week: trainingDays ? parseInt(trainingDays) : null,
@@ -925,10 +935,18 @@ export default function Profile() {
               <UpdatedAt updatedAt={maxHrUpdatedAt} staleDays={365} />
               <p className="text-xs text-slate-500 mt-1">Gemessener Wert empfohlen. Ohne Wert: Tanaka-Formel (208 − 0.7 × Alter) als Schätzung.</p>
             </div>
-            <div>
-              <NumberField label="Ruheherzfrequenz" value={restingHr} onChange={setRestingHr} unit="bpm" placeholder="z.B. 52" />
-              <p className="text-xs text-slate-500 mt-1">Morgens vor dem Aufstehen messen</p>
-            </div>
+            {restingHrFromOura ? (
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Ruheherzfrequenz</label>
+                <p className="text-slate-100 text-base px-3 py-2 bg-slate-700/50 rounded-xl">{restingHr || '—'} <span className="text-slate-400 text-sm">bpm</span></p>
+                <p className="text-xs text-slate-500 mt-1">Automatisch vom Oura-Ring: Ø niedrigster Puls der letzten 14 Nächte</p>
+              </div>
+            ) : (
+              <div>
+                <NumberField label="Ruheherzfrequenz" value={restingHr} onChange={setRestingHr} unit="bpm" placeholder="z.B. 52" />
+                <p className="text-xs text-slate-500 mt-1">Morgens vor dem Aufstehen messen</p>
+              </div>
+            )}
             <div>
               <NumberField label="Gewicht" value={weightKg} onChange={setWeightKg} unit="kg" placeholder="70" />
               <UpdatedAt updatedAt={weightUpdatedAt} staleDays={30} />
@@ -1274,6 +1292,50 @@ export default function Profile() {
                   Deaktivieren
                 </button>
               </div>
+            )}
+          </div>
+        )}
+
+        {/* ── 7a. OURA-RING ──────────────────────────────────── */}
+        {athlete && isOuraConfigured() && (
+          <div className="mt-2 pt-5 border-t border-slate-700/50">
+            <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+              <IconMoon size={12} /> Oura-Ring
+            </h2>
+            {athlete.oura_access_token ? (
+              <>
+                <p className="text-sm text-slate-300 flex items-center gap-1.5"><IconCheck size={12} className="text-brand-400" /> Verbunden</p>
+                {ouraLastNight && (
+                  <p className="text-xs text-slate-500 mt-1">
+                    Letzte Nacht ({new Date(`${ouraLastNight.day}T12:00:00`).toLocaleDateString('de-DE', { day: 'numeric', month: 'numeric' })}): {formatOuraNight(ouraLastNight)}
+                  </p>
+                )}
+                <p className="text-xs text-slate-500 mt-2">
+                  Der Coach sieht deine Schlaf- und Erholungswerte, der Ruhepuls wird automatisch übernommen.
+                </p>
+                <button
+                  onClick={async () => {
+                    await disconnectOura(athlete.id)
+                    setAthlete({ ...athlete, oura_access_token: null, oura_refresh_token: null, oura_expires_at: null, resting_hr_source: null })
+                    setOuraLastNight(null)
+                  }}
+                  className="text-xs text-slate-500 hover:text-slate-300 underline mt-2"
+                >
+                  Trennen
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="text-xs text-slate-500 mb-3">
+                  Verbinde deinen Oura-Ring: Der Coach berücksichtigt dann Schlaf, HRV und Readiness, und dein Ruhepuls wird automatisch aktuell gehalten.
+                </p>
+                <button
+                  onClick={() => { window.location.href = getOuraAuthUrl() }}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium text-brand-400 bg-brand-500/10 hover:bg-brand-500/20 ring-1 ring-brand-900/50 transition-colors"
+                >
+                  <IconMoon size={13} /> Mit Oura verbinden
+                </button>
+              </>
             )}
           </div>
         )}
