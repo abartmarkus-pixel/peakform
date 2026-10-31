@@ -232,7 +232,7 @@ peakform/
 │   │   │                   # applyPlanRecommendation() nimmt ein generisches source-Label statt activityName/-Id
 │   │   │                   # (activityId optional) — von beiden Buttons gemeinsam genutzt
 │   │   ├── oura.ts         # Oura-Ring: OAuth (getOuraAuthUrl/connectOura/disconnectOura), syncOuraData()
-│   │   │                   # (App-Start, erst 60 Tage, dann ab letztem Tag −2), Ruhepuls-Übernahme,
+│   │   │                   # (App-Start, erst 60 Tage, dann immer die letzten 14 Tage neu), Ruhepuls-Übernahme,
 │   │   │                   # buildOuraContextSection() für buildCoachContext(), fetchOuraNightBefore() für die Analyse
 │   │   ├── goals.ts        # deactivatePastGoals(): vergangene Saisonziele automatisch auf active=false
 │   │   └── push.ts         # getPushSupport() (Feature-Detection inkl. iOS-Standalone-Check), enablePushNotifications()/

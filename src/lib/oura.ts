@@ -8,6 +8,7 @@ import { addDays, toDateStr } from './dateUtils'
 
 const SCOPES = 'daily'
 const INITIAL_SYNC_DAYS = 60
+const RESYNC_DAYS = 14
 const RESTING_HR_NIGHTS = 14
 const RESTING_HR_MIN_NIGHTS = 5
 
@@ -102,8 +103,8 @@ type SleepItem = {
 
 let syncInFlight: Promise<void> | null = null
 
-// Holt neue Nächte ab (beim ersten Mal die letzten INITIAL_SYNC_DAYS Tage, danach ab
-// 2 Tagen vor dem letzten gespeicherten Tag — Oura ergänzt Werte teils nachträglich)
+// Holt neue Nächte ab (beim ersten Mal die letzten INITIAL_SYNC_DAYS Tage, danach immer
+// die letzten RESYNC_DAYS Tage bzw. ab 2 Tagen vor dem letzten gespeicherten Tag, falls älter)
 // und aktualisiert den Ruhepuls. Silent failure analog zu backfillStravaPrs().
 export function syncOuraData(athleteId: string): Promise<void> {
   if (!syncInFlight) syncInFlight = runSync(athleteId).catch(() => {}).finally(() => { syncInFlight = null })
@@ -122,8 +123,16 @@ async function runSync(athleteId: string): Promise<void> {
     .order('day', { ascending: false }).limit(1)
   const today = new Date()
   const earliest = addDays(today, -INITIAL_SYNC_DAYS)
-  const lastDay = lastRow?.[0]?.day ? addDays(new Date(`${lastRow[0].day}T12:00:00`), -2) : earliest
-  const start = toDateStr(lastDay > earliest ? lastDay : earliest)
+  // Immer mindestens die letzten RESYNC_DAYS Tage neu abholen: der Ring überträgt Nächte
+  // teils erst Tage später (ohne Handy-Sync) — sonst würden solche Nächte nie nachgeholt.
+  let startDate = earliest
+  if (lastRow?.[0]?.day) {
+    const fromLast = addDays(new Date(`${lastRow[0].day}T12:00:00`), -2)
+    const resync = addDays(today, -RESYNC_DAYS)
+    startDate = fromLast < resync ? fromLast : resync
+    if (startDate < earliest) startDate = earliest
+  }
+  const start = toDateStr(startDate)
   const end = toDateStr(addDays(today, 1))
 
   const fetchPath = <T>(path: string) =>
