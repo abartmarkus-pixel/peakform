@@ -220,6 +220,30 @@ function rideMinutesTarget(hoursPerWeek: number | null, volumeFactor = 1): numbe
   return hoursPerWeek ? Math.round((hoursPerWeek * 60 * volumeFactor) / 5) * 5 : null
 }
 
+// Steigerungsgrenze: Wochenumfang höchstens +10 % über der stärksten tatsächlich
+// gefahrenen Woche der letzten 4 Wochen, bis die Profil-Stunden erreicht sind. Die
+// stärkste statt der letzten Woche, damit eine Entlastungs-/Krankheitswoche die
+// Steigerung nicht zurückwirft. Ohne Fahrten: Einstieg bei 2 h.
+const RAMP_FACTOR = 1.1
+const RAMP_LOOKBACK_WEEKS = 4
+const RAMP_MIN_MINUTES = 120
+
+export function rampedRideHours(
+  rides: { date: string; duration_s: number | null }[],
+  monday: Date,
+  hoursPerWeek: number,
+): number {
+  const weekMs = 7 * 86400000
+  const minutes = new Map<number, number>()
+  for (const r of rides) {
+    const weeksBack = Math.floor((monday.getTime() - new Date(r.date).getTime()) / weekMs)
+    if (weeksBack < 0 || weeksBack >= RAMP_LOOKBACK_WEEKS) continue
+    minutes.set(weeksBack, (minutes.get(weeksBack) ?? 0) + (r.duration_s ?? 0) / 60)
+  }
+  const allowed = Math.max(RAMP_MIN_MINUTES, Math.max(0, ...minutes.values()) * RAMP_FACTOR)
+  return Math.min(hoursPerWeek, allowed / 60)
+}
+
 // Minuten-Budget fest vorgerechnet — Claude verteilte die Wochenstunden sonst falsch
 // (zu wenig, oder ein zusätzlicher Radtag statt längerer Einheiten). Lange Ausfahrt
 // ~45 % (in 15-Min-Schritten, indoor gedeckelt), Rest gleichmäßig in 5-Min-Schritten.
@@ -235,17 +259,24 @@ export function buildCyclingWeekStructureRules(
   hoursPerWeek: number | null,
   monday: Date,
   volumeFactor = 1,
+  profileHours: number | null = hoursPerWeek,
 ): string {
   if (rideDays < 2) return ''
   const target = rideMinutesTarget(hoursPerWeek, volumeFactor)
   const maxHard = rideDays >= 3 ? 2 : 1
   const budget = target ? rideBudget(rideDays, target, isWinterWeek(monday)) : null
+  const ramping = hoursPerWeek != null && profileHours != null && hoursPerWeek < profileHours
+  const sumNote = ramping
+    ? ` (schrittweise Steigerung um max. 10 % pro Woche, Endziel ${profileHours} h laut Profil — diese Woche NICHT mehr)`
+    : volumeFactor === 1
+      ? ` = ${hoursPerWeek} h laut Profil`
+      : ` (${Math.round(volumeFactor * 100)} % von ${hoursPerWeek} h laut Profil)`
   return `
 RAD-WOCHENAUFBAU (fest, wird technisch geprüft):
 15. Genau ${rideDays} Rad-Tage — mehr Umfang NIE über zusätzliche Tage, nur über die Dauer.
 16. Genau EINE lange Ausfahrt: am Samstag oder Sonntag, Z2, die längste Rad-Einheit der Woche${budget ? ` — ${budget.long} Min` : ''}.
 17. ${maxHard === 2 ? '1–2' : 'Genau 1'} harte Rad-Einheit(en) (SS/Z3 oder höher), nie am Tag direkt nach der langen Ausfahrt. Alle übrigen Rad-Einheiten Z1/Z2.${budget ? `
-18. Die übrigen ${rideDays - 1} Rad-Einheiten dauern je ca. ${budget.other} Min (inkl. Ein-/Ausfahren). Summe ≈ ${target} Min${volumeFactor === 1 ? ` = ${hoursPerWeek} h laut Profil` : ` (${Math.round(volumeFactor * 100)} % von ${hoursPerWeek} h laut Profil)`}.` : ''}
+18. Die übrigen ${rideDays - 1} Rad-Einheiten dauern je ca. ${budget.other} Min (inkl. Ein-/Ausfahren). Summe ≈ ${target} Min${sumNote}.` : ''}
 `
 }
 
@@ -396,6 +427,32 @@ export function loadedWeeksFromRides(
  *  die lange Ausfahrt (bei 2 Radtagen also nur die erste harte Einheit). */
 export function fitBlockToRideDays(week: CyclingBlockWeek, rideDays: number): CyclingBlockWeek {
   return { ...week, sessions: week.sessions.slice(0, Math.max(1, rideDays - 1)) }
+}
+
+const WARMUP_COOLDOWN_MIN = 15
+const MIN_INTERVAL_MIN = 5
+
+/** Intervalle kürzen, wenn sie samt Ein-/Ausfahren nicht in die geplante Einheit passen —
+ *  bei niedrigem Umfang (Steigerungsphase) sind die Einheiten dafür sonst zu kurz. */
+export function fitBlockToBudget(
+  week: CyclingBlockWeek,
+  rideDays: number,
+  hoursPerWeek: number | null,
+  monday: Date,
+): CyclingBlockWeek {
+  const target = rideMinutesTarget(hoursPerWeek, week.volumeFactor)
+  if (!target || rideDays < 2) return week
+  const available = rideBudget(rideDays, target, isWinterWeek(monday)).other - WARMUP_COOLDOWN_MIN
+  return {
+    ...week,
+    sessions: week.sessions.map(s => {
+      const { reps, minutes, rest_min } = s.item
+      const pauses = (reps - 1) * rest_min
+      if (reps * minutes + pauses <= available) return s
+      const fit = Math.max(MIN_INTERVAL_MIN, Math.floor((available - pauses) / reps))
+      return { ...s, item: { ...s.item, minutes: Math.min(minutes, fit) } }
+    }),
+  }
 }
 
 export function buildCyclingBlockRules(week: CyclingBlockWeek, rideDays: number): string {

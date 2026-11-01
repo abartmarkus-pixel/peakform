@@ -4,7 +4,7 @@ import { supabase, type Athlete, type WeeklyPlan, type Activity, type SportConfi
 import { buildCoachContext, calculateHRZoneBounds, calculateSeasonPhase, determineTrainingPhilosophy, resolveHRProfile, type PhaseResult } from '../lib/coachContext'
 import {
   applyCyclingBlock, applyCyclingPower, buildCyclingBlockRules, buildCyclingPlanRules, buildCyclingWeekStructureRules,
-  checkCyclingWeekStructure, checkIndoorCap, cyclingBlockWeek, INDOOR_MAX_MIN, isCyclingDay, fitBlockToRideDays, formatDayTarget, formatMainSetItem, loadedWeeksFromRides,
+  checkCyclingWeekStructure, checkIndoorCap, cyclingBlockWeek, INDOOR_MAX_MIN, isCyclingDay, fitBlockToBudget, fitBlockToRideDays, formatDayTarget, formatMainSetItem, loadedWeeksFromRides, rampedRideHours,
   resolveCyclingTargets,
   weeksUntilEventFrom,
   type CyclingBlockWeek,
@@ -966,21 +966,28 @@ Diese Regel gilt NUR für ${SPORT_LABEL[primaryGoalSportKey]}-Einheiten in diese
       // Stufen und Entlastungswochen richten sich nach den tatsächlich absolvierten
       // Rad-Wochen (≥ 70 % der Profil-Stunden) der letzten 12 Wochen (= längster Block).
       let cyclingBlock: CyclingBlockWeek | null = null
+      let recentRides: { date: string; duration_s: number | null }[] = []
+      // Wochen-Budget: Profil-Stunden, aber höchstens +10 % über den zuletzt gefahrenen Wochen
+      let plannedRideHours = cyclingHours
+      if (primaryGoalSportKey === 'cycling' && cyclingHours) {
+        const { data } = await supabase
+          .from('activities')
+          .select('date, duration_s')
+          .eq('athlete_id', athlete.id)
+          .in('type', ['Ride', 'VirtualRide', 'MountainBikeRide', 'GravelRide'])
+          .gte('date', new Date(monday.getTime() - 84 * 86400000).toISOString())
+          .lt('date', monday.toISOString())
+        recentRides = data ?? []
+        plannedRideHours = rampedRideHours(recentRides, monday, cyclingHours)
+      }
       if (primaryGoalSportKey === 'cycling' && primaryGoal && cyclingConfig && !athlete.season_phase_override) {
-        let loadedWeeks: Set<number> | null = null
-        if (cyclingHours) {
-          const { data: recentRides } = await supabase
-            .from('activities')
-            .select('date, duration_s')
-            .eq('athlete_id', athlete.id)
-            .in('type', ['Ride', 'VirtualRide', 'MountainBikeRide', 'GravelRide'])
-            .gte('date', new Date(monday.getTime() - 84 * 86400000).toISOString())
-            .lt('date', monday.toISOString())
-          loadedWeeks = loadedWeeksFromRides(recentRides ?? [], primaryGoal.event_date, cyclingHours)
-        }
-        cyclingBlock = fitBlockToRideDays(
-          cyclingBlockWeek(weeksUntilEventFrom(primaryGoal.event_date, monday), loadedWeeks),
-          cyclingConfig.days,
+        const loadedWeeks = cyclingHours ? loadedWeeksFromRides(recentRides, primaryGoal.event_date, cyclingHours) : null
+        cyclingBlock = fitBlockToBudget(
+          fitBlockToRideDays(
+            cyclingBlockWeek(weeksUntilEventFrom(primaryGoal.event_date, monday), loadedWeeks),
+            cyclingConfig.days,
+          ),
+          cyclingConfig.days, plannedRideHours, monday,
         )
         // Wiedereinstieg nach Krankheit in dieser Woche: keine harten Einheiten
         if (illnessInWeek) cyclingBlock = { ...cyclingBlock, sessions: [] }
@@ -991,7 +998,7 @@ Diese Regel gilt NUR für ${SPORT_LABEL[primaryGoalSportKey]}-Einheiten in diese
       const volumeFactor = cyclingBlock?.volumeFactor ?? 1
       const cyclingSection = hasCycling
         ? buildCyclingPlanRules(cyclingTargets(athlete), monday)
-          + (cyclingStructure ? buildCyclingWeekStructureRules(cyclingConfig.days, cyclingHours, monday, volumeFactor) : '')
+          + (cyclingStructure ? buildCyclingWeekStructureRules(cyclingConfig.days, plannedRideHours, monday, volumeFactor, cyclingHours) : '')
           + (cyclingBlock && cyclingConfig ? buildCyclingBlockRules(cyclingBlock, cyclingConfig.days) : '')
         : ''
 
@@ -1068,7 +1075,7 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, 
         ...checkIndoorCap(planJson),
         ...(cyclingStructure
           ? checkCyclingWeekStructure(
-              planJson, cyclingHours,
+              planJson, plannedRideHours,
               recoveryLines.length > 0 || periodizationPhase === 'taper',
               volumeFactor, cyclingBlock?.sessions.length ?? null,
             )
