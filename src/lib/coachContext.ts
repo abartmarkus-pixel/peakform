@@ -1,4 +1,5 @@
-import { supabase, type Activity, type Athlete, type SportConfig, type EquipmentConfig, type AestheticGoals } from './supabase'
+import { supabase, type Activity, type Athlete, type FixedRestDay, type SportConfig, type EquipmentConfig, type AestheticGoals } from './supabase'
+import { activeFixedRestDay, fixedRestDayRule } from './weeklyPlan'
 import { getISOMonday, toDateStr, toLocalDateStr, toLocalWeekdayDateStr, toLocalWeekdayDateTimeStr, relativeDayLabel } from './dateUtils'
 import { cyclingPhaseFor } from './cyclingPower'
 import { fetchRelevantIllness, illnessPromptLine } from './illness'
@@ -707,7 +708,7 @@ export async function buildCoachContext(
   ] = await Promise.all([
     supabase
       .from('athletes')
-      .select('name, ftp_watts, max_hr, weight_kg, training_days_per_week, sport_types, coach_persona, body_goals')
+      .select('name, ftp_watts, max_hr, weight_kg, training_days_per_week, fixed_rest_day, sport_types, coach_persona, body_goals')
       .eq('id', athleteId)
       .single(),
 
@@ -823,10 +824,16 @@ export async function buildCoachContext(
   const ouraSection = await buildOuraContextSection(athleteId)
   if (ouraSection) sections.push(ouraSection)
 
+  const fixedRest = activeFixedRestDay(
+    athlete?.fixed_rest_day as FixedRestDay | null | undefined,
+    toDateStr(getISOMonday(new Date())),
+  )
+
   if (!strengthOnly) sections.push([
     '[HARTE TRAININGS-CONSTRAINTS — MÜSSEN EINGEHALTEN WERDEN]',
     `Gesamte Trainingstage diese Woche: ${totalTrainingDays} (von 7 Wochentagen)`,
     `Ruhetage: ${calendarRestDays}`,
+    ...(fixedRest ? [`${fixedRestDayRule(fixedRest)} Gilt bis ${fixedRest.until}.`] : []),
     '',
     'Pflicht-Verteilung pro Sportart:',
     sportConstraintLines,

@@ -27,6 +27,9 @@ export type AestheticGoals = {
   notes: string
 }
 
+// Fester Ruhetag bis zu einem Datum, siehe activeFixedRestDay() in weeklyPlan.ts
+export type FixedRestDay = { day: string; until: string; label: string }
+
 export type Athlete = {
   id: string
   strava_athlete_id: number
@@ -43,6 +46,7 @@ export type Athlete = {
   max_hr: number | null
   weight_kg: number | null
   training_days_per_week: number | null
+  fixed_rest_day: FixedRestDay | null
   sport_types: SportConfig[] | null
   coach_persona: Record<string, unknown> | null
   body_goal: string | null

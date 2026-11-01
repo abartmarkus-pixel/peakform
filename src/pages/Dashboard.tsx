@@ -5,7 +5,7 @@ import { fetchRecentActivities, getValidAccessToken, syncActivitiesToSupabase, t
 import { supabase, type Athlete } from '../lib/supabase'
 import { buildCoachSystemPrompt } from '../lib/coachPrompt'
 import { calculateHRZoneBounds, planJsonWithDates, resolveHRProfile } from '../lib/coachContext'
-import { applyWorkoutRotation, normalizePlanDayKeys } from '../lib/weeklyPlan'
+import { activeFixedRestDay, applyFixedRestDay, applyWorkoutRotation, fixedRestDayRule, normalizePlanDayKeys } from '../lib/weeklyPlan'
 import { applyCyclingPower, resolveCyclingTargets } from '../lib/cyclingPower'
 import { getISOMonday, formatDurationHuman } from '../lib/dateUtils'
 import {
@@ -281,6 +281,7 @@ oder
     setPlanModal({ loading: true, status: null })
     try {
       const systemPrompt = await buildCoachSystemPrompt(athleteId)
+      const fixedRest = activeFixedRestDay(athlete?.fixed_rest_day, planWeekStart)
       const res = await fetch('/api/analyse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -290,7 +291,7 @@ oder
 Aktueller Wochenplan (JSON):
 ${JSON.stringify(currentPlanJson, null, 2)}
 
-Passe die verbleibenden (noch nicht absolvierten) Tage dieser Woche an, um den Konflikt zu lösen. Bereits vergangene Tage unverändert übernehmen.
+Passe die verbleibenden (noch nicht absolvierten) Tage dieser Woche an, um den Konflikt zu lösen. Bereits vergangene Tage unverändert übernehmen.${fixedRest ? `\n${fixedRestDayRule(fixedRest)}` : ''}
 Rad-Tage behalten "location" (indoor/outdoor, indoor max. 180 Min) und "main_set" (Intervall-Hauptblöcke mit reps/minutes/zone/rest_min) — Wattzahlen rechnet die App selbst, nenne keine in "description".
 
 Antworte AUSSCHLIESSLICH mit einem JSON-Objekt im gleichen Format wie der Original-Plan — kein Text davor oder danach, kein Markdown:
@@ -313,7 +314,7 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt im gleichen Format wie der Origin
       if (!res.ok) throw new Error('API Fehler')
       const { text } = await res.json() as { text: string }
       const adjustedPlan = applyCyclingPower(
-        await applyWorkoutRotation(parsePlanJson(text), athleteId, planWeekStart),
+        await applyWorkoutRotation(applyFixedRestDay(parsePlanJson(text), fixedRest), athleteId, planWeekStart),
         athlete
           ? resolveCyclingTargets(athlete, calculateHRZoneBounds(resolveHRProfile(athlete).effectiveMaxHR, resolveHRProfile(athlete).restingHR))
           : null,

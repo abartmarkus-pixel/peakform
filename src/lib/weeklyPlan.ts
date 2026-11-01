@@ -2,7 +2,8 @@
 // UND von planRecommendation.ts (Coach-Empfehlung aus einer Aktivitäts-Analyse
 // gezielt in einen Plantag übernehmen, siehe ActivityDetail.tsx).
 
-import { supabase, type WeeklyPlan } from './supabase'
+import { supabase, type FixedRestDay, type WeeklyPlan } from './supabase'
+import { toDateStr } from './dateUtils'
 import type { MainSetItem } from './cyclingPower'
 
 export type DayPlan = {
@@ -113,6 +114,32 @@ export function checkPlanConflicts(days: Record<string, DayPlan>): string | null
     }
   }
   return null
+}
+
+// ── Fester Ruhetag (athletes.fixed_rest_day) ───────────────────────────────
+// Gilt für jede Woche, in der dieser Wochentag spätestens am Enddatum liegt.
+
+export function activeFixedRestDay(fixed: FixedRestDay | null | undefined, weekStart: string): FixedRestDay | null {
+  const index = fixed ? DAYS.indexOf(fixed.day) : -1
+  if (!fixed || index < 0) return null
+  const [y, m, d] = weekStart.split('-').map(Number)
+  return toDateStr(new Date(y, m - 1, d + index)) <= fixed.until ? fixed : null
+}
+
+export function fixedRestDayRule(fixed: FixedRestDay): string {
+  return `${DAY_FULL[fixed.day]} ist ein fester Ruhetag (type "Ruhetag", description "${fixed.label}") — an diesem Tag NIE eine Einheit planen, auch nicht beim Verschieben.`
+}
+
+export function applyFixedRestDay(planJson: PlanJson, fixed: FixedRestDay | null): PlanJson {
+  const day = fixed ? planJson.days[fixed.day] : undefined
+  if (!fixed || !day || !isRestDay(day)) return planJson
+  return { ...planJson, days: { ...planJson.days, [fixed.day]: { ...day, description: fixed.label } } }
+}
+
+export function checkFixedRestDay(planJson: PlanJson, fixed: FixedRestDay | null): string[] {
+  if (!fixed) return []
+  const day = planJson.days[fixed.day]
+  return day && !isRestDay(day) ? [`${DAY_FULL[fixed.day]} ist fester Ruhetag (${fixed.label}), im Plan steht aber eine Einheit`] : []
 }
 
 // ── Kraft-Rotation (fest per Code, nicht von Claude) ────────────────────────

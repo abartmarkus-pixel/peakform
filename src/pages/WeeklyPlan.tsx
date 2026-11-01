@@ -23,7 +23,7 @@ import { AppHeader } from '../components/AppHeader'
 import { useFeatures } from '../lib/features'
 import { getISOMonday, getISOSunday, formatWeekRange, formatDurationHuman, toDateStr, dayLabelForDate } from '../lib/dateUtils'
 import { RecoveryHints } from '../components/RecoveryHints'
-import { DAYS, DAY_FULL, REST_KEYWORDS, SPORT_KEYWORDS, applyWorkoutRotation, checkPlanConflicts, insertPlanVersion, normalizePlanDayKeys, type DayPlan, type PlanJson } from '../lib/weeklyPlan'
+import { DAYS, DAY_FULL, REST_KEYWORDS, SPORT_KEYWORDS, activeFixedRestDay, applyFixedRestDay, applyWorkoutRotation, checkFixedRestDay, checkPlanConflicts, fixedRestDayRule, insertPlanVersion, normalizePlanDayKeys, type DayPlan, type PlanJson } from '../lib/weeklyPlan'
 import {
   applyReturnToPlan, endIllness, fetchRelevantIllness, illnessAffectsWeek, illnessPromptLine, markSickDays,
   returnWindowEnd, startIllness, type IllnessPeriod,
@@ -864,6 +864,7 @@ export default function WeeklyPlan() {
         return
       }
       const calendarRestDays = 7 - trainingDays
+      const fixedRest = activeFixedRestDay(athlete.fixed_rest_day, weekStr)
 
       const sportConstraintLines = sportConfigs.map(s =>
         `- ${SPORT_LABEL[s.type] ?? s.type}: exakt ${s.days} ${s.days === 1 ? 'Tag' : 'Tage'}`
@@ -1009,7 +1010,7 @@ Diese Regel gilt NUR für ${SPORT_LABEL[primaryGoalSportKey]}-Einheiten in diese
 Erstelle den Wochenplan für die Woche vom ${monday8} bis ${sunday8}.
 ${goalWeekSection}
 HARTE REGELN (nicht verhandelbar):
-1. Gesamttage: Der Plan enthält exakt ${trainingDays} Trainingstage und ${calendarRestDays} Ruhetage (Mo–So = 7 Tage).
+1. Gesamttage: Der Plan enthält exakt ${trainingDays} Trainingstage und ${calendarRestDays} Ruhetage (Mo–So = 7 Tage).${fixedRest ? `\n1b. ${fixedRestDayRule(fixedRest)}` : ''}
 2. Sportarten-Verteilung (exakt einhalten):
 ${sportConstraintLines}
 ${recoverySection}${stimulusSection}${periodizationSection}
@@ -1029,7 +1030,7 @@ KRAFTTRAINING:
 SELF-CHECK VOR AUSGABE — prüfe intern:
 - Gesamttage: stimmt die Anzahl mit ${trainingDays} überein?
 ${selfCheckLines}
-- Keine zwei intensiven Tage aufeinanderfolgend?
+- Keine zwei intensiven Tage aufeinanderfolgend?${fixedRest ? `\n- ${DAY_FULL[fixedRest.day]} ist Ruhetag?` : ''}
 - Kein Krafttraining vor intensiver Ausdauer?
 - Intensity-Feld bei jeder Lauf-/Rad-Einheit mit "Z1"-"Z5"-Präfix?
 - Kraft-description exakt "Workout I"?${
@@ -1062,7 +1063,7 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, 
       })
       if (!res.ok) throw new Error('API Fehler')
       const { text } = await res.json() as { text: string }
-      const rotated = await applyWorkoutRotation(parsePlanJson(text), athlete.id, weekStr)
+      const rotated = await applyWorkoutRotation(applyFixedRestDay(parsePlanJson(text), fixedRest), athlete.id, weekStr)
       const planJson = applyCyclingPower(
         cyclingBlock ? applyCyclingBlock(rotated, cyclingBlock) : rotated,
         cyclingTargets(athlete),
@@ -1073,6 +1074,7 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Text davor oder danach, 
         ...validateConstraints(planJson, sportConfigs, trainingDays),
         ...checkGoalPlacement(planJson, monday, activeGoals ?? []),
         ...checkIndoorCap(planJson),
+        ...checkFixedRestDay(planJson, fixedRest),
         ...(cyclingStructure
           ? checkCyclingWeekStructure(
               planJson, plannedRideHours,
