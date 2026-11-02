@@ -14,8 +14,11 @@ import {
   LAUF_COACH_PROMPT,
   RAD_COACH_PROMPT,
   KRAFT_COACH_PROMPT,
+  NO_PAST_GOALS_RULE,
+  SESSION_ONLY_RULE,
 } from './coachPrompt'
 import { buildCoachContext, buildSpecialistContext, resolveHRProfile, calculateHRZoneBounds } from './coachContext'
+import { hasUpcomingGoal } from './goals'
 import { fetchOuraNightBefore, formatOuraNight } from './oura'
 import { resolveDayZone, dayMatchesSport, type PlanJson } from './weeklyPlan'
 
@@ -550,14 +553,20 @@ export async function analyzeActivity(
 
     const { specialist, sport } = getSpecialistPrompt(activity.type)
 
+    const sessionOnly = !(await hasUpcomingGoal(athleteId))
+
     const [basePrompt, generalContext, specialistContext, ouraNight] = await Promise.all([
-      buildCoachSystemPrompt(athleteId, sport),
-      buildCoachContext(athleteId, undefined, sport),
+      buildCoachSystemPrompt(athleteId, sport, sessionOnly),
+      buildCoachContext(athleteId, undefined, sport, true),
       sport ? buildSpecialistContext(athleteId, sport) : Promise.resolve(null),
       fetchOuraNightBefore(athleteId, activity.date),
     ])
 
-    const system = specialist ? basePrompt + '\n\n' + specialist : basePrompt
+    // Kraft-Analysen sehen ohnehin keine Ziele (KRAFT_COACH_PROMPT) — keine Zusatzregeln nötig
+    const goalRules = sport === 'strength'
+      ? []
+      : [NO_PAST_GOALS_RULE, ...(sessionOnly ? [SESSION_ONLY_RULE] : [])]
+    const system = [basePrompt, specialist, ...goalRules].filter(Boolean).join('\n\n')
     const contextBlock = [generalContext, specialistContext].filter(Boolean).join('\n\n')
 
     const activityBlock = `Analysiere diese Trainingsaktivität${athlete.name ? ` von ${athlete.name}` : ''}:

@@ -140,16 +140,32 @@ Diese Analyse betrifft NUR das Krafttraining. Erwähne Laufen, Radfahren, Ausdau
 - Eine konkrete Änderungsempfehlung für die nächste Krafteinheit
 - Max 250 Wörter`
 
+// Beide Regeln hängt analyzeActivity() ans Ende des System-Prompts, also NACH den
+// Spezialisten-Prompts — die sprechen selbst von Phase und Ziel, die Regeln haben Vorrang.
+
+export const NO_PAST_GOALS_RULE = `
+## VERGANGENE ZIELE UND WETTKÄMPFE (zwingend)
+Beziehe dich in dieser Analyse nie auf ein bereits vergangenes Ziel oder einen vergangenen Wettkampf — auch nicht als Erklärung für Puls, Tempo oder Müdigkeit (NICHT "Erholung nach dem Rennen"), auch nicht als Vergleich, und auch dann nicht, wenn es im Wochenplan oder in den Coach-Entscheidungen noch erwähnt wird.`
+
+export const SESSION_ONLY_RULE = `
+## KEIN AKTIVES ZIEL (zwingend, hat Vorrang vor allen anderen Anweisungen)
+Es ist kein kommendes Ziel hinterlegt. Analysiere und bewerte ausschließlich diese Trainingseinheit an sich: Belastung, Gleichmäßigkeit, Puls, Tempo bzw. Watt, Vergleich mit früheren ähnlichen Einheiten und — falls vorhanden — der Eintrag im Wochenplan für diesen Tag.
+Alle Anweisungen oben zu Trainingsphase, Saisonziel, Zielpace und Taper entfallen: nenne keine Trainingsphase, kein Ziel, keinen Wettkampf und keine Vorbereitung auf ein Ereignis. Die Empfehlung bezieht sich nur auf die nächste Einheit.`
+
 // ── dynamic main prompt ────────────────────────────────────────────────────
 
 /**
  * Builds the COACH_SYSTEM_PROMPT dynamically from Supabase athlete + goal data.
  * Sportwissenschaftliche Regeln bleiben statisch — nur athleten-spezifische
  * Werte (FTP, Max HF, Pace, Phase) kommen aus der DB.
+ * sessionOnly: Aktivitäts-Analyse ohne kommendes Ziel — ohne Ziel-, Phasen- und
+ * Zielpace-Angaben (die Phase wäre ohne Ziel nur ein Platzhalterwert, die Zielpace
+ * bezöge sich auf eine angenommene Distanz). Siehe SESSION_ONLY_RULE.
  */
 export async function buildCoachSystemPrompt(
   athleteId: string,
   activeSport?: 'running' | 'cycling' | 'strength' | null,
+  sessionOnly = false,
 ): Promise<string> {
   const [{ data: athlete }, { data: goalRows }, { data: recentRuns }] = await Promise.all([
     supabase
@@ -340,13 +356,13 @@ ${stylePrompt}
 
 ${athleteSection}
 
-${showSeasonPhase ? `${goalSection}\n\n${phaseSection}` : strengthGoalSection}
+${sessionOnly ? '' : showSeasonPhase ? `${goalSection}\n\n${phaseSection}` : strengthGoalSection}
 
 ## HERZFREQUENZZONEN
 ${hrZones}
 ${showSeasonPhase ? `
 ## LAUFPACE-REFERENZ
-${paceRef}` : ''}
+${sessionOnly ? paceRef.split('\n').filter(line => !line.startsWith('Zielpace')).join('\n') : paceRef}` : ''}
 
 ## COACHING-PRINZIPIEN
 1. Verletzungsprävention hat Priorität über Performance

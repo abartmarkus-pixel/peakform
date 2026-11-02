@@ -690,10 +690,19 @@ export async function buildCoachContext(
   athleteId: string,
   threadId?: string,
   activeSport?: 'running' | 'cycling' | 'strength' | null,
+  // Aktivitäts-Analyse: lässt Freitexte früherer Claude-Ausgaben weg (letzte Analyse,
+  // Plan-History, Review-Notizen, Plan-Zusammenfassung) — dort stehen vergangene Ziele
+  // ("Erholung nach Amsterdam 8K"), die sonst von Analyse zu Analyse weitergetragen werden.
+  forAnalysis = false,
 ): Promise<string> {
   const mondayDate = getISOMonday(new Date())
   const thisWeek = mondayOf(new Date())
   const fourWeeksAgo = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000).toISOString()
+
+  const decisionsQuery = supabase
+    .from('coach_decisions')
+    .select('decision_type, decision_summary, reasoning, created_at, related_activity_id')
+    .eq('athlete_id', athleteId)
 
   // Fetch all data in parallel
   const [
@@ -717,6 +726,7 @@ export async function buildCoachContext(
       .select('event_name, event_date, distance_km, elevation_m, priority, sport_type, notes')
       .eq('athlete_id', athleteId)
       .eq('active', true)
+      .gte('event_date', toDateStr(new Date()))
       .order('event_date', { ascending: true }),
 
     supabase
@@ -741,10 +751,14 @@ export async function buildCoachContext(
       .order('created_at', { ascending: false })
       .limit(6),
 
-    supabase
-      .from('coach_decisions')
-      .select('decision_type, decision_summary, reasoning, created_at, related_activity_id')
-      .eq('athlete_id', athleteId)
+    // Analyse: nur aktuelle körperliche Einschränkungen (7 Tage, wie bei generatePlan()) —
+    // Plan-/Review-Einträge sprechen von Ereignissen ("Taper Woche 2 ... vor Amsterdam")
+    // und sind für die Einheit unerheblich.
+    (forAnalysis
+      ? decisionsQuery
+          .in('decision_type', ['recovery_required', 'review_constraint'])
+          .gte('created_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
+      : decisionsQuery)
       .order('created_at', { ascending: false })
       .limit(5),
 
@@ -879,12 +893,14 @@ export async function buildCoachContext(
   const planForContext = (strengthOnly && currentPlan)
     ? { days: Object.fromEntries(Object.entries((currentPlan.plan_json as { days?: Record<string, { type?: string }> }).days ?? {})
         .filter(([label, d]) => WEEKDAY_ORDER.indexOf(label) > todayIdx && /kraft|weighttraining/i.test(d?.type ?? ''))) }
-    : currentPlan?.plan_json
+    : forAnalysis && currentPlan
+      ? { ...(currentPlan.plan_json as Record<string, unknown>), summary: undefined }
+      : currentPlan?.plan_json
   const planBody = currentPlan
     ? JSON.stringify(planJsonWithDates(planForContext, mondayDate), null, 2)
     : 'Kein Wochenplan vorhanden.'
 
-  const reviewNote = (!strengthOnly && currentPlan?.review_notes)
+  const reviewNote = (!strengthOnly && !forAnalysis && currentPlan?.review_notes)
     ? `\nReview der Vorwoche:\n${currentPlan.review_notes}`
     : ''
 
@@ -894,7 +910,7 @@ export async function buildCoachContext(
 
   // ── 3b. LETZTE AKTIVITÄTS-ANALYSE ─────────────────────────────────────
   const lastAct = lastAnalysisRows?.[0] ?? null
-  if (lastAct?.claude_analysis && !strengthOnly) {
+  if (lastAct?.claude_analysis && !strengthOnly && !forAnalysis) {
     sections.push([
       '[LETZTE AKTIVITÄTS-ANALYSE]',
       `${lastAct.name} (${toLocalWeekdayDateTimeStr(lastAct.date)} — ${relativeDayLabel(lastAct.date)}, ${lastAct.type}):`,
@@ -949,7 +965,7 @@ export async function buildCoachContext(
       (p.review_notes ? `\n  → Review: ${String(p.review_notes).slice(0, 250)}` : '')
   })
 
-  if (!strengthOnly) sections.push(
+  if (!strengthOnly && !forAnalysis) sections.push(
     `[PLAN-HISTORY — LETZTE 3 VERSIONEN]\n${planHistLines.length ? planHistLines.join('\n') : 'Keine früheren Pläne.'}`
   )
 
@@ -973,7 +989,10 @@ export async function buildCoachContext(
     return `${header}: ${d.decision_summary}` + (d.reasoning ? `\n  → ${d.reasoning}` : '')
   })
 
-  if (!strengthOnly) sections.push(
+  // Analyse ohne kommendes Ziel: nur die Einheit an sich (siehe SESSION_ONLY_RULE) — auch die
+  // Erholungs-Einträge fallen weg, nach einem Rennen beziehen die sich fast immer darauf.
+  const sessionOnly = forAnalysis && !goals?.length
+  if (!strengthOnly && !sessionOnly) sections.push(
     `[COACH-ENTSCHEIDUNGEN — LETZTE 5]\n${decisionLines.length ? decisionLines.join('\n') : 'Keine Entscheidungen geloggt.'}`
   )
 
