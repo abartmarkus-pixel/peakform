@@ -47,6 +47,9 @@ Verpflichtender 6-Schritte-Wizard (Onboarding.tsx): Name → Sportarten+Training
 ### ✅ Mid-Week Check-in (implementiert 2.7.2026)
 Feedback-Button an completed DayCards im Wochenplan (Modal, Freitext). Speicherung als coach_decisions (decision_type='midweek_feedback'), UPDATE statt Duplikat bei erneutem Feedback zur selben Aktivität. Kein zusätzlicher Claude-Call — landet automatisch im bestehenden [COACH-ENTSCHEIDUNGEN]-Kontext.
 
+### ✅ Strava 64-Bit-IDs (umgesetzt 18.11.2026, Strava-Frist 1.6.2027)
+Anlass: Strava-Mail an Entwickler — Aktivitäten und Athleten bekommen ab 1.6.2027 64-Bit-IDs, die JavaScript nicht mehr exakt als Zahl darstellen kann (Rundung ab 2^53, z. B. 9007199254740993 → …992). Folge wäre gewesen: neue Aktivitäten unter falscher ID gespeichert, Detailseite/Streams/Runden laden nicht. Fix: IDs app-weit als String, aus Strava `id_str` übernehmen, DB-Spalten `strava_id`/`strava_athlete_id` von BIGINT auf TEXT (RLS-Policies neu angelegt). Reihenfolge: erst Code live (kompatibel mit beiden Spaltentypen), dann DB-Migration. Mit Test-Konto + 64-Bit-Test-Aktivität verifiziert; mit echten Strava-Daten nicht testbar, solange Strava noch keine großen IDs vergibt. Details: SPEC.md Kapitel 13 Punkt 9.
+
 ### ✅ Activity-ID-Mismatch (behoben 2.7.2026)
 War: WeeklyPlan.tsx nutzte match.activity.id (Supabase-UUID) statt match.activity.strava_id beim Navigieren zu ActivityDetail → Number(<uuid>) = NaN → "Aktivität konnte nicht geladen werden". Fix: korrekter Identifier (strava_id) wird jetzt konsistent verwendet.
 
