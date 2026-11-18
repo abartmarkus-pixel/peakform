@@ -19,7 +19,7 @@ export type DayPlan = {
   // Nur gesetzt, wenn eine an einem anderen Tag vorgezogen durchgeführte Aktivität
   // diesen Tag erfüllt (Kontext-Vorschlag "Vorziehen erkannt").
   // Der Tag selbst bleibt inhaltlich unverändert (type/description etc.).
-  _fulfilledBy?: { date: string; stravaId: number }
+  _fulfilledBy?: { date: string; stravaId: string }
   // Nur Rad-Tage (siehe cyclingPower.ts): Ort, Watt-Bereich der Gesamteinheit und
   // Intervall-Hauptblöcke — Watt jeweils von der App aus der FTP berechnet
   location?: 'indoor' | 'outdoor'

@@ -86,7 +86,7 @@ export default function Goals() {
       const { data: athleteData } = await supabase
         .from('athletes')
         .select('id, features')
-        .eq('strava_athlete_id', Number(stravaId))
+        .eq('strava_athlete_id', stravaId)
         .single()
       if (!athleteData) { setLoading(false); return }
       if (!useFeatures(athleteData as unknown as Athlete).goals) { navigate('/dashboard', { replace: true }); return }

@@ -32,7 +32,7 @@ export default function OuraCallback() {
 
     ;(async () => {
       try {
-        const { data } = await supabase.from('athletes').select('id').eq('strava_athlete_id', Number(stravaId)).single()
+        const { data } = await supabase.from('athletes').select('id').eq('strava_athlete_id', stravaId).single()
         if (!data) throw new Error('Athlet nicht gefunden')
         await connectOura(data.id, code)
         await syncOuraData(data.id)

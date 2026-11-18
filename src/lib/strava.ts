@@ -29,8 +29,11 @@ export function getStravaAuthUrl(state: string): string {
   )
 }
 
+// Strava-IDs werden ab Juni 2027 64-Bit-Zahlen, die JavaScript nicht mehr exakt als
+// number darstellen kann (Rundung ab 2^53). Darum überall als String geführt: Strava
+// liefert dafür id_str mit, das beim Abruf übernommen wird (normalizeStravaId()).
 export type StravaActivity = {
-  id: number
+  id: string
   name: string
   type: string
   start_date: string
@@ -48,7 +51,13 @@ export type StravaTokenResponse = {
   access_token: string
   refresh_token: string
   expires_at: number
-  athlete: { id: number }
+  athlete: { id: string }
+}
+
+// id_str bevorzugen (exakt); Fallback String(id) für Antworten ohne id_str — bei den
+// heutigen, noch kleinen IDs verlustfrei.
+function normalizeStravaId(obj: { id?: unknown; id_str?: unknown }): string {
+  return typeof obj.id_str === 'string' && obj.id_str ? obj.id_str : String(obj.id)
 }
 
 export async function exchangeCodeForToken(code: string): Promise<StravaTokenResponse> {
@@ -58,7 +67,8 @@ export async function exchangeCodeForToken(code: string): Promise<StravaTokenRes
     body: JSON.stringify({ grant_type: 'authorization_code', code }),
   })
   if (!res.ok) throw new Error('Token exchange failed')
-  return res.json()
+  const token = await res.json()
+  return { ...token, athlete: { ...token.athlete, id: normalizeStravaId(token.athlete) } }
 }
 
 export async function fetchRecentActivities(
@@ -71,7 +81,8 @@ export async function fetchRecentActivities(
     { headers: { Authorization: `Bearer ${accessToken}` } },
   )
   if (!res.ok) throw new Error('Failed to fetch activities')
-  return res.json()
+  const list = await res.json() as Array<Record<string, unknown>>
+  return list.map(a => ({ ...a, id: normalizeStravaId(a) }) as StravaActivity)
 }
 
 export type StravaSplitMetric = {
@@ -102,7 +113,7 @@ export type StravaLap = {
 
 export async function fetchActivityLaps(
   accessToken: string,
-  activityId: number,
+  activityId: string,
 ): Promise<StravaLap[]> {
   const res = await fetch(
     `https://www.strava.com/api/v3/activities/${activityId}/laps`,
@@ -125,7 +136,7 @@ export type StravaBestEffort = {
 
 export async function fetchActivityDetail(
   accessToken: string,
-  activityId: number,
+  activityId: string,
 ): Promise<{ description?: string; splits_metric?: StravaSplitMetric[]; best_efforts?: StravaBestEffort[] }> {
   const res = await fetch(
     `https://www.strava.com/api/v3/activities/${activityId}`,
@@ -206,7 +217,7 @@ export async function backfillStravaPrs(athleteId: string): Promise<void> {
     // überschreiben.
     const details = await Promise.all(
       (runs ?? []).map(r =>
-        fetchActivityDetail(token, r.strava_id)
+        fetchActivityDetail(token, String(r.strava_id))
           .then(d => ({ date: r.date, bestEfforts: d.best_efforts }))
           .catch(() => null),
       ),
@@ -229,7 +240,7 @@ export async function backfillStravaPrs(athleteId: string): Promise<void> {
 
 export async function fetchActivityStreams(
   accessToken: string,
-  activityId: number,
+  activityId: string,
 ): Promise<Record<string, unknown>> {
   const keys = 'time,heartrate,altitude,velocity_smooth,watts,cadence'
   const res = await fetch(
@@ -291,7 +302,7 @@ export async function restoreSessionFromSupabase(): Promise<boolean> {
  *  Live-Adresse um, nie auf localhost. Statt dafür jedes Mal localStorage in der Browser-Konsole
  *  zu setzen, übernimmt dieser Login den Session-Zustand direkt aus Supabase (Tokens dort sind
  *  dieselben wie live). */
-export type DevAthleteOption = { strava_athlete_id: number; name: string | null }
+export type DevAthleteOption = { strava_athlete_id: string; name: string | null }
 
 // Nur Test-Konten (Fake-Strava-IDs ab 999000000, festes Test-Konto "TEST" = 999000001) —
 // echte Konten bewusst nicht: kein versehentliches Testen im echten Konto und kein
@@ -299,16 +310,20 @@ export type DevAthleteOption = { strava_athlete_id: number; name: string | null 
 export const DEV_TEST_ID_MIN = 999000000
 
 export async function listDevAthletes(): Promise<DevAthleteOption[]> {
+  // Filter client-seitig: strava_athlete_id ist (nach Umstellung) Text, ein gte/lt-Filter
+  // würde dann alphabetisch statt numerisch vergleichen.
   const { data } = await supabase
     .from('athletes')
     .select('strava_athlete_id, name')
-    .gte('strava_athlete_id', DEV_TEST_ID_MIN)
-    .lt('strava_athlete_id', DEV_TEST_ID_MIN + 1000000)
     .order('created_at')
-  return (data ?? []) as DevAthleteOption[]
+  return ((data ?? []) as { strava_athlete_id: string | number; name: string | null }[])
+    .map(a => ({ strava_athlete_id: String(a.strava_athlete_id), name: a.name }))
+    .filter(a => /^\d{9}$/.test(a.strava_athlete_id)
+      && Number(a.strava_athlete_id) >= DEV_TEST_ID_MIN
+      && Number(a.strava_athlete_id) < DEV_TEST_ID_MIN + 1000000)
 }
 
-export async function devLoginAs(stravaAthleteId: number): Promise<void> {
+export async function devLoginAs(stravaAthleteId: string): Promise<void> {
   const stravaId = String(stravaAthleteId)
   localStorage.setItem('athlete_strava_id', stravaId)
   sessionStorage.setItem('athlete_strava_id', stravaId)

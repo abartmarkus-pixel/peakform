@@ -56,15 +56,16 @@ function embeddedActivityDate(row: { activities?: unknown }): string | null {
 }
 
 // See embeddedActivityDate above — same defensive handling for embedded joins.
-function embeddedStravaId(row: { activities?: unknown }): number | null {
-  const a = row.activities as { strava_id: number } | { strava_id: number }[] | null | undefined
+function embeddedStravaId(row: { activities?: unknown }): string | null {
+  const a = row.activities as { strava_id: string | number } | { strava_id: string | number }[] | null | undefined
   if (!a) return null
-  return (Array.isArray(a) ? a[0]?.strava_id : a.strava_id) ?? null
+  const id = Array.isArray(a) ? a[0]?.strava_id : a.strava_id
+  return id != null ? String(id) : null
 }
 
 // Shared by initial load and "Mehr laden" — batch-checks which of the given
 // Strava activities already have midweek feedback, keyed by Strava ID.
-async function loadFeedbackMap(acts: StravaActivity[], athleteId: string): Promise<Record<number, true>> {
+async function loadFeedbackMap(acts: StravaActivity[], athleteId: string): Promise<Record<string, true>> {
   if (acts.length === 0) return {}
   const { data: fbRows } = await supabase
     .from('coach_decisions')
@@ -72,7 +73,7 @@ async function loadFeedbackMap(acts: StravaActivity[], athleteId: string): Promi
     .eq('athlete_id', athleteId)
     .eq('decision_type', 'midweek_feedback')
     .in('activities.strava_id', acts.map(a => a.id))
-  const fbMap: Record<number, true> = {}
+  const fbMap: Record<string, true> = {}
   for (const row of (fbRows ?? []) as { activities?: unknown }[]) {
     const stravaId = embeddedStravaId(row)
     if (stravaId != null) fbMap[stravaId] = true
@@ -111,7 +112,7 @@ export default function Dashboard() {
   const [filter,           setFilter]           = useState<string | null>(() => sessionStorage.getItem('dashboard_filter'))
   const [loading,          setLoading]          = useState(true)
   const [error,            setError]            = useState<string | null>(null)
-  const [feedbackMap,      setFeedbackMap]      = useState<Record<number, true>>({})
+  const [feedbackMap,      setFeedbackMap]      = useState<Record<string, true>>({})
 
   const [page,             setPage]             = useState(1)
   const [hasMore,          setHasMore]          = useState(true)
@@ -135,7 +136,7 @@ export default function Dashboard() {
     supabase
       .from('athletes')
       .select('*')
-      .eq('strava_athlete_id', Number(stravaId))
+      .eq('strava_athlete_id', stravaId)
       .single()
       .then(async ({ data, error: dbError }) => {
         if (dbError || !data) { navigate('/'); return }

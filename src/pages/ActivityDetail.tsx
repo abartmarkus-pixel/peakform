@@ -359,7 +359,7 @@ export default function ActivityDetail() {
         const { data: athleteData } = await supabase
           .from('athletes')
           .select('*')
-          .eq('strava_athlete_id', Number(stravaId))
+          .eq('strava_athlete_id', stravaId)
           .single()
         if (!athleteData) throw new Error('Athlete not found')
         const athlete = athleteData as Athlete
@@ -370,7 +370,7 @@ export default function ActivityDetail() {
         const { data: actData } = await supabase
           .from('activities')
           .select('*')
-          .eq('strava_id', Number(id))
+          .eq('strava_id', id)
           .eq('athlete_id', athlete.id)
           .maybeSingle()
         if (!actData) throw new Error('Activity not found')
@@ -405,23 +405,23 @@ export default function ActivityDetail() {
         const [streamsRaw, lapsData, splitsMetric, description] = await Promise.all([
           act.streams_json
             ? Promise.resolve(act.streams_json)
-            : fetchActivityStreams(token, Number(id)).then(async (s) => {
-                await supabase.from('activities').update({ streams_json: s }).eq('strava_id', Number(id)).eq('athlete_id', athlete.id)
+            : fetchActivityStreams(token, id).then(async (s) => {
+                await supabase.from('activities').update({ streams_json: s }).eq('strava_id', id).eq('athlete_id', athlete.id)
                 return s
               }),
           act.laps_json
             ? Promise.resolve(act.laps_json as unknown as StravaLap[])
-            : fetchActivityLaps(token, Number(id)).then(async (l) => {
-                if (l.length > 0) await supabase.from('activities').update({ laps_json: l }).eq('strava_id', Number(id)).eq('athlete_id', athlete.id)
+            : fetchActivityLaps(token, id).then(async (l) => {
+                if (l.length > 0) await supabase.from('activities').update({ laps_json: l }).eq('strava_id', id).eq('athlete_id', athlete.id)
                 return l
               }).catch(() => []),
           actIsRun
             ? act.splits_metric_json
               ? Promise.resolve(act.splits_metric_json as StravaSplitMetric[])
-              : fetchActivityDetail(token, Number(id))
+              : fetchActivityDetail(token, id)
                   .then(async (d) => {
                     const sm = d.splits_metric ?? []
-                    if (sm.length > 0) await supabase.from('activities').update({ splits_metric_json: sm }).eq('strava_id', Number(id)).eq('athlete_id', athlete.id)
+                    if (sm.length > 0) await supabase.from('activities').update({ splits_metric_json: sm }).eq('strava_id', id).eq('athlete_id', athlete.id)
                     await saveStravaPrsIfPresent(athlete.id, d.best_efforts, act.date)
                     return sm
                   })
@@ -430,10 +430,10 @@ export default function ActivityDetail() {
           act.type === 'WeightTraining'
             ? act.description
               ? Promise.resolve(act.description)
-              : fetchActivityDetail(token, Number(id))
+              : fetchActivityDetail(token, id)
                   .then(async (d) => {
                     const desc = ('description' in d && d.description) ? String(d.description) : null
-                    if (desc) await supabase.from('activities').update({ description: desc }).eq('strava_id', Number(id)).eq('athlete_id', athlete.id)
+                    if (desc) await supabase.from('activities').update({ description: desc }).eq('strava_id', id).eq('athlete_id', athlete.id)
                     return desc
                   })
                   .catch(() => null)
@@ -471,7 +471,7 @@ export default function ActivityDetail() {
       const { data } = await supabase
         .from('activities')
         .select('claude_analysis')
-        .eq('strava_id', Number(id))
+        .eq('strava_id', id)
         .eq('athlete_id', athleteId)
         .maybeSingle()
       if (data?.claude_analysis) {
@@ -498,7 +498,7 @@ export default function ActivityDetail() {
       const { data } = await supabase
         .from('activities')
         .select('claude_analysis')
-        .eq('strava_id', Number(id))
+        .eq('strava_id', id)
         .eq('athlete_id', athleteId)
         .maybeSingle()
       setAnalysis(data?.claude_analysis ?? null)

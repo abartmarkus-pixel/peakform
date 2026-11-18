@@ -33,7 +33,7 @@ export function useVisibleTabs(): TabDef[] {
     supabase
       .from('athletes')
       .select('features')
-      .eq('strava_athlete_id', Number(stravaId))
+      .eq('strava_athlete_id', stravaId)
       .single()
       .then(({ data }) => {
         if (data) setFeatures(useFeatures(data as unknown as Athlete))

@@ -279,7 +279,7 @@ function matchActivityToDay(
   // eigentlichen Kalendertag selbst keine passende Aktivität liegt — activity
   // wird über dieselbe Activity-Lookup-Logik wie sonst aus der stravaId aufgelöst.
   if (dayPlan._fulfilledBy) {
-    const fulfillingActivity = activities.find(a => a.strava_id === dayPlan._fulfilledBy!.stravaId)
+    const fulfillingActivity = activities.find(a => String(a.strava_id) === String(dayPlan._fulfilledBy!.stravaId))
     return { status: 'completed', activity: fulfillingActivity }
   }
 
@@ -625,7 +625,7 @@ export default function WeeklyPlan() {
     supabase
       .from('athletes')
       .select('*')
-      .eq('strava_athlete_id', Number(stravaId))
+      .eq('strava_athlete_id', stravaId)
       .single()
       .then(({ data }) => {
         if (!data) return
@@ -1510,7 +1510,7 @@ Antworte AUSSCHLIESSLICH mit diesem JSON (kein Text davor/danach, kein Markdown)
     const updated = { ...displayPlanJson, days: { ...displayPlanJson.days } }
     updated.days[toDay] = {
       ...targetPlan,
-      _fulfilledBy: { date: toDateStr(new Date(activity.date)), stravaId: activity.strava_id },
+      _fulfilledBy: { date: toDateStr(new Date(activity.date)), stravaId: String(activity.strava_id) },
     }
     applyManualEdit(updated, `${targetPlan.type} von ${toDay} auf ${fromDay} vorgezogen`)
     if (pickupKey) setDismissedPickupKey(pickupKey)

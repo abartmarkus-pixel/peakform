@@ -28,7 +28,7 @@ Zielgruppe: persönlicher Einsatz (kein SaaS).
 
 ## Datenbankschema
 ```sql
-athletes (id uuid PK, strava_athlete_id bigint UNIQUE, strava_access_token text,
+athletes (id uuid PK, strava_athlete_id text UNIQUE,   ← text statt bigint (64-Bit-IDs ab Juni 2027, s.u.) strava_access_token text,
           strava_refresh_token text, expires_at timestamptz,
           name text,
           ftp_watts int, max_hr int, weight_kg numeric,
@@ -72,7 +72,7 @@ athletes (id uuid PK, strava_athlete_id bigint UNIQUE, strava_access_token text,
                                       ← Oura-OAuth; Refresh-Tokens sind Einmal-Tokens (nach jedem Refresh neu speichern)
           created_at timestamptz)
 
-activities (id uuid PK, athlete_id uuid FK→athletes, strava_id bigint UNIQUE,
+activities (id uuid PK, athlete_id uuid FK→athletes, strava_id text UNIQUE,  ← text statt bigint (s.u.)
             name text, type text, date timestamptz,
             distance_m numeric, duration_s int, avg_hr numeric, max_hr numeric,
             np_watts numeric,       ← Strava weighted_average_watts (Summary-Feld, keine Eigenberechnung)
@@ -437,4 +437,5 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 - `activities.description`: Cache-first — bei WeightTraining erst Supabase prüfen, nur bei null von Strava holen
 - WeeklyPlan Kraft-Einheiten: `description` = "Workout I/II/III" (nie Freitext); Laufen: `distance_km` immer null
 - `coach_decisions.related_activity_id`: FK→activities, gesetzt bei `decision_type = 'recovery_required'` und `'stimulus_insufficient'`
+- Strava-IDs (`activities.strava_id`, `athletes.strava_athlete_id`, `_fulfilledBy.stravaId` in `plan_json`) sind überall **Strings**, nie `number`: Strava vergibt ab 1.6.2027 64-Bit-IDs, die JavaScript ab 2^53 falsch rundet (z.B. 9007199254740993 → …992). Beim Abruf von Strava übernimmt `normalizeStravaId()` (`strava.ts`) das Feld `id_str` (Fallback `String(id)`); die DB-Spalten sind `text`, damit auch Supabase die IDs als String zurückliefert (bigint käme als JSON-Zahl an und würde gerundet). Nie `Number(...)` auf eine Strava-ID anwenden, Vergleiche mit Altdaten (Zahlen in älterem `plan_json`) über `String(a) === String(b)`. Test-Aktivität mit 64-Bit-ID: "TEST 64-Bit-ID" (`strava_id 9007199254740993`) im Test-Konto
 - `activities.avg_watts`/`elevation_m`/`np_watts`: alle drei kommen aus Stravas Summary-Response (`syncActivitiesToSupabase()`), niemals lokal aus `streams_json` neu berechnet — lokale Mittelwertbildung über den rohen watts/altitude-Stream war die Ursache für einen Ø-Watt/Höhenmeter-Bug (Nullen im watts-Stream beim Mitteln ausgeklammert → zu hoher Ø-Watt; unsmoothe Barometer-Rohdaten → zu hohe Höhenmeter)

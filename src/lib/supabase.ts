@@ -32,7 +32,7 @@ export type FixedRestDay = { day: string; until: string; label: string }
 
 export type Athlete = {
   id: string
-  strava_athlete_id: number
+  strava_athlete_id: string
   strava_access_token: string
   strava_refresh_token: string
   expires_at: string | null
@@ -144,7 +144,7 @@ export type ChatMessage = {
 export type Activity = {
   id: string
   athlete_id: string
-  strava_id: number
+  strava_id: string
   name: string
   type: string
   date: string

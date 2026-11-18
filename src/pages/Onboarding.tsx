@@ -92,7 +92,7 @@ export default function Onboarding() {
       const { data } = await supabase
         .from('athletes')
         .select('*')
-        .eq('strava_athlete_id', Number(stravaId))
+        .eq('strava_athlete_id', stravaId)
         .single()
       if (data) {
         const a = data as Athlete

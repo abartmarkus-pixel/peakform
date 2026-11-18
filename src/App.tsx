@@ -63,7 +63,7 @@ function Layout() {
       const { data } = await supabase
         .from('athletes')
         .select('id, onboarding_completed, push_opted_out')
-        .eq('strava_athlete_id', Number(stravaId))
+        .eq('strava_athlete_id', stravaId)
         .single()
 
       if (data?.onboarding_completed === false) {
