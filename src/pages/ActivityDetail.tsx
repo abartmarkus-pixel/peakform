@@ -736,12 +736,14 @@ export default function ActivityDetail() {
   const hasHr = chartData.some(d => d.hr !== undefined)
   const hasAlt = !isWeightTraining && chartData.some(d => d.alt !== undefined)
   const hasWatts = chartData.some(d => d.watts !== undefined)
-  // Zonen-Bänder nur bei Rad (indoor + outdoor). Achse aus den Daten, Bänder darauf zugeschnitten.
-  const showZones = isCyclingForInterval
+  // Zonen-Bänder: HF bei allen Sportarten mit HF-Chart, Watt nur bei Rad (FTP ist Rad-FTP).
+  // Achse aus den Daten, Bänder darauf zugeschnitten.
+  const showHrZones = !!hrBands
+  const showPowerZones = isCyclingForInterval && !!powerBands
   const hrDomain = dataDomain(chartData.flatMap(d => (d.hr != null ? [Number(d.hr)] : [])), 5)
   const wattDomain = dataDomain(chartData.flatMap(d => (d.watts != null ? [Number(d.watts)] : [])), 10, true)
   const zoneAreas = (bands: ZoneBand[] | null, [lo, hi]: [number, number]) =>
-    !showZones || !bands
+    !bands
       ? null
       : bands.flatMap(b => {
           const y1 = Math.max(b.low, lo)
@@ -972,8 +974,8 @@ export default function ActivityDetail() {
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
               <XAxis dataKey="t" hide />
-              <YAxis domain={showZones && powerBands ? wattDomain : [0, 'auto']} stroke="#64748b" tick={{ fontSize: 11 }} allowDataOverflow={showZones && !!powerBands} />
-              {zoneAreas(powerBands, wattDomain)}
+              <YAxis domain={showPowerZones ? wattDomain : [0, 'auto']} stroke="#64748b" tick={{ fontSize: 11 }} allowDataOverflow={showPowerZones} />
+              {showPowerZones && zoneAreas(powerBands, wattDomain)}
               <Tooltip
                 contentStyle={{ background: '#1e293b', border: 'none', borderRadius: 8 }}
                 labelFormatter={(v) => `${Math.round(Number(v) / 60)} min`}
@@ -999,8 +1001,8 @@ export default function ActivityDetail() {
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
               <XAxis dataKey="t" hide />
-              <YAxis domain={showZones && hrBands ? hrDomain : ['auto', 'auto']} stroke="#64748b" tick={{ fontSize: 11 }} allowDataOverflow={showZones && !!hrBands} />
-              {zoneAreas(hrBands, hrDomain)}
+              <YAxis domain={showHrZones ? hrDomain : ['auto', 'auto']} stroke="#64748b" tick={{ fontSize: 11 }} allowDataOverflow={showHrZones} />
+              {showHrZones && zoneAreas(hrBands, hrDomain)}
               <Tooltip
                 contentStyle={{ background: '#1e293b', border: 'none', borderRadius: 8 }}
                 labelFormatter={(v) => `${Math.round(Number(v) / 60)} min`}
