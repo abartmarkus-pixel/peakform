@@ -9,7 +9,10 @@ import {
   YAxis,
   Tooltip,
   CartesianGrid,
+  ReferenceArea,
 } from 'recharts'
+import { calculateHRZoneBounds, resolveHRProfile } from '../lib/coachContext'
+import { hrZoneBands, powerZoneBands, dataDomain, type ZoneBand } from '../lib/chartZones'
 import { fetchActivityStreams, fetchActivityLaps, fetchActivityDetail, saveStravaPrsIfPresent, getValidAccessToken, type StravaLap, type StravaSplitMetric } from '../lib/strava'
 import {
   analyzeActivity,
@@ -312,6 +315,8 @@ export default function ActivityDetail() {
   const [exercises, setExercises] = useState<Exercise[]>([])
   const [athleteId, setAthleteId] = useState<string | null>(null)
   const [athleteName, setAthleteName] = useState('')
+  const [hrBands, setHrBands] = useState<ZoneBand[] | null>(null)
+  const [powerBands, setPowerBands] = useState<ZoneBand[] | null>(null)
   const [runSplits, setRunSplits] = useState<RunSplit[]>([])
   const [analysing, setAnalysing] = useState(false)
   const [analysis, setAnalysis] = useState<string | null>(null)
@@ -365,6 +370,9 @@ export default function ActivityDetail() {
         const athlete = athleteData as Athlete
         setAthleteId(athlete.id)
         setAthleteName(athlete.name ?? '')
+        const hrProfile = resolveHRProfile(athlete)
+        setHrBands(hrZoneBands(calculateHRZoneBounds(hrProfile.effectiveMaxHR, hrProfile.restingHR)))
+        setPowerBands(athlete.ftp_watts ? powerZoneBands(athlete.ftp_watts) : null)
         checkRoastUnlock(athlete.id, athlete.created_at).then(setRoastUnlock)
 
         const { data: actData } = await supabase
@@ -728,6 +736,31 @@ export default function ActivityDetail() {
   const hasHr = chartData.some(d => d.hr !== undefined)
   const hasAlt = !isWeightTraining && chartData.some(d => d.alt !== undefined)
   const hasWatts = chartData.some(d => d.watts !== undefined)
+  // Zonen-Bänder nur bei Rad (indoor + outdoor). Achse aus den Daten, Bänder darauf zugeschnitten.
+  const showZones = isCyclingForInterval
+  const hrDomain = dataDomain(chartData.flatMap(d => (d.hr != null ? [Number(d.hr)] : [])), 5)
+  const wattDomain = dataDomain(chartData.flatMap(d => (d.watts != null ? [Number(d.watts)] : [])), 10, true)
+  const zoneAreas = (bands: ZoneBand[] | null, [lo, hi]: [number, number]) =>
+    !showZones || !bands
+      ? null
+      : bands.flatMap(b => {
+          const y1 = Math.max(b.low, lo)
+          const y2 = Math.min(b.high, hi)
+          if (y2 <= y1) return []
+          const showLabel = (y2 - y1) / (hi - lo) >= 0.08
+          return [
+            <ReferenceArea
+              key={b.label}
+              y1={y1}
+              y2={y2}
+              fill={b.color}
+              fillOpacity={0.15}
+              stroke="none"
+              ifOverflow="hidden"
+              label={showLabel ? { value: b.label, position: 'insideRight', fill: b.color, fontSize: 10, fontWeight: 600 } : undefined}
+            />,
+          ]
+        })
   // Nur Laufen/Radfahren: Kraft-Tage tragen einen festen "Workout I/II/III"-Namen
   // (siehe CLAUDE.md), eine Freitext-Empfehlung passt dort nicht in die description.
   const activitySportForPlan = activity ? sportFromActivityType(activity.type) : null
@@ -939,7 +972,8 @@ export default function ActivityDetail() {
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
               <XAxis dataKey="t" hide />
-              <YAxis domain={[0, 'auto']} stroke="#64748b" tick={{ fontSize: 11 }} />
+              <YAxis domain={showZones && powerBands ? wattDomain : [0, 'auto']} stroke="#64748b" tick={{ fontSize: 11 }} allowDataOverflow={showZones && !!powerBands} />
+              {zoneAreas(powerBands, wattDomain)}
               <Tooltip
                 contentStyle={{ background: '#1e293b', border: 'none', borderRadius: 8 }}
                 labelFormatter={(v) => `${Math.round(Number(v) / 60)} min`}
@@ -965,7 +999,8 @@ export default function ActivityDetail() {
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
               <XAxis dataKey="t" hide />
-              <YAxis domain={['auto', 'auto']} stroke="#64748b" tick={{ fontSize: 11 }} />
+              <YAxis domain={showZones && hrBands ? hrDomain : ['auto', 'auto']} stroke="#64748b" tick={{ fontSize: 11 }} allowDataOverflow={showZones && !!hrBands} />
+              {zoneAreas(hrBands, hrDomain)}
               <Tooltip
                 contentStyle={{ background: '#1e293b', border: 'none', borderRadius: 8 }}
                 labelFormatter={(v) => `${Math.round(Number(v) / 60)} min`}
