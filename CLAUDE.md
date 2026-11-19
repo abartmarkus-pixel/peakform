@@ -228,6 +228,8 @@ peakform/
 │   │   │                   # (App-Start, erst 60 Tage, dann immer die letzten 14 Tage neu), Ruhepuls-Übernahme,
 │   │   │                   # buildOuraContextSection() für buildCoachContext(), fetchOuraNightBefore() für die Analyse
 │   │   ├── goals.ts        # deactivatePastGoals(): vergangene Saisonziele automatisch auf active=false
+│   │   ├── chartZones.ts   # hrZoneBands()/powerZoneBands()/dataDomain(): farbige Zonen-Bänder für die HF-/Watt-Charts
+│   │   │                   # in ActivityDetail.tsx (Grenzen aus calculateHRZoneBounds() bzw. POWER_ZONES)
 │   │   └── push.ts         # getPushSupport() (Feature-Detection inkl. iOS-Standalone-Check), enablePushNotifications()/
 │   │                       # disablePushNotifications(), syncPushSubscription() — stiller Re-Subscribe bei jedem
 │   │                       # App-Start (App.tsx Layout), fängt bekanntes iOS-Subscription-Expiry-Problem ab

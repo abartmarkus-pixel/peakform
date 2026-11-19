@@ -6,6 +6,7 @@ KI-Trainingscoach als Progressive Web App — verbindet Strava und Hevy mit Clau
 
 - Strava OAuth + automatischer Token-Refresh + persistente Session (kein Re-Login nötig)
 - Aktivitäts-Analyse via Claude (Ausdauer + Krafttraining via Hevy-Description)
+- Diagramme mit farbigen Trainingszonen: Puls-Zonen bei allen Sportarten, Watt-Zonen (aus FTP) beim Rad
 - Wochenplan-Generierung mit harten Constraints + sportwissenschaftlichen Regeln + Review
 - Radtraining nach Regelwerk: Watt-/Puls-Vorgaben, Indoor/Outdoor (manuell umschaltbar), Wochenaufbau, Blockplan
 - Krankheit melden mit automatischem Wiedereinstieg

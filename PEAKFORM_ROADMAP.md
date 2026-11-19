@@ -47,6 +47,9 @@ Verpflichtender 6-Schritte-Wizard (Onboarding.tsx): Name → Sportarten+Training
 ### ✅ Mid-Week Check-in (implementiert 2.7.2026)
 Feedback-Button an completed DayCards im Wochenplan (Modal, Freitext). Speicherung als coach_decisions (decision_type='midweek_feedback'), UPDATE statt Duplikat bei erneutem Feedback zur selben Aktivität. Kein zusätzlicher Claude-Call — landet automatisch im bestehenden [COACH-ENTSCHEIDUNGEN]-Kontext.
 
+### ✅ Farbige HF- und Watt-Zonen in den Aktivitäts-Diagrammen (implementiert 19.11.2026)
+Wunsch: auf einen Blick sehen, in welcher Zone eine Einheit lief. HF-Diagramm aller Sportarten zeigt Z1–Z5 als farbige Bänder, Rad-Watt-Diagramm (indoor + outdoor) Z1–Z6 aus der FTP. Grenzen kommen aus denselben Funktionen wie Plan/Coach und werden bei jedem Öffnen aus dem aktuellen Profil berechnet. Details: SPEC.md Kapitel 9 „ActivityDetail.tsx".
+
 ### ✅ Strava 64-Bit-IDs (umgesetzt 18.11.2026, Strava-Frist 1.6.2027)
 Anlass: Strava-Mail an Entwickler — Aktivitäten und Athleten bekommen ab 1.6.2027 64-Bit-IDs, die JavaScript nicht mehr exakt als Zahl darstellen kann (Rundung ab 2^53, z. B. 9007199254740993 → …992). Folge wäre gewesen: neue Aktivitäten unter falscher ID gespeichert, Detailseite/Streams/Runden laden nicht. Fix: IDs app-weit als String, aus Strava `id_str` übernehmen, DB-Spalten `strava_id`/`strava_athlete_id` von BIGINT auf TEXT (RLS-Policies neu angelegt). Reihenfolge: erst Code live (kompatibel mit beiden Spaltentypen), dann DB-Migration. Mit Test-Konto + 64-Bit-Test-Aktivität verifiziert; mit echten Strava-Daten nicht testbar, solange Strava noch keine großen IDs vergibt. Details: SPEC.md Kapitel 13 Punkt 9.
 
