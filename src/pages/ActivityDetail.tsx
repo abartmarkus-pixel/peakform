@@ -12,7 +12,7 @@ import {
   ReferenceArea,
 } from 'recharts'
 import { calculateHRZoneBounds, resolveHRProfile } from '../lib/coachContext'
-import { hrZoneBands, powerZoneBands, dataDomain, type ZoneBand } from '../lib/chartZones'
+import { hrZoneBands, powerZoneBands, dataDomain, zoneForValue, type ZoneBand } from '../lib/chartZones'
 import { fetchActivityStreams, fetchActivityLaps, fetchActivityDetail, saveStravaPrsIfPresent, getValidAccessToken, type StravaLap, type StravaSplitMetric } from '../lib/strava'
 import {
   analyzeActivity,
@@ -979,7 +979,10 @@ export default function ActivityDetail() {
               <Tooltip
                 contentStyle={{ background: '#1e293b', border: 'none', borderRadius: 8 }}
                 labelFormatter={(v) => `${Math.round(Number(v) / 60)} min`}
-                formatter={(v: unknown) => [`${v} W`, 'Watt']}
+                formatter={(v: unknown) => {
+                  const z = showPowerZones ? zoneForValue(powerBands, Number(v)) : null
+                  return [z ? `${v} W · ${z.label}` : `${v} W`, 'Watt']
+                }}
               />
               <Area type="monotone" dataKey="watts" stroke="#f59e0b" fill="url(#wGrad)" dot={false} strokeWidth={1.5} />
             </AreaChart>
@@ -1006,7 +1009,10 @@ export default function ActivityDetail() {
               <Tooltip
                 contentStyle={{ background: '#1e293b', border: 'none', borderRadius: 8 }}
                 labelFormatter={(v) => `${Math.round(Number(v) / 60)} min`}
-                formatter={(v: unknown) => [`${v} bpm`, 'HF']}
+                formatter={(v: unknown) => {
+                  const z = showHrZones ? zoneForValue(hrBands, Number(v)) : null
+                  return [z ? `${v} bpm · ${z.label}` : `${v} bpm`, 'HF']
+                }}
               />
               <Area type="monotone" dataKey="hr" stroke="#ef4444" fill="url(#hrGrad)" dot={false} strokeWidth={1.5} />
             </AreaChart>

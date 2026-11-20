@@ -41,3 +41,12 @@ export function dataDomain(values: number[], pad: number, floorZero = false): [n
   const lo = floorZero ? 0 : Math.max(0, Math.floor(min - pad))
   return [lo, Math.ceil(max + pad)]
 }
+
+/** Zone zu einem Wert (für den Tooltip "245 W · Z4"); null ohne Bänder oder ungültigen Wert. */
+export function zoneForValue(bands: ZoneBand[] | null, value: number): ZoneBand | null {
+  if (!bands || !Number.isFinite(value)) return null
+  for (let i = bands.length - 1; i >= 0; i--) {
+    if (value >= bands[i].low) return bands[i]
+  }
+  return bands[0]
+}

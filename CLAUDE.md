@@ -228,7 +228,7 @@ peakform/
 │   │   │                   # (App-Start, erst 60 Tage, dann immer die letzten 14 Tage neu), Ruhepuls-Übernahme,
 │   │   │                   # buildOuraContextSection() für buildCoachContext(), fetchOuraNightBefore() für die Analyse
 │   │   ├── goals.ts        # deactivatePastGoals(): vergangene Saisonziele automatisch auf active=false
-│   │   ├── chartZones.ts   # hrZoneBands()/powerZoneBands()/dataDomain(): farbige Zonen-Bänder für die HF-/Watt-Charts
+│   │   ├── chartZones.ts   # hrZoneBands()/powerZoneBands()/dataDomain()/zoneForValue(): farbige Zonen-Bänder für die HF-/Watt-Charts
 │   │   │                   # in ActivityDetail.tsx (Grenzen aus calculateHRZoneBounds() bzw. POWER_ZONES)
 │   │   └── push.ts         # getPushSupport() (Feature-Detection inkl. iOS-Standalone-Check), enablePushNotifications()/
 │   │                       # disablePushNotifications(), syncPushSubscription() — stiller Re-Subscribe bei jedem
@@ -289,7 +289,7 @@ npm run dev       # Vite Dev-Server auf localhost:5173
 - [x] Home.tsx: Auto-Redirect zu `/dashboard` wenn `athlete_strava_id` in localStorage
 - [x] Dashboard: Echtzeit-Alert (Claude-Konflikt-Check nach Strava-Sync, sessionStorage-Gate, Amber-Banner + Modal)
 - [x] Aktivitäts-Detail: Stats-Grid, Charts, Rundentabelle, Claude-Analyse
-- [x] Aktivitäts-Detail: farbige Zonen-Bänder hinter dem HF-Chart bei allen Sportarten mit HF-Chart (Z1–Z5 via `resolveHRProfile()` + `calculateHRZoneBounds()`) und — nur bei Rad, indoor + outdoor — hinter dem Watt-Chart (Z1–Z6 aus `ftp_watts` via `POWER_ZONES`, Sweet Spot ausgelassen; FTP ist Rad-FTP) — `src/lib/chartZones.ts`. Grenzen werden bei jedem Seitenaufruf aus dem aktuellen Profil berechnet (FTP/Max-HF/Ruhepuls-Änderungen wirken sofort). Y-Achse auf den Datenbereich zugeschnitten; ohne FTP keine Watt-Bänder
+- [x] Aktivitäts-Detail: farbige Zonen-Bänder hinter dem HF-Chart bei allen Sportarten mit HF-Chart (Z1–Z5 via `resolveHRProfile()` + `calculateHRZoneBounds()`) und — nur bei Rad, indoor + outdoor — hinter dem Watt-Chart (Z1–Z6 aus `ftp_watts` via `POWER_ZONES`, Sweet Spot ausgelassen; FTP ist Rad-FTP) — `src/lib/chartZones.ts`. Grenzen werden bei jedem Seitenaufruf aus dem aktuellen Profil berechnet (FTP/Max-HF/Ruhepuls-Änderungen wirken sofort). Y-Achse auf den Datenbereich zugeschnitten; ohne FTP keine Watt-Bänder. Tooltip beim Verfolgen der Linie (Maus/Finger) zeigt Wert + Zone, z. B. "245 W · Z4" (`zoneForValue()`, nur wo Bänder gezeichnet werden)
 - [x] Aktivitäts-Detail: "Zurück"-Button navigiert deterministisch zur Herkunftsseite statt sich auf Browser-History zu verlassen — Dashboard.tsx (`<Link>`) und WeeklyPlan.tsx (`navigate()`) übergeben beim Verlinken auf `/activity/:id` explizit `state: { from: '/dashboard' | '/plan' }`; der Button liest `location.state?.from` und navigiert dorthin. Nur wenn kein `from`-State vorhanden ist (z. B. Deep-Link/Reload), Fallback auf `navigate(-1)` (`window.history.state?.idx > 0`-Guard) bzw. zuletzt `/dashboard`
 - [x] Markdown-Renderer
 
